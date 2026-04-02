@@ -1,0 +1,85 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --sidebar-width: 240px;
+  }
+
+  * {
+    @apply border-gray-200;
+  }
+
+  body {
+    @apply bg-gray-50 text-gray-900 font-sans antialiased;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold;
+  }
+}
+
+@layer components {
+  /* Page header */
+  .page-header {
+    @apply text-2xl font-bold text-gray-900;
+  }
+
+  /* Section label */
+  .section-label {
+    @apply text-xs font-semibold uppercase tracking-widest text-gray-500;
+  }
+
+  /* Card */
+  .card {
+    @apply bg-white rounded-xl border border-gray-200 shadow-sm;
+  }
+
+  /* Form field label */
+  .field-label {
+    @apply block text-sm font-medium text-gray-700 mb-1;
+  }
+
+  /* Separator used in WhatsApp output */
+  .wa-separator {
+    @apply text-gray-300;
+  }
+
+  /* Stat card number */
+  .stat-number {
+    @apply text-3xl font-bold text-forest-800;
+  }
+
+  /* BDT amount display */
+  .amount {
+    @apply font-mono font-semibold;
+  }
+}
+
+/* Scrollbar styling for sidebar and preview panels */
+.scrollable {
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db transparent;
+}
+.scrollable::-webkit-scrollbar {
+  width: 5px;
+}
+.scrollable::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollable::-webkit-scrollbar-thumb {
+  background-color: #d1d5db;
+  border-radius: 3px;
+}
+
+/* Print styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: white;
+    font-size: 12px;
+  }
+}
