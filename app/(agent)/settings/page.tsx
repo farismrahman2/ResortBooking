@@ -15,7 +15,7 @@ export default async function SettingsPage() {
   return (
     <div className="flex flex-col">
       <Topbar title="Settings" />
-      <div className="p-6">
+      <div className="p-4 sm:p-6">
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 max-w-5xl">
           {/* Left: General settings */}
           <Card>

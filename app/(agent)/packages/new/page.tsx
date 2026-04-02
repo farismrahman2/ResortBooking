@@ -13,7 +13,7 @@ export default async function NewPackagePage() {
   return (
     <div className="flex flex-col">
       <Topbar title="New Package" />
-      <div className="p-6 max-w-4xl mx-auto w-full">
+      <div className="p-4 sm:p-6 max-w-4xl mx-auto w-full">
         <Link
           href="/packages"
           className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 mb-4"

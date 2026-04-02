@@ -13,7 +13,7 @@ export default async function BookingsPage() {
         title="Bookings"
         subtitle="Track all confirmed reservations"
       />
-      <div className="flex flex-col gap-0 p-6">
+      <div className="flex flex-col gap-0 p-4 sm:p-6">
         <BookingsClient bookings={bookings} />
       </div>
     </div>

@@ -17,7 +17,7 @@ export default async function QuotesPage() {
         subtitle="Manage and track all customer quotations"
         action={{ label: 'New Quote', href: '/quotes/new' }}
       />
-      <div className="flex flex-col gap-0 p-6">
+      <div className="flex flex-col gap-0 p-4 sm:p-6">
         <QuotesClient quotes={quotes} statusCounts={statusCounts} />
       </div>
     </div>

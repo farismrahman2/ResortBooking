@@ -14,7 +14,7 @@ export default async function PackagesPage() {
         title="Packages"
         action={{ label: 'New Package', href: '/packages/new' }}
       />
-      <div className="p-6">
+      <div className="p-4 sm:p-6">
         <Card noPadding>
           <PackageTable packages={packages} />
         </Card>

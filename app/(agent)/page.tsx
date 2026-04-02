@@ -29,7 +29,7 @@ export default async function DashboardPage() {
     <div className="flex flex-col">
       <Topbar title="Dashboard" subtitle={subtitle} />
 
-      <div className="p-6 space-y-6">
+      <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
         {/* Stats cards */}
         <StatsCards
           quoteStatusCounts={statusCounts}
