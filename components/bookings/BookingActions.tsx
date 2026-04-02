@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Plus, Minus } from 'lucide-react'
+import { Plus, Minus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
@@ -13,7 +13,7 @@ import { formatBDT } from '@/lib/formatters/currency'
 import { calculateDaylong, calculateNight } from '@/lib/engine/calculator'
 import { updateAdvancePaid, cancelBooking, updateBooking } from '@/lib/actions/bookings'
 import { ROOM_NUMBERS } from '@/lib/config/rooms'
-import type { BookingWithRooms, RoomInventoryRow, RoomType } from '@/lib/supabase/types'
+import type { BookingWithRooms, RoomInventoryRow, RoomType, ExtraItem } from '@/lib/supabase/types'
 
 const ROOM_LABELS: Record<RoomType, string> = {
   cottage:        'Cottage',
@@ -80,6 +80,7 @@ export function BookingActions({ booking, holidayDates, inventory, bookedRoomNum
 
   const [roomQtys, setRoomQtys] = useState<Record<string, RoomQty>>(initialRooms)
   const [roomNums, setRoomNums] = useState<Record<string, string[]>>(initialNums)
+  const [extraItems, setExtraItems] = useState<ExtraItem[]>(() => (booking as any).extra_items ?? [])
 
   // Available room types filtered by package type + has snapshot price
   const availableRooms = useMemo(() => {
@@ -150,6 +151,7 @@ export function BookingActions({ booking, holidayDates, inventory, bookedRoomNum
           service_charge_pct: serviceChargePct,
           advance_required:   advanceRequired,
           advance_paid:       advancePaid,
+          extra_items:        extraItems,
         })
       } else {
         return calculateNight({
@@ -167,12 +169,13 @@ export function BookingActions({ booking, holidayDates, inventory, bookedRoomNum
           service_charge_pct: serviceChargePct,
           advance_required:   advanceRequired,
           advance_paid:       advancePaid,
+          extra_items:        extraItems,
         })
       }
     } catch {
       return null
     }
-  }, [roomQtys, adults, childrenPaid, childrenFree, drivers, extraBeds, discount, serviceChargePct, advancePaid, advanceRequired, booking, snap, holidayDates])
+  }, [roomQtys, adults, childrenPaid, childrenFree, drivers, extraBeds, discount, serviceChargePct, advancePaid, advanceRequired, extraItems, booking, snap, holidayDates])
 
   // ── Cancel state ──────────────────────────────────────────────────────────
   const [cancelOpen,    setCancelOpen]    = useState(false)
@@ -218,6 +221,7 @@ export function BookingActions({ booking, holidayDates, inventory, bookedRoomNum
         drivers,
         extra_beds:         extraBeds,
         rooms,
+        extra_items:        extraItems,
         package_type:       booking.package_type,
         visit_date:         booking.visit_date,
         check_out_date:     booking.check_out_date,
@@ -405,6 +409,63 @@ export function BookingActions({ booking, holidayDates, inventory, bookedRoomNum
               )}
               <NumberInput label="Discount (৳)"        value={discount}          onChange={setDiscount}          min={0} prefix="৳" />
               <NumberInput label="Service Charge (%)"  value={serviceChargePct}  onChange={setServiceChargePct}  min={0} suffix="%" />
+            </div>
+          </div>
+
+          {/* Extra Items */}
+          <div>
+            <h5 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-3">Extra Items</h5>
+            <div className="space-y-2">
+              {extraItems.length === 0 && (
+                <p className="text-xs text-gray-400 italic">No extra items added.</p>
+              )}
+              {extraItems.map((item, index) => (
+                <div key={index} className="flex items-end gap-2">
+                  <div className="flex-1 min-w-0">
+                    <label className="block text-[10px] font-medium text-gray-500 mb-1">Item Name</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Transport, Bonfire..."
+                      value={item.label}
+                      onChange={(e) => setExtraItems((prev) => prev.map((it, i) => i === index ? { ...it, label: e.target.value } : it))}
+                      className="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-forest-500"
+                    />
+                  </div>
+                  <div className="w-16 flex-shrink-0">
+                    <label className="block text-[10px] font-medium text-gray-500 mb-1">Qty</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={item.qty}
+                      onChange={(e) => setExtraItems((prev) => prev.map((it, i) => i === index ? { ...it, qty: Math.max(1, parseInt(e.target.value) || 1) } : it))}
+                      className="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-forest-500 tabular-nums"
+                    />
+                  </div>
+                  <div className="w-28 flex-shrink-0">
+                    <label className="block text-[10px] font-medium text-gray-500 mb-1">Unit Price (৳)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={item.unit_price}
+                      onChange={(e) => setExtraItems((prev) => prev.map((it, i) => i === index ? { ...it, unit_price: Math.max(0, parseInt(e.target.value) || 0) } : it))}
+                      className="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-forest-500 tabular-nums"
+                    />
+                  </div>
+                  <button
+                    onClick={() => setExtraItems((prev) => prev.filter((_, i) => i !== index))}
+                    className="mb-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-500 hover:bg-red-100 transition-colors"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))}
+              <button
+                onClick={() => setExtraItems((prev) => [...prev, { label: '', qty: 1, unit_price: 0 }])}
+                className="mt-1 flex items-center gap-1.5 rounded-lg border border-dashed border-forest-400 bg-forest-50 px-3 py-1.5 text-xs font-medium text-forest-700 hover:bg-forest-100 transition-colors"
+              >
+                <Plus size={12} />
+                Add Extra Item
+              </button>
             </div>
           </div>
 

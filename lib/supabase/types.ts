@@ -111,6 +111,7 @@ export interface QuoteRow {
   converted_to_booking_id: string | null
   package_snapshot: PackageSnapshot
   line_items: LineItem[]
+  extra_items: ExtraItem[]
   created_at: string
   updated_at: string
 }
@@ -151,6 +152,7 @@ export interface BookingRow {
   status: BookingStatus
   package_snapshot: PackageSnapshot
   line_items: LineItem[]
+  extra_items: ExtraItem[]
   created_at: string
   updated_at: string
 }
@@ -214,6 +216,13 @@ export interface LineItem {
   unit_price: number
   nights: number | null
   subtotal: number
+}
+
+/** Custom extra item added to a quote/booking */
+export interface ExtraItem {
+  label: string
+  qty: number
+  unit_price: number
 }
 
 /** Result from the availability engine */

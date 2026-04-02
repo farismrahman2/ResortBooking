@@ -12,7 +12,7 @@
  * - Friday rate takes priority over holiday rate if both match
  */
 
-import type { LineItem } from '@/lib/supabase/types'
+import type { LineItem, ExtraItem } from '@/lib/supabase/types'
 
 // ─── Input / Output Types ─────────────────────────────────────────────────────
 
@@ -47,6 +47,7 @@ export interface DaylongInputs {
   service_charge_pct?: number   // percentage, default 0
   advance_required:    number
   advance_paid:        number
+  extra_items?:        ExtraItem[]
 }
 
 export interface NightInputs {
@@ -64,6 +65,7 @@ export interface NightInputs {
   service_charge_pct?: number   // percentage, default 0
   advance_required:    number
   advance_paid:        number
+  extra_items?:        ExtraItem[]
 }
 
 export type AdultRateUsed = 'weekday' | 'friday' | 'holiday'
@@ -200,6 +202,19 @@ export function calculateDaylong(inputs: DaylongInputs): CalculationResult {
     })
   }
 
+  // Extra custom items
+  for (const item of inputs.extra_items ?? []) {
+    if (item.qty > 0 && item.label) {
+      lineItems.push({
+        label:      item.label,
+        qty:        item.qty,
+        unit_price: item.unit_price,
+        nights:     null,
+        subtotal:   item.qty * item.unit_price,
+      })
+    }
+  }
+
   // Service charge (applied to pre-discount subtotal)
   const pct = inputs.service_charge_pct ?? 0
   if (pct > 0) {
@@ -308,6 +323,19 @@ export function calculateNight(inputs: NightInputs): CalculationResult {
       nights,
       subtotal:   extra_beds * packageRates.extra_bed * nights,
     })
+  }
+
+  // Extra custom items
+  for (const item of inputs.extra_items ?? []) {
+    if (item.qty > 0 && item.label) {
+      lineItems.push({
+        label:      item.label,
+        qty:        item.qty,
+        unit_price: item.unit_price,
+        nights:     null,
+        subtotal:   item.qty * item.unit_price,
+      })
+    }
   }
 
   // Service charge (applied to pre-discount subtotal)

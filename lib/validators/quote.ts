@@ -1,5 +1,11 @@
 import { z } from 'zod'
 
+export const ExtraItemSchema = z.object({
+  label:      z.string().min(1, 'Item name is required'),
+  qty:        z.number().int().min(1, 'Qty must be at least 1'),
+  unit_price: z.number().int().min(0, 'Price must be 0 or more'),
+})
+
 const RoomSelectionSchema = z.object({
   room_type:    z.string(),
   display_name: z.string(),
@@ -37,6 +43,9 @@ const BaseQuoteSchema = z.object({
   service_charge_pct:  z.number().int().min(0).max(100).default(0),
   advance_required:    z.number().int().min(0).default(0),
   advance_paid:        z.number().int().min(0).default(0),
+
+  // Extra custom items
+  extra_items: z.array(ExtraItemSchema).default([]),
 })
 
 export const CreateQuoteSchema = BaseQuoteSchema

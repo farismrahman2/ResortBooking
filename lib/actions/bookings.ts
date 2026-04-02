@@ -59,6 +59,7 @@ export async function convertQuoteToBooking(
         status:              'confirmed',
         package_snapshot: quote.package_snapshot,
         line_items:       quote.line_items,
+        extra_items:      quote.extra_items ?? [],
       })
       .select('id, booking_number')
       .single()
@@ -184,6 +185,7 @@ export async function updateBooking(
     drivers:       number
     extra_beds:    number
     rooms: { room_type: RoomType; display_name: string; qty: number; unit_price: number; room_numbers: string[] }[]
+    extra_items: { label: string; qty: number; unit_price: number }[]
     // context for recalculation
     package_type:     PackageType
     visit_date:       string
@@ -195,7 +197,7 @@ export async function updateBooking(
     const supabase   = createClient()
     const holidayDates = await getHolidayDateStrings()
 
-    const { rooms, package_type, visit_date, check_out_date, package_snapshot, ...guestData } = input
+    const { rooms, extra_items, package_type, visit_date, check_out_date, package_snapshot, ...guestData } = input
 
     // Recalculate totals using the frozen snapshot
     let calc
@@ -213,6 +215,7 @@ export async function updateBooking(
         service_charge_pct: input.service_charge_pct,
         advance_required:   input.advance_required,
         advance_paid:       input.advance_paid,
+        extra_items,
       })
     } else {
       calc = calculateNight({
@@ -230,6 +233,7 @@ export async function updateBooking(
         service_charge_pct: input.service_charge_pct,
         advance_required:   input.advance_required,
         advance_paid:       input.advance_paid,
+        extra_items,
       })
     }
 
@@ -251,6 +255,7 @@ export async function updateBooking(
         extra_beds:          input.extra_beds,
         subtotal:            calc.subtotal,
         line_items:          calc.line_items,
+        extra_items,
       })
       .eq('id', bookingId)
 

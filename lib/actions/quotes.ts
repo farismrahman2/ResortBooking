@@ -131,6 +131,7 @@ export async function createQuote(
         service_charge_pct: validated.service_charge_pct ?? 0,
         advance_required:   validated.advance_required,
         advance_paid:       validated.advance_paid,
+        extra_items:        validated.extra_items ?? [],
       })
     } else {
       calcResult = calculateNight({
@@ -148,6 +149,7 @@ export async function createQuote(
         service_charge_pct: validated.service_charge_pct ?? 0,
         advance_required:   validated.advance_required,
         advance_paid:       validated.advance_paid,
+        extra_items:        validated.extra_items ?? [],
       })
     }
 
@@ -187,6 +189,7 @@ export async function createQuote(
         status:              'draft',
         package_snapshot: snapshot,
         line_items:       calcResult.line_items,
+        extra_items:      validated.extra_items ?? [],
       })
       .select('id, quote_number')
       .single()

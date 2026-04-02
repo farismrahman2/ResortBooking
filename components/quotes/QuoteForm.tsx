@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
+import { Plus, Trash2 } from 'lucide-react'
 import { CreateQuoteSchema, type CreateQuoteInput } from '@/lib/validators/quote'
 import { createQuote } from '@/lib/actions/quotes'
 import { calculateDaylong, calculateNight, type CalculationResult, type RoomSelection } from '@/lib/engine/calculator'
@@ -18,7 +19,7 @@ import { PackageSelector } from '@/components/quotes/PackageSelector'
 import { RoomSelector } from '@/components/quotes/RoomSelector'
 import { GuestInputs, type GuestValues } from '@/components/quotes/GuestInputs'
 import { PricingBreakdown } from '@/components/quotes/PricingBreakdown'
-import type { PackageWithPrices, RoomInventoryRow, SettingsMap } from '@/lib/supabase/types'
+import type { PackageWithPrices, RoomInventoryRow, SettingsMap, ExtraItem } from '@/lib/supabase/types'
 
 interface QuoteFormProps {
   packages: PackageWithPrices[]
@@ -39,6 +40,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings }: QuoteForm
   const [errorMsg,           setErrorMsg]           = useState<string | null>(null)
   const [calcResult,         setCalcResult]         = useState<CalculationResult | null>(null)
   const [bookedRoomNumbers,  setBookedRoomNumbers]  = useState<string[]>([])
+  const [extraItems,         setExtraItems]         = useState<ExtraItem[]>([])
 
   const {
     register,
@@ -133,6 +135,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings }: QuoteForm
           service_charge_pct: watchedValues.service_charge_pct ?? 0,
           advance_required:   watchedValues.advance_required,
           advance_paid:       watchedValues.advance_paid,
+          extra_items:        extraItems,
         })
         setCalcResult(result)
       } else if (packageType === 'night' && checkOutDate && checkOutDate > visitDate) {
@@ -151,6 +154,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings }: QuoteForm
           service_charge_pct: watchedValues.service_charge_pct ?? 0,
           advance_required:   watchedValues.advance_required,
           advance_paid:       watchedValues.advance_paid,
+          extra_items:        extraItems,
         })
         setCalcResult(result)
       } else {
@@ -174,6 +178,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings }: QuoteForm
     watchedValues.service_charge_pct,
     watchedValues.advance_required,
     watchedValues.advance_paid,
+    extraItems,
     holidayDates,
   ])
 
@@ -196,7 +201,8 @@ export function QuoteForm({ packages, rooms, holidayDates, settings }: QuoteForm
     setSubmitting(true)
     setErrorMsg(null)
     try {
-      const result = await createQuote(data)
+      // Inject extra items (managed in local state, not react-hook-form)
+      const result = await createQuote({ ...data, extra_items: extraItems })
       if (result.success) {
         router.push(`/quotes/${result.data.quoteId}`)
       } else {
@@ -207,6 +213,20 @@ export function QuoteForm({ packages, rooms, holidayDates, settings }: QuoteForm
     } finally {
       setSubmitting(false)
     }
+  }
+
+  function addExtraItem() {
+    setExtraItems((prev) => [...prev, { label: '', qty: 1, unit_price: 0 }])
+  }
+
+  function removeExtraItem(index: number) {
+    setExtraItems((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  function updateExtraItem(index: number, field: keyof ExtraItem, value: string | number) {
+    setExtraItems((prev) => prev.map((item, i) =>
+      i === index ? { ...item, [field]: value } : item,
+    ))
   }
 
   const currentRooms = (watchedValues.rooms ?? []) as RoomSelection[]
@@ -404,6 +424,65 @@ export function QuoteForm({ packages, rooms, holidayDates, settings }: QuoteForm
             rows={2}
             {...register('customer_notes')}
           />
+        </FormSection>
+
+        {/* SECTION: Extra Items */}
+        <FormSection title="Extra Items">
+          <div className="space-y-2">
+            {extraItems.length === 0 && (
+              <p className="text-xs text-gray-400 italic">No extra items added yet.</p>
+            )}
+            {extraItems.map((item, index) => (
+              <div key={index} className="flex items-end gap-2">
+                <div className="flex-1 min-w-0">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Item Name</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Extra towels, Bonfire, Transport..."
+                    value={item.label}
+                    onChange={(e) => updateExtraItem(index, 'label', e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-forest-500"
+                  />
+                </div>
+                <div className="w-20 flex-shrink-0">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Qty</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={item.qty}
+                    onChange={(e) => updateExtraItem(index, 'qty', Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-forest-500 tabular-nums"
+                  />
+                </div>
+                <div className="w-32 flex-shrink-0">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Unit Price (৳)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={item.unit_price}
+                    onChange={(e) => updateExtraItem(index, 'unit_price', Math.max(0, parseInt(e.target.value) || 0))}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-forest-500 tabular-nums"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeExtraItem(index)}
+                  className="mb-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-500 hover:bg-red-100 transition-colors"
+                  title="Remove item"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={addExtraItem}
+              className="mt-1 flex items-center gap-1.5 rounded-lg border border-dashed border-forest-400 bg-forest-50 px-3 py-2 text-xs font-medium text-forest-700 hover:bg-forest-100 transition-colors"
+            >
+              <Plus size={13} />
+              Add Extra Item
+            </button>
+          </div>
         </FormSection>
 
         {/* SECTION: Advance Payment */}
