@@ -35,8 +35,8 @@ const BaseQuoteSchema = z.object({
   drivers:       z.number().int().min(0).default(0),
   extra_beds:    z.number().int().min(0).default(0),
 
-  // Rooms
-  rooms: z.array(RoomSelectionSchema).min(1, 'At least one room is required'),
+  // Rooms (optional for daylong, required for night stays)
+  rooms: z.array(RoomSelectionSchema).default([]),
 
   // Pricing overrides
   discount:            z.number().int().min(0).default(0),
@@ -57,6 +57,16 @@ export const CreateQuoteSchema = BaseQuoteSchema
       return true
     },
     { message: 'Check-out date must be after check-in date for night stays', path: ['check_out_date'] },
+  )
+  .refine(
+    (data) => {
+      // Night stays require at least one room
+      if (data.package_type === 'night') {
+        return data.rooms.length > 0
+      }
+      return true
+    },
+    { message: 'At least one room is required for night stays', path: ['rooms'] },
   )
   .refine(
     (data) => {

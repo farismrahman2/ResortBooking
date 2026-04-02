@@ -104,8 +104,9 @@ export function QuoteForm({ packages, rooms, holidayDates, settings }: QuoteForm
       return
     }
 
-    const selectedRooms = watchedValues.rooms as RoomSelection[]
-    if (!selectedRooms || selectedRooms.length === 0) {
+    const selectedRooms = (watchedValues.rooms ?? []) as RoomSelection[]
+    // Night stays need at least one room to calculate; daylong can proceed with zero rooms
+    if (packageType === 'night' && selectedRooms.length === 0) {
       setCalcResult(null)
       return
     }
@@ -346,9 +347,9 @@ export function QuoteForm({ packages, rooms, holidayDates, settings }: QuoteForm
               />
             )}
           />
-          {currentRooms.length === 0 && selectedPackage && visitDate && (
+          {currentRooms.length === 0 && packageType === 'night' && selectedPackage && visitDate && (
             <p className="mt-2 text-xs font-medium text-amber-600">
-              ⚠ Please select at least one room to generate the quote.
+              ⚠ Please select at least one room for a night stay.
             </p>
           )}
           {errors.rooms && (
@@ -530,7 +531,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings }: QuoteForm
           variant="primary"
           size="lg"
           loading={submitting}
-          disabled={submitting || currentRooms.length === 0}
+          disabled={submitting || (packageType === 'night' && currentRooms.length === 0)}
           className="w-full text-base"
         >
           Generate Quote

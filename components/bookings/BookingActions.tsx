@@ -195,8 +195,8 @@ export function BookingActions({ booking, holidayDates, inventory, bookedRoomNum
   }
 
   async function handleSaveEdit() {
-    if (Object.keys(roomQtys).length === 0) {
-      setEditError('At least one room is required'); return
+    if (booking.package_type === 'night' && Object.keys(roomQtys).length === 0) {
+      setEditError('At least one room is required for night stays'); return
     }
     setEditLoading(true); setEditError(null)
     try {
