@@ -6,7 +6,7 @@ import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Plus, Trash2 } from 'lucide-react'
 import { CreateQuoteSchema, type CreateQuoteInput } from '@/lib/validators/quote'
-import { createQuote } from '@/lib/actions/quotes'
+import { createQuote, updateQuote } from '@/lib/actions/quotes'
 import { calculateDaylong, calculateNight, type CalculationResult, type RoomSelection } from '@/lib/engine/calculator'
 import { getDayType } from '@/lib/formatters/dates'
 import { Input } from '@/components/ui/Input'
@@ -26,6 +26,10 @@ interface QuoteFormProps {
   rooms: RoomInventoryRow[]
   holidayDates: string[]
   settings: SettingsMap
+  // Edit mode — when provided, form pre-fills and calls updateQuote
+  quoteId?: string
+  initialValues?: Partial<CreateQuoteInput>
+  initialExtraItems?: ExtraItem[]
 }
 
 const DAY_LABELS = {
@@ -34,13 +38,14 @@ const DAY_LABELS = {
   weekday: { label: 'Weekday Rate', variant: 'default' as const },
 }
 
-export function QuoteForm({ packages, rooms, holidayDates, settings }: QuoteFormProps) {
+export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, initialValues, initialExtraItems }: QuoteFormProps) {
   const router = useRouter()
+  const isEditMode = !!quoteId
   const [submitting,         setSubmitting]         = useState(false)
   const [errorMsg,           setErrorMsg]           = useState<string | null>(null)
   const [calcResult,         setCalcResult]         = useState<CalculationResult | null>(null)
   const [bookedRoomNumbers,  setBookedRoomNumbers]  = useState<string[]>([])
-  const [extraItems,         setExtraItems]         = useState<ExtraItem[]>([])
+  const [extraItems,         setExtraItems]         = useState<ExtraItem[]>(initialExtraItems ?? [])
 
   const {
     register,
@@ -69,6 +74,8 @@ export function QuoteForm({ packages, rooms, holidayDates, settings }: QuoteForm
       service_charge_pct:  0,
       advance_required:    0,
       advance_paid:        0,
+      extra_items:         [],
+      ...initialValues,
     },
   })
 
@@ -202,12 +209,21 @@ export function QuoteForm({ packages, rooms, holidayDates, settings }: QuoteForm
     setSubmitting(true)
     setErrorMsg(null)
     try {
-      // Inject extra items (managed in local state, not react-hook-form)
-      const result = await createQuote({ ...data, extra_items: extraItems })
-      if (result.success) {
-        router.push(`/quotes/${result.data.quoteId}`)
+      const payload = { ...data, extra_items: extraItems }
+      if (isEditMode) {
+        const result = await updateQuote(quoteId!, payload)
+        if (result.success) {
+          router.push(`/quotes/${quoteId}`)
+        } else {
+          setErrorMsg(result.error ?? 'Update failed')
+        }
       } else {
-        setErrorMsg(result.error)
+        const result = await createQuote(payload)
+        if (result.success) {
+          router.push(`/quotes/${result.data.quoteId}`)
+        } else {
+          setErrorMsg(result.error)
+        }
       }
     } catch (err) {
       setErrorMsg(String(err))
@@ -525,17 +541,31 @@ export function QuoteForm({ packages, rooms, holidayDates, settings }: QuoteForm
           </div>
         )}
 
-        {/* Submit */}
-        <Button
-          type="submit"
-          variant="primary"
-          size="lg"
-          loading={submitting}
-          disabled={submitting || (packageType === 'night' && currentRooms.length === 0)}
-          className="w-full text-base"
-        >
-          Generate Quote
-        </Button>
+        {/* Submit / Cancel */}
+        <div className={isEditMode ? 'flex gap-3' : ''}>
+          {isEditMode && (
+            <Button
+              type="button"
+              variant="outline"
+              size="lg"
+              onClick={() => router.push(`/quotes/${quoteId}`)}
+              className="flex-1 text-base"
+              disabled={submitting}
+            >
+              Cancel
+            </Button>
+          )}
+          <Button
+            type="submit"
+            variant="primary"
+            size="lg"
+            loading={submitting}
+            disabled={submitting || (packageType === 'night' && currentRooms.length === 0)}
+            className={isEditMode ? 'flex-1 text-base' : 'w-full text-base'}
+          >
+            {isEditMode ? 'Save Changes' : 'Generate Quote'}
+          </Button>
+        </div>
       </div>
 
       {/* ── RIGHT: Sticky Preview ────────────────────────────────────────────────── */}

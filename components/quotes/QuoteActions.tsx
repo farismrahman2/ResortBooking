@@ -77,9 +77,14 @@ export function QuoteActions({ quote, bookingId }: QuoteActionsProps) {
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {/* DRAFT → mark as sent */}
+      {/* DRAFT → edit, mark as sent, delete */}
       {status === 'draft' && (
         <>
+          <Link href={`/quotes/${quote.id}/edit`}>
+            <Button variant="outline" size="sm">
+              Edit Draft
+            </Button>
+          </Link>
           <Button
             variant="secondary"
             size="sm"
@@ -101,9 +106,14 @@ export function QuoteActions({ quote, bookingId }: QuoteActionsProps) {
         </>
       )}
 
-      {/* SENT → confirm or cancel */}
+      {/* SENT → edit, confirm, or cancel */}
       {status === 'sent' && (
         <>
+          <Link href={`/quotes/${quote.id}/edit`}>
+            <Button variant="outline" size="sm">
+              Edit Quote
+            </Button>
+          </Link>
           <Button
             variant="primary"
             size="sm"

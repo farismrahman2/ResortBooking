@@ -225,6 +225,145 @@ export async function createQuote(
   }
 }
 
+/** Update an existing draft/sent quote (full recalculation) */
+export async function updateQuote(
+  id: string,
+  input: CreateQuoteInput,
+): Promise<ActionResult> {
+  try {
+    const validated = CreateQuoteSchema.parse(input)
+    const supabase  = createClient()
+
+    // Only draft or sent quotes can be edited
+    const { data: existing } = await supabase
+      .from('quotes')
+      .select('status')
+      .eq('id', id)
+      .single()
+
+    if (!existing) return { success: false, error: 'Quote not found' }
+    if (!['draft', 'sent'].includes(existing.status)) {
+      return { success: false, error: 'Only draft or sent quotes can be edited' }
+    }
+
+    // Fetch package + room prices
+    const { data: pkg } = await supabase
+      .from('packages')
+      .select('*')
+      .eq('id', validated.package_id)
+      .single()
+
+    if (!pkg) return { success: false, error: 'Package not found' }
+
+    const { data: roomPrices } = await supabase
+      .from('package_room_prices')
+      .select('*')
+      .eq('package_id', validated.package_id)
+
+    const snapshot = buildPackageSnapshot(pkg, roomPrices ?? [])
+    const holidayDates = await getHolidayDateStrings()
+
+    const rooms = validated.rooms.map((r) => ({
+      room_type:    r.room_type,
+      display_name: r.display_name,
+      qty:          r.qty,
+      unit_price:   r.unit_price,
+    }))
+
+    let calcResult
+    if (validated.package_type === 'daylong') {
+      calcResult = calculateDaylong({
+        date:               new Date(validated.visit_date + 'T00:00:00'),
+        packageRates:       snapshot,
+        rooms,
+        adults:             validated.adults,
+        children_paid:      validated.children_paid,
+        children_free:      validated.children_free,
+        drivers:            validated.drivers,
+        holidayDates,
+        discount:           validated.discount,
+        service_charge_pct: validated.service_charge_pct ?? 0,
+        advance_required:   validated.advance_required,
+        advance_paid:       validated.advance_paid,
+        extra_items:        validated.extra_items ?? [],
+      })
+    } else {
+      calcResult = calculateNight({
+        checkInDate:        new Date(validated.visit_date + 'T00:00:00'),
+        checkOutDate:       new Date(validated.check_out_date! + 'T00:00:00'),
+        packageRates:       snapshot,
+        rooms,
+        adults:             validated.adults,
+        children_paid:      validated.children_paid,
+        children_free:      validated.children_free,
+        drivers:            validated.drivers,
+        extra_beds:         validated.extra_beds,
+        holidayDates,
+        discount:           validated.discount,
+        service_charge_pct: validated.service_charge_pct ?? 0,
+        advance_required:   validated.advance_required,
+        advance_paid:       validated.advance_paid,
+        extra_items:        validated.extra_items ?? [],
+      })
+    }
+
+    // Update quote record
+    const { error: updateError } = await supabase
+      .from('quotes')
+      .update({
+        customer_name:    validated.customer_name,
+        customer_phone:   validated.customer_phone,
+        customer_notes:   validated.customer_notes ?? null,
+        package_type:     validated.package_type,
+        visit_date:       validated.visit_date,
+        check_out_date:   validated.check_out_date ?? null,
+        adults:           validated.adults,
+        children_paid:    validated.children_paid,
+        children_free:    validated.children_free,
+        drivers:          validated.drivers,
+        extra_beds:       validated.extra_beds,
+        subtotal:            calcResult.subtotal,
+        discount:            calcResult.discount,
+        service_charge_pct:  validated.service_charge_pct ?? 0,
+        advance_required:    calcResult.advance_required,
+        advance_paid:        calcResult.advance_paid,
+        package_snapshot: snapshot,
+        line_items:       calcResult.line_items,
+        extra_items:      validated.extra_items ?? [],
+      })
+      .eq('id', id)
+
+    if (updateError) return { success: false, error: updateError.message }
+
+    // Replace quote rooms
+    await supabase.from('quote_rooms').delete().eq('quote_id', id)
+    const roomRows = validated.rooms.map((r) => ({
+      quote_id:     id,
+      room_type:    r.room_type as RoomType,
+      qty:          r.qty,
+      unit_price:   r.unit_price,
+      room_numbers: r.room_numbers ?? [],
+    }))
+    if (roomRows.length > 0) {
+      await supabase.from('quote_rooms').insert(roomRows)
+    }
+
+    await supabase.from('history_log').insert({
+      entity_type: 'quote',
+      entity_id:   id,
+      event:       'edited',
+      actor:       'system',
+      payload:     { customer_name: validated.customer_name },
+    })
+
+    revalidatePath('/quotes')
+    revalidatePath(`/quotes/${id}`)
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err?.message ?? String(err) }
+  }
+}
+
 /** Update an existing quote status */
 export async function updateQuoteStatus(
   id: string,
