@@ -48,6 +48,11 @@ export default async function EditQuotePage({ params }: PageProps) {
     room_numbers: r.room_numbers ?? [],
   }))
 
+  // Recover flat discount from the stored effective discount
+  const storedPct       = (quote as any).discount_pct ?? 0
+  const storedPctAmount = Math.round(quote.subtotal * storedPct / 100)
+  const flatDiscount    = Math.max(0, quote.discount - storedPctAmount)
+
   const initialValues = {
     customer_name:      quote.customer_name,
     customer_phone:     quote.customer_phone,
@@ -62,7 +67,8 @@ export default async function EditQuotePage({ params }: PageProps) {
     drivers:            quote.drivers,
     extra_beds:         quote.extra_beds,
     rooms:              prefilledRooms,
-    discount:           quote.discount,
+    discount:           flatDiscount,
+    discount_pct:       storedPct,
     service_charge_pct: quote.service_charge_pct ?? 0,
     advance_required:   quote.advance_required,
     advance_paid:       quote.advance_paid,

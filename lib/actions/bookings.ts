@@ -53,6 +53,7 @@ export async function convertQuoteToBooking(
         extra_beds:       quote.extra_beds,
         subtotal:            quote.subtotal,
         discount:            quote.discount,
+        discount_pct:        quote.discount_pct ?? 0,
         service_charge_pct:  quote.service_charge_pct ?? 0,
         advance_required:    quote.advance_required,
         advance_paid:        quote.advance_paid,
@@ -176,6 +177,7 @@ export async function updateBooking(
     customer_phone: string
     customer_notes:     string | null
     discount:           number
+    discount_pct:       number
     service_charge_pct: number
     advance_paid:       number
     advance_required:   number
@@ -212,6 +214,7 @@ export async function updateBooking(
         drivers:            input.drivers,
         holidayDates,
         discount:           input.discount,
+        discount_pct:       input.discount_pct,
         service_charge_pct: input.service_charge_pct,
         advance_required:   input.advance_required,
         advance_paid:       input.advance_paid,
@@ -230,6 +233,7 @@ export async function updateBooking(
         extra_beds:         input.extra_beds,
         holidayDates,
         discount:           input.discount,
+        discount_pct:       input.discount_pct,
         service_charge_pct: input.service_charge_pct,
         advance_required:   input.advance_required,
         advance_paid:       input.advance_paid,
@@ -245,6 +249,7 @@ export async function updateBooking(
         customer_phone:   input.customer_phone,
         customer_notes:   input.customer_notes,
         discount:            calc.discount,
+        discount_pct:        input.discount_pct,
         service_charge_pct:  input.service_charge_pct,
         advance_paid:        calc.advance_paid,
         advance_required:    calc.advance_required,

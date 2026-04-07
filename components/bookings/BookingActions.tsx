@@ -53,7 +53,11 @@ export function BookingActions({ booking, holidayDates, inventory, bookedRoomNum
   const [customerName,  setCustomerName]  = useState(booking.customer_name)
   const [customerPhone, setCustomerPhone] = useState(booking.customer_phone)
   const [customerNotes, setCustomerNotes] = useState(booking.customer_notes ?? '')
-  const [discount,           setDiscount]           = useState(booking.discount)
+  // Recover flat discount from stored effective discount
+  const storedPct        = (booking as any).discount_pct ?? 0
+  const storedPctAmount  = Math.round(booking.subtotal * storedPct / 100)
+  const [discount,           setDiscount]           = useState(Math.max(0, booking.discount - storedPctAmount))
+  const [discountPct,        setDiscountPct]        = useState(storedPct)
   const [serviceChargePct,   setServiceChargePct]   = useState(booking.service_charge_pct ?? 0)
   const [adults,             setAdults]             = useState(booking.adults)
   const [childrenPaid,  setChildrenPaid]  = useState(booking.children_paid)
@@ -148,6 +152,7 @@ export function BookingActions({ booking, holidayDates, inventory, bookedRoomNum
           drivers,
           holidayDates,
           discount,
+          discount_pct:       discountPct,
           service_charge_pct: serviceChargePct,
           advance_required:   advanceRequired,
           advance_paid:       advancePaid,
@@ -166,6 +171,7 @@ export function BookingActions({ booking, holidayDates, inventory, bookedRoomNum
           extra_beds:         extraBeds,
           holidayDates,
           discount,
+          discount_pct:       discountPct,
           service_charge_pct: serviceChargePct,
           advance_required:   advanceRequired,
           advance_paid:       advancePaid,
@@ -175,7 +181,7 @@ export function BookingActions({ booking, holidayDates, inventory, bookedRoomNum
     } catch {
       return null
     }
-  }, [roomQtys, adults, childrenPaid, childrenFree, drivers, extraBeds, discount, serviceChargePct, advancePaid, advanceRequired, extraItems, booking, snap, holidayDates])
+  }, [roomQtys, adults, childrenPaid, childrenFree, drivers, extraBeds, discount, discountPct, serviceChargePct, advancePaid, advanceRequired, extraItems, booking, snap, holidayDates])
 
   // ── Cancel state ──────────────────────────────────────────────────────────
   const [cancelOpen,    setCancelOpen]    = useState(false)
@@ -212,6 +218,7 @@ export function BookingActions({ booking, holidayDates, inventory, bookedRoomNum
         customer_phone:     customerPhone.trim(),
         customer_notes:     customerNotes.trim() || null,
         discount,
+        discount_pct:       discountPct,
         service_charge_pct: serviceChargePct,
         advance_paid:       advancePaid,
         advance_required:   advanceRequired,
@@ -407,7 +414,8 @@ export function BookingActions({ booking, holidayDates, inventory, bookedRoomNum
               {booking.package_type === 'night' && (
                 <NumberInput label="Extra Beds"     value={extraBeds}    onChange={setExtraBeds}    min={0} />
               )}
-              <NumberInput label="Discount (৳)"        value={discount}          onChange={setDiscount}          min={0} prefix="৳" />
+              <NumberInput label="Flat Discount (৳)"    value={discount}          onChange={setDiscount}          min={0} prefix="৳" />
+              <NumberInput label="Discount %"          value={discountPct}       onChange={setDiscountPct}       min={0} suffix="%" />
               <NumberInput label="Service Charge (%)"  value={serviceChargePct}  onChange={setServiceChargePct}  min={0} suffix="%" />
             </div>
           </div>

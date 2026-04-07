@@ -100,7 +100,8 @@ export interface QuoteRow {
   drivers: number
   extra_beds: number
   subtotal:            number
-  discount:            number
+  discount:            number      // effective total discount (flat + pct_amount)
+  discount_pct:        number      // percentage component (stored separately for re-editing)
   service_charge_pct:  number     // percentage (default 0)
   total:               number     // generated
   advance_required:    number
@@ -142,7 +143,8 @@ export interface BookingRow {
   drivers: number
   extra_beds: number
   subtotal:           number
-  discount:           number
+  discount:           number      // effective total discount (flat + pct_amount)
+  discount_pct:       number      // percentage component
   service_charge_pct: number   // percentage (default 0)
   total:              number
   advance_required:   number

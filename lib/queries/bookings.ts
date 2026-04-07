@@ -74,3 +74,36 @@ export async function getBookingStats(): Promise<{
   const pending_advance = data?.reduce((sum, b) => sum + (b.remaining ?? 0), 0) ?? 0
   return { total_bookings, total_revenue, pending_advance }
 }
+
+/** Get revenue stats for a date range with optional package type filter */
+export async function getRevenueStats(params: {
+  from_date: string
+  to_date:   string
+  type?:     'daylong' | 'night' | 'all'
+}): Promise<{
+  booking_count:   number
+  total_revenue:   number
+  collected:       number
+  outstanding:     number
+}> {
+  const supabase = createClient()
+  let query = supabase
+    .from('bookings')
+    .select('total, advance_paid, remaining, package_type')
+    .neq('status', 'cancelled')
+    .gte('visit_date', params.from_date)
+    .lte('visit_date', params.to_date)
+
+  if (params.type && params.type !== 'all') {
+    query = query.eq('package_type', params.type)
+  }
+
+  const { data } = await query
+  const rows = data ?? []
+  return {
+    booking_count: rows.length,
+    total_revenue:  rows.reduce((s, b) => s + (b.total ?? 0), 0),
+    collected:      rows.reduce((s, b) => s + (b.advance_paid ?? 0), 0),
+    outstanding:    rows.reduce((s, b) => s + (b.remaining ?? 0), 0),
+  }
+}

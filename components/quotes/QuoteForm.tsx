@@ -44,8 +44,9 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
   const [submitting,         setSubmitting]         = useState(false)
   const [errorMsg,           setErrorMsg]           = useState<string | null>(null)
   const [calcResult,         setCalcResult]         = useState<CalculationResult | null>(null)
-  const [bookedRoomNumbers,  setBookedRoomNumbers]  = useState<string[]>([])
-  const [extraItems,         setExtraItems]         = useState<ExtraItem[]>(initialExtraItems ?? [])
+  const [bookedRoomNumbers,    setBookedRoomNumbers]    = useState<string[]>([])
+  const [extraItems,           setExtraItems]           = useState<ExtraItem[]>(initialExtraItems ?? [])
+  const [roomAvailableAfterNoon, setRoomAvailableAfterNoon] = useState(false)
 
   const {
     register,
@@ -71,6 +72,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
       extra_beds:          0,
       rooms:               [],
       discount:            0,
+      discount_pct:        0,
       service_charge_pct:  0,
       advance_required:    0,
       advance_paid:        0,
@@ -140,6 +142,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
           drivers:            watchedValues.drivers,
           holidayDates,
           discount:           watchedValues.discount,
+          discount_pct:       watchedValues.discount_pct ?? 0,
           service_charge_pct: watchedValues.service_charge_pct ?? 0,
           advance_required:   watchedValues.advance_required,
           advance_paid:       watchedValues.advance_paid,
@@ -159,6 +162,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
           extra_beds:         watchedValues.extra_beds,
           holidayDates,
           discount:           watchedValues.discount,
+          discount_pct:       watchedValues.discount_pct ?? 0,
           service_charge_pct: watchedValues.service_charge_pct ?? 0,
           advance_required:   watchedValues.advance_required,
           advance_paid:       watchedValues.advance_paid,
@@ -183,6 +187,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
     watchedValues.drivers,
     watchedValues.extra_beds,
     watchedValues.discount,
+    watchedValues.discount_pct,
     watchedValues.service_charge_pct,
     watchedValues.advance_required,
     watchedValues.advance_paid,
@@ -204,6 +209,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
       .then((d) => setBookedRoomNumbers(d.takenRoomNumbers ?? []))
       .catch(() => setBookedRoomNumbers([]))
   }, [visitDate, checkOutDate])
+
 
   async function onSubmit(data: CreateQuoteInput) {
     setSubmitting(true)
@@ -247,6 +253,19 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
   }
 
   const currentRooms = (watchedValues.rooms ?? []) as RoomSelection[]
+
+  // Check if any selected rooms have a night stay checking out on the visit date (daylong only)
+  useEffect(() => {
+    if (packageType !== 'daylong' || !visitDate || currentRooms.length === 0) {
+      setRoomAvailableAfterNoon(false)
+      return
+    }
+    const roomTypes = currentRooms.map((r) => r.room_type).join(',')
+    fetch(`/api/room-noon-notice?visitDate=${visitDate}&roomTypes=${roomTypes}`)
+      .then((r) => r.json())
+      .then((d) => setRoomAvailableAfterNoon(d.hasConflict ?? false))
+      .catch(() => setRoomAvailableAfterNoon(false))
+  }, [packageType, visitDate, currentRooms])
 
   const dayBadge = dayType ? DAY_LABELS[dayType] : null
 
@@ -413,11 +432,24 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
               control={control}
               render={({ field }) => (
                 <NumberInput
-                  label="Discount"
+                  label="Flat Discount"
                   prefix="৳"
                   value={field.value}
                   onChange={(v) => field.onChange(v)}
                   error={errors.discount?.message}
+                />
+              )}
+            />
+            <Controller
+              name="discount_pct"
+              control={control}
+              render={({ field }) => (
+                <NumberInput
+                  label="Discount %"
+                  suffix="%"
+                  value={field.value}
+                  onChange={(v) => field.onChange(v)}
+                  error={(errors as any).discount_pct?.message}
                 />
               )}
             />
@@ -619,6 +651,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
               mealsText={selectedPackage.meals}
               notesText={selectedPackage.notes}
               settings={settings}
+              roomAvailableAfterNoon={roomAvailableAfterNoon}
             />
           )}
         </div>
@@ -656,6 +689,7 @@ interface WhatsAppPreviewProps {
   mealsText: string | null | undefined
   notesText: string | null | undefined
   settings: SettingsMap
+  roomAvailableAfterNoon?: boolean
 }
 
 function WhatsAppPreview({
@@ -672,6 +706,7 @@ function WhatsAppPreview({
   mealsText,
   notesText,
   settings,
+  roomAvailableAfterNoon,
 }: WhatsAppPreviewProps) {
   const [copied, setCopied] = useState(false)
 
@@ -713,6 +748,7 @@ function WhatsAppPreview({
     SEP,
     '🏨 *ROOMS*',
     roomLines || '  (no rooms selected)',
+    ...(roomAvailableAfterNoon ? ['⚠️ *Note:* Room will be available after 12:00 PM (previous guest checking out)'] : []),
     SEP,
     '💰 *PRICING BREAKDOWN*',
     pricingLines,

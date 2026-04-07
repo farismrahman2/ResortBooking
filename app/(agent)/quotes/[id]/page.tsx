@@ -7,6 +7,7 @@ import { QuoteActions } from '@/components/quotes/QuoteActions'
 import { WhatsAppOutput } from '@/components/quotes/WhatsAppOutput'
 import { getQuoteById } from '@/lib/queries/quotes'
 import { getSettings } from '@/lib/queries/settings'
+import { createClient } from '@/lib/supabase/server'
 import { formatDate, formatDateRange } from '@/lib/formatters/dates'
 import { WhatsAppLink } from '@/components/ui/WhatsAppLink'
 import { formatBDT } from '@/lib/formatters/currency'
@@ -26,6 +27,20 @@ export default async function QuoteDetailPage({ params }: PageProps) {
   ])
 
   if (!quote) notFound()
+
+  // Check if any selected rooms have a night stay checking out on the visit date
+  let roomAvailableAfterNoon = false
+  if (quote.package_type === 'daylong' && quote.rooms.length > 0) {
+    const supabase  = createClient()
+    const roomTypes = quote.rooms.map((r) => r.room_type)
+    const { data } = await supabase
+      .from('booking_rooms')
+      .select('room_type, bookings!inner(check_out_date, status)')
+      .eq('bookings.check_out_date', quote.visit_date)
+      .neq('bookings.status', 'cancelled')
+      .in('room_type', roomTypes)
+    if (data && data.length > 0) roomAvailableAfterNoon = true
+  }
 
   // Build a CalculationResult from stored data (no recalculation)
   const storedResult: CalculationResult = {
@@ -198,7 +213,7 @@ export default async function QuoteDetailPage({ params }: PageProps) {
 
             {/* WhatsApp output */}
             <Card>
-              <WhatsAppOutput quote={quote} settings={settings} />
+              <WhatsAppOutput quote={quote} settings={settings} roomAvailableAfterNoon={roomAvailableAfterNoon} />
             </Card>
           </div>
         </div>

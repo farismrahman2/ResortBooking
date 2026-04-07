@@ -44,11 +44,12 @@ export interface WhatsAppParams {
   advanceRequired:     number
   advancePaid:         number
   remaining:           number
-  mealsText:           string | null
-  notesText:           string | null
-  contactNumbers:      string
-  paymentInstructions: string
-  footerText:          string
+  mealsText:              string | null
+  notesText:              string | null
+  contactNumbers:         string
+  paymentInstructions:    string
+  footerText:             string
+  roomAvailableAfterNoon?: boolean  // true when room has a night stay checking out on visit date
 }
 
 export function formatWhatsApp(p: WhatsAppParams): string {
@@ -103,6 +104,7 @@ export function formatWhatsApp(p: WhatsAppParams): string {
     SEP,
     `🏨 *ROOMS*`,
     roomLines || '  (no rooms selected)',
+    ...(p.roomAvailableAfterNoon ? [`⚠️ *Note:* Room will be available after 12:00 PM (previous guest checking out)`] : []),
     SEP,
     `👥 *GUESTS*`,
     guestParts.join('  |  ') || 'N/A',

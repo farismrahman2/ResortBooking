@@ -44,7 +44,8 @@ export interface DaylongInputs {
   drivers:             number
   holidayDates:        string[] // ISO date strings 'YYYY-MM-DD'
   discount:            number
-  service_charge_pct?: number   // percentage, default 0
+  discount_pct?:       number   // percentage discount, default 0
+  service_charge_pct?: number   // service charge percentage, default 0
   advance_required:    number
   advance_paid:        number
   extra_items?:        ExtraItem[]
@@ -62,7 +63,8 @@ export interface NightInputs {
   extra_beds:          number
   holidayDates:        string[]
   discount:            number
-  service_charge_pct?: number   // percentage, default 0
+  discount_pct?:       number   // percentage discount, default 0
+  service_charge_pct?: number   // service charge percentage, default 0
   advance_required:    number
   advance_paid:        number
   extra_items?:        ExtraItem[]
@@ -231,7 +233,12 @@ export function calculateDaylong(inputs: DaylongInputs): CalculationResult {
     }
   }
 
-  return computeFinancials(lineItems, discount, advance_required, advance_paid, null, adultRateUsed)
+  // Percentage discount applied on top of flat discount
+  const baseForPct = lineItems.reduce((s, i) => s + i.subtotal, 0)
+  const pctAmount  = Math.round(baseForPct * (inputs.discount_pct ?? 0) / 100)
+  const effectiveDiscount = discount + pctAmount
+
+  return computeFinancials(lineItems, effectiveDiscount, advance_required, advance_paid, null, adultRateUsed)
 }
 
 /**
@@ -354,7 +361,12 @@ export function calculateNight(inputs: NightInputs): CalculationResult {
     }
   }
 
-  return computeFinancials(lineItems, discount, advance_required, advance_paid, nights, adultRateUsed)
+  // Percentage discount applied on top of flat discount
+  const baseForPct = lineItems.reduce((s, i) => s + i.subtotal, 0)
+  const pctAmount  = Math.round(baseForPct * (inputs.discount_pct ?? 0) / 100)
+  const effectiveDiscount = discount + pctAmount
+
+  return computeFinancials(lineItems, effectiveDiscount, advance_required, advance_paid, nights, adultRateUsed)
 }
 
 /**

@@ -40,6 +40,7 @@ const BaseQuoteSchema = z.object({
 
   // Pricing overrides
   discount:            z.number().int().min(0).default(0),
+  discount_pct:        z.number().int().min(0).max(100).default(0),
   service_charge_pct:  z.number().int().min(0).max(100).default(0),
   advance_required:    z.number().int().min(0).default(0),
   advance_paid:        z.number().int().min(0).default(0),

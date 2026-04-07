@@ -10,9 +10,10 @@ import type { WhatsAppParams } from '@/lib/formatters/whatsapp'
 interface WhatsAppOutputProps {
   quote: QuoteWithRooms
   settings: SettingsMap
+  roomAvailableAfterNoon?: boolean
 }
 
-export function WhatsAppOutput({ quote, settings }: WhatsAppOutputProps) {
+export function WhatsAppOutput({ quote, settings, roomAvailableAfterNoon }: WhatsAppOutputProps) {
   const [copied, setCopied] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
 
@@ -56,9 +57,10 @@ export function WhatsAppOutput({ quote, settings }: WhatsAppOutputProps) {
       remaining:           quote.remaining,
       mealsText:           quote.package_snapshot.meals,
       notesText:           quote.customer_notes ?? quote.package_snapshot.notes,
-      contactNumbers:      settings['contact_numbers']      ?? '',
-      paymentInstructions: settings['payment_instructions'] ?? '',
-      footerText:          settings['whatsapp_footer_text'] ?? '',
+      contactNumbers:         settings['contact_numbers']      ?? '',
+      paymentInstructions:    settings['payment_instructions'] ?? '',
+      footerText:             settings['whatsapp_footer_text'] ?? '',
+      roomAvailableAfterNoon: roomAvailableAfterNoon ?? false,
     }
 
     return formatWhatsApp(params)

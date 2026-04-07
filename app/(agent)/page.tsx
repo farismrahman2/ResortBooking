@@ -4,6 +4,7 @@ import { Topbar } from '@/components/layout/Topbar'
 import { StatsCards } from '@/components/dashboard/StatsCards'
 import { RecentQuotes } from '@/components/dashboard/RecentQuotes'
 import { QuickActions } from '@/components/dashboard/QuickActions'
+import { RevenueWidget } from '@/components/dashboard/RevenueWidget'
 import { formatDate } from '@/lib/formatters/dates'
 import { formatBDT } from '@/lib/formatters/currency'
 import Link from 'next/link'
@@ -44,9 +45,10 @@ export default async function DashboardPage() {
             <RecentQuotes quotes={recentQuotes} />
           </div>
 
-          {/* Right: Quick actions + upcoming */}
+          {/* Right: Quick actions + revenue + upcoming */}
           <div className="lg:col-span-2 space-y-6">
             <QuickActions />
+            <RevenueWidget />
 
             {/* Upcoming bookings mini list */}
             <div className="card p-5">
