@@ -8,8 +8,9 @@ import type { BookingWithRooms, SettingsMap, RoomType } from '@/lib/supabase/typ
 import type { WhatsAppParams } from '@/lib/formatters/whatsapp'
 
 interface BookingWhatsAppOutputProps {
-  booking:  BookingWithRooms
-  settings: SettingsMap
+  booking:                BookingWithRooms
+  settings:               SettingsMap
+  roomAvailableAfterNoon?: boolean
 }
 
 const ROOM_LABELS: Record<RoomType, string> = {
@@ -22,7 +23,7 @@ const ROOM_LABELS: Record<RoomType, string> = {
   tree_house:     'Tree House',
 }
 
-export function BookingWhatsAppOutput({ booking, settings }: BookingWhatsAppOutputProps) {
+export function BookingWhatsAppOutput({ booking, settings, roomAvailableAfterNoon }: BookingWhatsAppOutputProps) {
   const [copied, setCopied]           = useState(false)
   const [showPreview, setShowPreview] = useState(false)
 
@@ -60,14 +61,15 @@ export function BookingWhatsAppOutput({ booking, settings }: BookingWhatsAppOutp
       advancePaid:         booking.advance_paid,
       remaining:           booking.remaining,
       mealsText:           snap.meals,
-      notesText:           booking.customer_notes ?? snap.notes,
-      contactNumbers:      settings['contact_numbers']      ?? '',
-      paymentInstructions: settings['payment_instructions'] ?? '',
-      footerText:          settings['whatsapp_footer_text'] ?? '',
+      notesText:             booking.customer_notes ?? snap.notes,
+      contactNumbers:        settings['contact_numbers']      ?? '',
+      paymentInstructions:   settings['payment_instructions'] ?? '',
+      footerText:            settings['whatsapp_footer_text'] ?? '',
+      roomAvailableAfterNoon: roomAvailableAfterNoon ?? false,
     }
 
     return formatWhatsApp(params)
-  }, [booking, settings])
+  }, [booking, settings, roomAvailableAfterNoon])
 
   const handleCopy = async () => {
     try {

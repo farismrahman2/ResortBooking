@@ -10,6 +10,7 @@ import { getBookingById } from '@/lib/queries/bookings'
 import { getSettings, getHolidayDateStrings, getRoomInventory } from '@/lib/queries/settings'
 import { WhatsAppLink } from '@/components/ui/WhatsAppLink'
 import { getBookedRoomNumbers } from '@/lib/queries/availability'
+import { createClient } from '@/lib/supabase/server'
 import { formatDate, formatDateRange } from '@/lib/formatters/dates'
 import { formatBDT } from '@/lib/formatters/currency'
 import type { RoomType } from '@/lib/supabase/types'
@@ -44,6 +45,20 @@ export default async function BookingDetailPage({ params }: PageProps) {
     : []
 
   if (!booking) notFound()
+
+  // Check if any selected rooms have a night stay checking out on the visit date
+  let roomAvailableAfterNoon = false
+  if (booking.package_type === 'daylong' && booking.rooms.length > 0) {
+    const supabase  = createClient()
+    const roomTypes = booking.rooms.map((r) => r.room_type)
+    const { data } = await supabase
+      .from('booking_rooms')
+      .select('room_type, bookings!inner(check_out_date, status)')
+      .eq('bookings.check_out_date', booking.visit_date)
+      .neq('bookings.status', 'cancelled')
+      .in('room_type', roomTypes)
+    if (data && data.length > 0) roomAvailableAfterNoon = true
+  }
 
   const snap = booking.package_snapshot
 
@@ -279,7 +294,7 @@ export default async function BookingDetailPage({ params }: PageProps) {
           <div className="space-y-5">
             {/* WhatsApp output */}
             <Card>
-              <BookingWhatsAppOutput booking={booking} settings={settings} />
+              <BookingWhatsAppOutput booking={booking} settings={settings} roomAvailableAfterNoon={roomAvailableAfterNoon} />
             </Card>
           </div>
         </div>
