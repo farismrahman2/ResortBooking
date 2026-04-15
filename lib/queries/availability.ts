@@ -4,6 +4,93 @@ import { nextDay } from '@/lib/config/rooms'
 import type { AvailabilityResult, RoomInventoryRow, RoomType } from '@/lib/supabase/types'
 import type { OccupiedRoom } from '@/lib/engine/availability'
 
+// ─── Shared availability conflict check ──────────────────────────────────────
+
+/**
+ * Check if requested rooms are available across every night in [visitDate, checkOutDate).
+ * For daylong, only checks the single visit date.
+ * Optionally excludes a booking from the occupancy count (for date-change scenarios).
+ * Returns a human-readable conflict message, or null if all clear.
+ */
+export async function checkAvailabilityConflict(
+  visitDate: string,
+  checkOutDate: string | null,
+  requestedRooms: { room_type: string; qty: number }[],
+  excludeBookingId?: string,
+): Promise<string | null> {
+  const supabase = createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any
+
+  // Build list of dates to check
+  const dates: string[] = []
+  if (!checkOutDate) {
+    dates.push(visitDate)
+  } else {
+    const cur = new Date(visitDate + 'T00:00:00')
+    const end = new Date(checkOutDate + 'T00:00:00')
+    while (cur < end) {
+      dates.push(cur.toISOString().slice(0, 10))
+      cur.setDate(cur.getDate() + 1)
+    }
+  }
+
+  // Fetch room inventory
+  const { data: inventory } = await db.from('room_inventory').select('room_type, total_units')
+
+  for (const date of dates) {
+    // Fetch occupied booking_rooms for this date
+    let bookingQuery = db
+      .from('booking_rooms')
+      .select('room_type, qty, bookings!inner(id, visit_date, check_out_date, status)')
+      .filter('bookings.visit_date', 'lte', date)
+      .neq('bookings.status', 'cancelled')
+
+    if (excludeBookingId) {
+      bookingQuery = bookingQuery.neq('bookings.id', excludeBookingId)
+    }
+
+    const { data: bookingOccupied } = await bookingQuery
+
+    // Fetch occupied quote_rooms (confirmed, not yet converted)
+    const { data: quoteOccupied } = await db
+      .from('quote_rooms')
+      .select('room_type, qty, quotes!inner(visit_date, check_out_date, status, converted_to_booking_id)')
+      .filter('quotes.visit_date', 'lte', date)
+      .eq('quotes.status', 'confirmed')
+      .is('quotes.converted_to_booking_id', null)
+
+    // Sum occupied units per room type on this date
+    const occupied = new Map<string, number>()
+    for (const row of bookingOccupied ?? []) {
+      const b = (row as any).bookings
+      const blocks = b.check_out_date ? b.check_out_date > date : b.visit_date === date
+      if (blocks) {
+        occupied.set(row.room_type, (occupied.get(row.room_type) ?? 0) + row.qty)
+      }
+    }
+    for (const row of quoteOccupied ?? []) {
+      const q = (row as any).quotes
+      const blocks = q.check_out_date ? q.check_out_date > date : q.visit_date === date
+      if (blocks) {
+        occupied.set(row.room_type, (occupied.get(row.room_type) ?? 0) + row.qty)
+      }
+    }
+
+    // Check each requested room
+    for (const req of requestedRooms) {
+      const totalUnits = (inventory ?? []).find((r: any) => r.room_type === req.room_type)?.total_units ?? 0
+      const alreadyBooked = occupied.get(req.room_type) ?? 0
+      const available = totalUnits - alreadyBooked
+      if (req.qty > available) {
+        return `${req.room_type.replace(/_/g, ' ')} is unavailable on ${date} (${available} of ${totalUnits} remaining, ${req.qty} requested)`
+      }
+    }
+  }
+
+  return null
+}
+
 /** Get room availability for a single date */
 export async function getRoomAvailability(
   date: string,   // ISO date

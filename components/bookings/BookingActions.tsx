@@ -3,12 +3,14 @@
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Plus, Minus, Trash2 } from 'lucide-react'
+import { Plus, Minus, Trash2, CalendarDays, ArrowLeftRight } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { Textarea } from '@/components/ui/Textarea'
 import { NumberInput } from '@/components/ui/NumberInput'
+import { ChangeDatesModal } from '@/components/bookings/ChangeDatesModal'
+import { SwapRoomsModal } from '@/components/bookings/SwapRoomsModal'
 import { formatBDT } from '@/lib/formatters/currency'
 import { calculateDaylong, calculateNight } from '@/lib/engine/calculator'
 import { updateAdvancePaid, cancelBooking, updateBooking } from '@/lib/actions/bookings'
@@ -44,6 +46,10 @@ export function BookingActions({ booking, holidayDates, inventory, bookedRoomNum
   const [paymentLoading,  setPaymentLoading]  = useState(false)
   const [paymentError,    setPaymentError]    = useState<string | null>(null)
   const [paymentSuccess,  setPaymentSuccess]  = useState(false)
+
+  // ── Change Dates + Swap Rooms modal state ──────────────────────────────────
+  const [changeDatesOpen, setChangeDatesOpen] = useState(false)
+  const [swapRoomsOpen,   setSwapRoomsOpen]   = useState(false)
 
   // ── Edit modal state ──────────────────────────────────────────────────────
   const [editOpen,    setEditOpen]    = useState(false)
@@ -260,6 +266,28 @@ export function BookingActions({ booking, holidayDates, inventory, bookedRoomNum
           Edit Details
         </Button>
       </div>
+
+      {/* ── Change Dates ─────────────────────────────────────── */}
+      {booking.status === 'confirmed' && (
+        <div className="space-y-2">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Schedule</h4>
+          <Button variant="outline" size="sm" onClick={() => setChangeDatesOpen(true)} className="w-full gap-1.5">
+            <CalendarDays size={13} />
+            Change Dates
+          </Button>
+        </div>
+      )}
+
+      {/* ── Swap Rooms ───────────────────────────────────────── */}
+      {booking.status === 'confirmed' && booking.rooms.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Room Assignment</h4>
+          <Button variant="outline" size="sm" onClick={() => setSwapRoomsOpen(true)} className="w-full gap-1.5">
+            <ArrowLeftRight size={13} />
+            Swap Rooms
+          </Button>
+        </div>
+      )}
 
       {/* ── Payment Section ─────────────────────────────────── */}
       <div className="space-y-3 border-t border-gray-100 pt-4">
@@ -528,6 +556,24 @@ export function BookingActions({ booking, holidayDates, inventory, bookedRoomNum
           </div>
         </div>
       </Modal>
+
+      {/* ── Change Dates Modal ───────────────────────────────── */}
+      <ChangeDatesModal
+        open={changeDatesOpen}
+        onClose={() => setChangeDatesOpen(false)}
+        booking={booking}
+        holidayDates={holidayDates}
+      />
+
+      {/* ── Swap Rooms Modal ─────────────────────────────────── */}
+      <SwapRoomsModal
+        open={swapRoomsOpen}
+        onClose={() => setSwapRoomsOpen(false)}
+        booking={booking}
+        holidayDates={holidayDates}
+        inventory={inventory}
+        bookedRoomNumbers={bookedRoomNumbers}
+      />
     </div>
   )
 }

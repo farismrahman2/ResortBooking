@@ -7,80 +7,9 @@ import { calculateDaylong, calculateNight } from '@/lib/engine/calculator'
 import { buildPackageSnapshot } from '@/lib/engine/snapshot'
 import { generateQuoteNumber } from '@/lib/utils'
 import { getHolidayDateStrings } from '@/lib/queries/settings'
+import { checkAvailabilityConflict } from '@/lib/queries/availability'
 import type { ActionResult, ActionData } from './types'
 import type { BookingStatus, RoomType } from '@/lib/supabase/types'
-
-/**
- * Check if requested rooms are available across every night in [checkIn, checkOut).
- * For daylong, only checks the single visit date.
- * Returns a human-readable conflict message, or null if all clear.
- */
-async function checkAvailabilityConflict(
-  supabase: ReturnType<typeof createClient>,
-  visitDate: string,
-  checkOutDate: string | null,
-  requestedRooms: { room_type: string; qty: number }[],
-): Promise<string | null> {
-  // Build list of dates to check
-  const dates: string[] = []
-  if (!checkOutDate) {
-    dates.push(visitDate)
-  } else {
-    const cur = new Date(visitDate + 'T00:00:00')
-    const end = new Date(checkOutDate + 'T00:00:00')
-    while (cur < end) {
-      dates.push(cur.toISOString().slice(0, 10))
-      cur.setDate(cur.getDate() + 1)
-    }
-  }
-
-  // For each date, fetch occupied rooms and check capacity
-  const { data: inventory } = await supabase.from('room_inventory').select('room_type, total_units')
-
-  for (const date of dates) {
-    const { data: bookingOccupied } = await supabase
-      .from('booking_rooms')
-      .select('room_type, qty, bookings!inner(visit_date, check_out_date, status)')
-      .filter('bookings.visit_date', 'lte', date)
-      .neq('bookings.status', 'cancelled')
-
-    const { data: quoteOccupied } = await supabase
-      .from('quote_rooms')
-      .select('room_type, qty, quotes!inner(visit_date, check_out_date, status, converted_to_booking_id)')
-      .filter('quotes.visit_date', 'lte', date)
-      .eq('quotes.status', 'confirmed')
-      .is('quotes.converted_to_booking_id', null)  // exclude quotes already converted to bookings
-
-    // Sum already-occupied units per room type on this date
-    const occupied = new Map<string, number>()
-    for (const row of bookingOccupied ?? []) {
-      const b = (row as any).bookings
-      const blocks = b.check_out_date ? b.check_out_date > date : b.visit_date === date
-      if (blocks) {
-        occupied.set(row.room_type, (occupied.get(row.room_type) ?? 0) + row.qty)
-      }
-    }
-    for (const row of quoteOccupied ?? []) {
-      const q = (row as any).quotes
-      const blocks = q.check_out_date ? q.check_out_date > date : q.visit_date === date
-      if (blocks) {
-        occupied.set(row.room_type, (occupied.get(row.room_type) ?? 0) + row.qty)
-      }
-    }
-
-    // Check each requested room
-    for (const req of requestedRooms) {
-      const totalUnits = (inventory ?? []).find((r: any) => r.room_type === req.room_type)?.total_units ?? 0
-      const alreadyBooked = occupied.get(req.room_type) ?? 0
-      const available = totalUnits - alreadyBooked
-      if (req.qty > available) {
-        return `${req.room_type.replace(/_/g, ' ')} is unavailable on ${date} (${available} of ${totalUnits} remaining, ${req.qty} requested)`
-      }
-    }
-  }
-
-  return null
-}
 
 /** Create a new quote with full calculation and snapshot */
 export async function createQuote(
@@ -157,7 +86,6 @@ export async function createQuote(
 
     // Availability pre-check — block if any requested room is over capacity
     const conflict = await checkAvailabilityConflict(
-      supabase,
       validated.visit_date,
       validated.check_out_date ?? null,
       validated.rooms.map((r) => ({ room_type: r.room_type, qty: r.qty })),
