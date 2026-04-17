@@ -1,51 +1,45 @@
 'use client'
 
-import { useState, type FormEvent } from 'react'
+import { useState, useTransition, type FormEvent } from 'react'
 import { Loader2 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
+import { signInAction } from './actions'
 
 interface LoginFormProps {
   next: string
 }
 
 export function LoginForm({ next }: LoginFormProps) {
-  const supabase = createClient()
-
   const [email,    setEmail]    = useState('')
   const [password, setPassword] = useState('')
-  const [loading,  setLoading]  = useState(false)
   const [error,    setError]    = useState<string | null>(null)
+  const [pending,  startTransition] = useTransition()
 
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+  function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    setLoading(true)
     setError(null)
 
-    try {
-      const { data, error: signInError } = await supabase.auth.signInWithPassword({
-        email:    email.trim(),
-        password,
-      })
+    const formData = new FormData()
+    formData.set('email',    email.trim())
+    formData.set('password', password)
+    formData.set('next',     next)
 
-      if (signInError) {
-        setError(signInError.message)
-        setLoading(false)
-        return
+    startTransition(async () => {
+      try {
+        const result = await signInAction(formData)
+        // On success, the server action calls redirect() which never returns
+        // normally on the client — this branch only runs on error.
+        if (result && 'error' in result) {
+          setError(result.error)
+        }
+      } catch (err) {
+        // redirect() throws a NEXT_REDIRECT internally — that's expected and
+        // React will handle the navigation. Only real errors get here.
+        if (err instanceof Error && err.message.includes('NEXT_REDIRECT')) {
+          return
+        }
+        setError(err instanceof Error ? err.message : String(err))
       }
-
-      if (!data.session) {
-        setError('Sign-in succeeded but no session was created. Please try again.')
-        setLoading(false)
-        return
-      }
-
-      // Hard navigation — forces the middleware to re-run with the new cookies.
-      // router.push/refresh can race with cookie propagation.
-      window.location.assign(next)
-    } catch (err) {
-      setError(String(err))
-      setLoading(false)
-    }
+    })
   }
 
   return (
@@ -56,12 +50,14 @@ export function LoginForm({ next }: LoginFormProps) {
         </label>
         <input
           id="email"
+          name="email"
           type="email"
           autoComplete="username"
           required
+          disabled={pending}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-forest-500 focus:border-forest-500"
+          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-forest-500 focus:border-forest-500 disabled:bg-gray-50"
           placeholder="you@example.com"
         />
       </div>
@@ -72,28 +68,30 @@ export function LoginForm({ next }: LoginFormProps) {
         </label>
         <input
           id="password"
+          name="password"
           type="password"
           autoComplete="current-password"
           required
+          disabled={pending}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-forest-500 focus:border-forest-500"
+          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-forest-500 focus:border-forest-500 disabled:bg-gray-50"
         />
       </div>
 
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 whitespace-pre-wrap">
           {error}
         </div>
       )}
 
       <button
         type="submit"
-        disabled={loading || !email || !password}
+        disabled={pending || !email || !password}
         className="w-full flex items-center justify-center gap-2 rounded-lg bg-forest-700 px-4 py-2.5 text-sm font-medium text-white hover:bg-forest-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest-600 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
       >
-        {loading && <Loader2 size={14} className="animate-spin" />}
-        {loading ? 'Signing in...' : 'Sign In'}
+        {pending && <Loader2 size={14} className="animate-spin" />}
+        {pending ? 'Signing in...' : 'Sign In'}
       </button>
     </form>
   )
