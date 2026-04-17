@@ -35,24 +35,54 @@ export async function signInAction(formData: FormData): Promise<{ error: string 
     const supabase = createClient()
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
 
+    // Log everything to server logs (visible in Vercel Functions tab)
+    console.log('[signIn] attempt for:', email, 'result:', {
+      hasSession: !!data?.session,
+      hasUser:    !!data?.user,
+      errorCode:  error?.code,
+      errorStatus: error?.status,
+      errorMsg:   error?.message,
+    })
+
     if (error) {
-      // Typical errors: "Invalid login credentials", "Email not confirmed"
-      return { error: error.message }
+      // Specific guidance for common errors
+      const msg = error.message.toLowerCase()
+      if (msg.includes('email not confirmed')) {
+        return {
+          error:
+            'Email not confirmed. In Supabase Dashboard: Authentication → Providers → ' +
+            'Email → expand the panel → turn OFF "Confirm email". Then delete this user ' +
+            'and re-create them via "Add user → Create new user".',
+        }
+      }
+      if (msg.includes('invalid login credentials') || msg.includes('invalid_credentials')) {
+        return { error: 'Invalid email or password. Double-check what you set in Supabase Dashboard → Authentication → Users.' }
+      }
+      if (msg.includes('api key') || msg.includes('invalid key') || msg.includes('unauthorized')) {
+        return {
+          error:
+            `Supabase rejected the API key (${error.message}). This usually means your ` +
+            `NEXT_PUBLIC_SUPABASE_ANON_KEY is wrong OR the installed @supabase/ssr version ` +
+            `is too old for the new sb_publishable_ key format. The package.json was just ` +
+            `bumped — redeploy should fix it.`,
+        }
+      }
+      return { error: `${error.message} (status ${error.status ?? 'n/a'})` }
     }
 
     if (!data.session) {
       return {
         error:
-          'Sign-in did not produce a session. If you just created this user, ' +
-          'make sure "Confirm email" is OFF in Supabase Dashboard → Authentication → ' +
-          'Providers → Email, then create the user again.',
+          'Sign-in returned no session. Most likely "Confirm email" is ON in Supabase. ' +
+          'Turn it OFF in Authentication → Providers → Email, then re-create the user.',
       }
     }
   } catch (err) {
-    // Network, URL, or other unexpected failure
+    // Network, URL, or other unexpected failure — log for Vercel console
+    console.error('[signIn] unexpected error:', err)
     const message = err instanceof Error ? err.message : String(err)
     return {
-      error: `Unexpected error: ${message}. Check Vercel deployment logs for details.`,
+      error: `Unexpected error: ${message}. Check Vercel Deployments → latest → Functions → /login/actions logs.`,
     }
   }
 

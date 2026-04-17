@@ -16,25 +16,39 @@ export default async function DiagnosePage() {
   const anonOk = !!anonKey  && anonKey.length > 40
   const svcOk  = !!svcKey   && svcKey.length > 40
 
-  // Try a simple call to verify reachability
+  // Try a simple call to verify reachability. "Auth session missing!" and
+  // "session_not_found" are both EXPECTED when no one is logged in — they
+  // confirm Supabase accepted the API key and responded.
   let reachability: { ok: boolean; detail: string } = { ok: false, detail: 'Not tested' }
   if (urlOk && anonOk) {
     try {
       const supabase = createClient()
       const { data, error } = await supabase.auth.getUser()
-      if (error && error.message.includes('session_not_found')) {
-        // Not logged in is expected — but means the server COULD talk to Supabase
-        reachability = { ok: true, detail: 'Reached Supabase (no active session, as expected)' }
+      const noSessionMessages = ['session_not_found', 'Auth session missing', 'JWT expired']
+      const isNoSession = error && noSessionMessages.some((m) => error.message.includes(m))
+
+      if (isNoSession) {
+        reachability = { ok: true, detail: 'Reached Supabase - API key accepted (no active session, which is expected)' }
       } else if (error) {
-        reachability = { ok: false, detail: `Supabase responded with error: ${error.message}` }
+        reachability = { ok: false, detail: `Supabase error: ${error.message}` }
       } else {
-        reachability = { ok: true, detail: data.user ? `Active session for ${data.user.email}` : 'Reached Supabase (no active session)' }
+        reachability = { ok: true, detail: data.user ? `Logged in as ${data.user.email}` : 'Reached Supabase (no session)' }
       }
     } catch (err) {
-      reachability = { ok: false, detail: `Network error reaching Supabase: ${err instanceof Error ? err.message : String(err)}` }
+      reachability = { ok: false, detail: `Network error: ${err instanceof Error ? err.message : String(err)}` }
     }
   } else {
-    reachability = { ok: false, detail: 'Skipped — env vars missing or malformed' }
+    reachability = { ok: false, detail: 'Skipped - env vars missing or malformed' }
+  }
+
+  // Key format detection
+  const isNewKeyFormat = anonKey?.startsWith('sb_publishable_') || anonKey?.startsWith('sb_pub_')
+  const isLegacyJwt    = anonKey?.startsWith('eyJ')
+  let keyFormatNote: string | null = null
+  if (isNewKeyFormat) {
+    keyFormatNote = 'Using new publishable key format (sb_publishable_...). Requires @supabase/ssr >= 0.5.0 and @supabase/supabase-js >= 2.45.0.'
+  } else if (isLegacyJwt) {
+    keyFormatNote = 'Using legacy JWT key format (eyJ...). Works with all SDK versions.'
   }
 
   return (
@@ -59,6 +73,13 @@ export default async function DiagnosePage() {
                hint={!svcKey ? 'Missing — needed for some server actions' : undefined} />
 
           <Row label="Supabase reachability" ok={reachability.ok} value={reachability.detail} />
+
+          {keyFormatNote && (
+            <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-800">
+              <p className="font-semibold mb-1">Key format</p>
+              <p>{keyFormatNote}</p>
+            </div>
+          )}
         </div>
 
         <div className="mt-6 rounded-lg border border-gray-200 bg-white px-4 py-3 text-xs text-gray-600">
