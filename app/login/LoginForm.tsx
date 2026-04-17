@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, type FormEvent } from 'react'
-import { useRouter } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
@@ -10,7 +9,6 @@ interface LoginFormProps {
 }
 
 export function LoginForm({ next }: LoginFormProps) {
-  const router   = useRouter()
   const supabase = createClient()
 
   const [email,    setEmail]    = useState('')
@@ -24,7 +22,7 @@ export function LoginForm({ next }: LoginFormProps) {
     setError(null)
 
     try {
-      const { error: signInError } = await supabase.auth.signInWithPassword({
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
         email:    email.trim(),
         password,
       })
@@ -35,10 +33,15 @@ export function LoginForm({ next }: LoginFormProps) {
         return
       }
 
-      // Success — navigate to requested destination.
-      // router.refresh() ensures the server re-reads the new cookie.
-      router.push(next)
-      router.refresh()
+      if (!data.session) {
+        setError('Sign-in succeeded but no session was created. Please try again.')
+        setLoading(false)
+        return
+      }
+
+      // Hard navigation — forces the middleware to re-run with the new cookies.
+      // router.push/refresh can race with cookie propagation.
+      window.location.assign(next)
     } catch (err) {
       setError(String(err))
       setLoading(false)
