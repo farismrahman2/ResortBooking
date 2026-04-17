@@ -4,7 +4,7 @@ import { type ReactNode } from 'react'
 import { SidebarProvider, useSidebar } from '@/lib/sidebar-context'
 import { Sidebar } from './Sidebar'
 
-function Shell({ children }: { children: ReactNode }) {
+function Shell({ children, userEmail }: { children: ReactNode; userEmail: string | null }) {
   const { isOpen, close } = useSidebar()
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
@@ -17,7 +17,7 @@ function Shell({ children }: { children: ReactNode }) {
         />
       )}
 
-      <Sidebar />
+      <Sidebar userEmail={userEmail} />
 
       <main className="flex-1 min-w-0 overflow-y-auto scrollable">
         {children}
@@ -26,10 +26,10 @@ function Shell({ children }: { children: ReactNode }) {
   )
 }
 
-export function LayoutShell({ children }: { children: ReactNode }) {
+export function LayoutShell({ children, userEmail }: { children: ReactNode; userEmail: string | null }) {
   return (
     <SidebarProvider>
-      <Shell>{children}</Shell>
+      <Shell userEmail={userEmail}>{children}</Shell>
     </SidebarProvider>
   )
 }

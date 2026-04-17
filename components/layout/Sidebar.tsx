@@ -11,6 +11,8 @@ import {
   Settings,
   Leaf,
   X,
+  LogOut,
+  User,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSidebar } from '@/lib/sidebar-context'
@@ -24,7 +26,11 @@ const navItems = [
   { href: '/settings',     label: 'Settings',     icon: Settings        },
 ]
 
-export function Sidebar() {
+interface SidebarProps {
+  userEmail: string | null
+}
+
+export function Sidebar({ userEmail }: SidebarProps) {
   const pathname  = usePathname()
   const { isOpen, close } = useSidebar()
 
@@ -85,9 +91,25 @@ export function Sidebar() {
         </ul>
       </nav>
 
-      {/* Footer */}
-      <div className="border-t border-gray-200 px-4 py-3">
-        <p className="text-xs text-gray-400">Internal Tool — No Login Required</p>
+      {/* Footer — user info + sign out */}
+      <div className="border-t border-gray-200 px-3 py-3 space-y-2">
+        {userEmail && (
+          <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-gray-50">
+            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-forest-100 text-forest-700 flex-shrink-0">
+              <User size={12} />
+            </div>
+            <p className="text-xs text-gray-700 font-medium truncate">{userEmail}</p>
+          </div>
+        )}
+        <form action="/auth/signout" method="POST">
+          <button
+            type="submit"
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-gray-600 hover:bg-red-50 hover:text-red-700 transition-colors"
+          >
+            <LogOut size={14} />
+            Sign out
+          </button>
+        </form>
       </div>
     </aside>
   )
