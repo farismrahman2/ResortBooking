@@ -445,20 +445,30 @@ export async function confirmDateChange(
 }
 
 // ─── Room Assignment Swap ────────────────────────────────────────────────────
+//
+// SwapInput targets specific booking_rooms rows by `id` rather than by room_type,
+// because a single booking may have multiple rows of the same type (paid + comp).
+// type_change mode also supports bidirectional paid ↔ comp conversion via to_charge_mode.
 
 type SwapInput =
-  | { mode: 'reassign'; room_type: RoomType; new_room_numbers: string[] }
+  | {
+      mode: 'reassign'
+      booking_room_id: string
+      new_room_numbers: string[]
+    }
   | {
       mode: 'swap'
       target_booking_id: string
-      source_gives: { room_type: RoomType; room_numbers: string[] }
-      target_gives: { room_type: RoomType; room_numbers: string[] }
+      source_booking_room_id: string
+      target_booking_room_id: string
+      source_new_numbers: string[]   // numbers source row ends up with
+      target_new_numbers: string[]   // numbers target row ends up with
     }
   | {
       mode: 'type_change'
-      from_room_type: RoomType
-      to_room_type:   RoomType
-      qty:            number
+      booking_room_id:  string
+      to_room_type:     RoomType
+      to_charge_mode:   'paid' | 'comp'   // 'comp' forces unit_price=0 regardless of snapshot
       new_room_numbers: string[]
     }
 
@@ -490,24 +500,34 @@ export async function swapRoomAssignment(
 
     const bookingRooms = (rooms ?? []) as { id: string; room_type: RoomType; qty: number; unit_price: number; room_numbers: string[] }[]
 
-    // ── Mode: Reassign room numbers (same type) ──────────────────────────────
+    // ── Mode: Reassign room numbers (target specific row by ID) ──────────────
     if (input.mode === 'reassign') {
-      const roomRow = bookingRooms.find((r) => r.room_type === input.room_type)
-      if (!roomRow) return { success: false, error: `No ${input.room_type} rooms in this booking` }
+      const roomRow = bookingRooms.find((r) => r.id === input.booking_room_id)
+      if (!roomRow) return { success: false, error: 'Room row not found in this booking' }
 
-      // Validate room numbers belong to this type
-      const validNums = ROOM_NUMBERS[input.room_type] ?? []
+      const validNums = ROOM_NUMBERS[roomRow.room_type] ?? []
       for (const num of input.new_room_numbers) {
         if (!validNums.includes(num)) {
-          return { success: false, error: `Room ${num} is not a valid ${input.room_type} room` }
+          return { success: false, error: `Room ${num} is not a valid ${roomRow.room_type} room` }
         }
       }
 
-      // Check not taken by other bookings
+      // Check not taken by other bookings (exclude self)
       const taken = await getBookedRoomNumbers(booking.visit_date, booking.check_out_date, bookingId)
+      // Also exclude numbers currently on this row (they're being replaced)
+      const currentOwn = new Set(roomRow.room_numbers ?? [])
       for (const num of input.new_room_numbers) {
-        if (taken.includes(num)) {
+        if (taken.includes(num) && !currentOwn.has(num)) {
           return { success: false, error: `Room ${num} is already booked by another booking on these dates` }
+        }
+      }
+      // Also check against other rows in THIS booking (paid+comp can't share numbers)
+      for (const other of bookingRooms) {
+        if (other.id === roomRow.id) continue
+        for (const num of input.new_room_numbers) {
+          if ((other.room_numbers ?? []).includes(num)) {
+            return { success: false, error: `Room ${num} is already assigned to another row in this booking` }
+          }
         }
       }
 
@@ -521,7 +541,8 @@ export async function swapRoomAssignment(
         payload:     {
           action:           'rooms_swapped',
           mode:             'reassign',
-          room_type:        input.room_type,
+          room_type:        roomRow.room_type,
+          charge_mode:      roomRow.unit_price === 0 ? 'comp' : 'paid',
           old_room_numbers: roomRow.room_numbers,
           new_room_numbers: input.new_room_numbers,
         },
@@ -531,7 +552,7 @@ export async function swapRoomAssignment(
       return { success: true }
     }
 
-    // ── Mode: Swap between two bookings ──────────────────────────────────────
+    // ── Mode: Swap between two bookings (row-level by ID) ────────────────────
     if (input.mode === 'swap') {
       const { data: targetBooking, error: tErr } = await db
         .from('bookings')
@@ -549,47 +570,65 @@ export async function swapRoomAssignment(
 
       const targetBookingRooms = (targetRooms ?? []) as { id: string; room_type: RoomType; qty: number; unit_price: number; room_numbers: string[] }[]
 
-      const sourceRow = bookingRooms.find((r) => r.room_type === input.source_gives.room_type)
-      const targetRow = targetBookingRooms.find((r) => r.room_type === input.target_gives.room_type)
+      const sourceRow = bookingRooms.find((r) => r.id === input.source_booking_room_id)
+      const targetRow = targetBookingRooms.find((r) => r.id === input.target_booking_room_id)
 
-      if (!sourceRow) return { success: false, error: `Source booking has no ${input.source_gives.room_type} rooms` }
-      if (!targetRow) return { success: false, error: `Target booking has no ${input.target_gives.room_type} rooms` }
+      if (!sourceRow) return { success: false, error: 'Source row not found in this booking' }
+      if (!targetRow) return { success: false, error: 'Target row not found in target booking' }
 
-      for (const num of input.source_gives.room_numbers) {
-        if (!(sourceRow.room_numbers ?? []).includes(num)) {
-          return { success: false, error: `Room ${num} is not assigned to the source booking` }
-        }
-      }
-      for (const num of input.target_gives.room_numbers) {
-        if (!(targetRow.room_numbers ?? []).includes(num)) {
-          return { success: false, error: `Room ${num} is not assigned to the target booking` }
-        }
+      // Both rows must be the same room_type for a direct number swap (v1 constraint)
+      if (sourceRow.room_type !== targetRow.room_type) {
+        return { success: false, error: 'Swap requires matching room types on both sides' }
       }
 
-      // Perform swap
-      const newSourceNums = [
-        ...(sourceRow.room_numbers ?? []).filter((n: string) => !input.source_gives.room_numbers.includes(n)),
-        ...input.target_gives.room_numbers,
-      ]
-      const newTargetNums = [
-        ...(targetRow.room_numbers ?? []).filter((n: string) => !input.target_gives.room_numbers.includes(n)),
-        ...input.source_gives.room_numbers,
-      ]
+      // Validate requested output numbers are valid for this room type
+      const validNums = ROOM_NUMBERS[sourceRow.room_type] ?? []
+      for (const num of [...input.source_new_numbers, ...input.target_new_numbers]) {
+        if (!validNums.includes(num)) {
+          return { success: false, error: `Room ${num} is not a valid ${sourceRow.room_type} room` }
+        }
+      }
+      if (input.source_new_numbers.length !== sourceRow.qty) {
+        return { success: false, error: `Source row must end up with ${sourceRow.qty} room numbers` }
+      }
+      if (input.target_new_numbers.length !== targetRow.qty) {
+        return { success: false, error: `Target row must end up with ${targetRow.qty} room numbers` }
+      }
 
-      await db.from('booking_rooms').update({ room_numbers: newSourceNums }).eq('id', sourceRow.id)
-      await db.from('booking_rooms').update({ room_numbers: newTargetNums }).eq('id', targetRow.id)
+      // The two rows' output sets must partition the input (no dupes, no dropped numbers)
+      const unionIn  = new Set<string>([...(sourceRow.room_numbers ?? []), ...(targetRow.room_numbers ?? [])])
+      const unionOut = new Set<string>([...input.source_new_numbers, ...input.target_new_numbers])
+      if (unionIn.size !== unionOut.size || [...unionIn].some((n) => !unionOut.has(n))) {
+        return { success: false, error: 'Swap output must use the same set of room numbers as the input' }
+      }
 
-      const swapPayload = (perspective: 'source' | 'target') => ({
-        action:   'rooms_swapped',
-        mode:     'swap',
-        swapped_with: perspective === 'source' ? targetBooking.booking_number : booking.booking_number,
-        gave:     perspective === 'source' ? input.source_gives : input.target_gives,
-        received: perspective === 'source' ? input.target_gives : input.source_gives,
-      })
+      await db.from('booking_rooms').update({ room_numbers: input.source_new_numbers }).eq('id', sourceRow.id)
+      await db.from('booking_rooms').update({ room_numbers: input.target_new_numbers }).eq('id', targetRow.id)
+
+      const srcChargeMode = sourceRow.unit_price === 0 ? 'comp' : 'paid'
+      const tgtChargeMode = targetRow.unit_price === 0 ? 'comp' : 'paid'
 
       await db.from('history_log').insert([
-        { entity_type: 'booking', entity_id: bookingId, event: 'edited', actor: 'system', payload: swapPayload('source') },
-        { entity_type: 'booking', entity_id: input.target_booking_id, event: 'edited', actor: 'system', payload: swapPayload('target') },
+        { entity_type: 'booking', entity_id: bookingId, event: 'edited', actor: 'system',
+          payload: {
+            action: 'rooms_swapped', mode: 'swap',
+            swapped_with: targetBooking.booking_number,
+            room_type: sourceRow.room_type,
+            own_charge_mode: srcChargeMode,
+            other_charge_mode: tgtChargeMode,
+            old_numbers: sourceRow.room_numbers,
+            new_numbers: input.source_new_numbers,
+          } },
+        { entity_type: 'booking', entity_id: input.target_booking_id, event: 'edited', actor: 'system',
+          payload: {
+            action: 'rooms_swapped', mode: 'swap',
+            swapped_with: booking.booking_number,
+            room_type: targetRow.room_type,
+            own_charge_mode: tgtChargeMode,
+            other_charge_mode: srcChargeMode,
+            old_numbers: targetRow.room_numbers,
+            new_numbers: input.target_new_numbers,
+          } },
       ])
 
       revalidatePath(`/bookings/${bookingId}`)
@@ -597,22 +636,34 @@ export async function swapRoomAssignment(
       return { success: true }
     }
 
-    // ── Mode: Change room type (upgrade/downgrade) ───────────────────────────
+    // ── Mode: Change room type / charge mode (paid ↔ comp, type upgrade, etc) ─
     if (input.mode === 'type_change') {
       const snap = booking.package_snapshot
-      const newPrice = (snap.room_prices as Record<string, number>)[input.to_room_type]
-      if (newPrice === undefined) {
-        return { success: false, error: `${input.to_room_type.replace(/_/g, ' ')} is not available in this package` }
+
+      // Locate the target row (paid or comp) by ID
+      const oldRow = bookingRooms.find((r) => r.id === input.booking_room_id)
+      if (!oldRow) return { success: false, error: 'Row not found in this booking' }
+
+      // Determine the post-conversion unit_price
+      const snapPrice = (snap.room_prices as Record<string, number>)[input.to_room_type]
+      if (input.to_charge_mode === 'paid' && snapPrice === undefined) {
+        return { success: false, error: `${input.to_room_type.replace(/_/g, ' ')} is not priced in this package — cannot convert to paid` }
+      }
+      const newUnitPrice = input.to_charge_mode === 'comp' ? 0 : snapPrice
+
+      // Availability check only matters when the room_type actually changes
+      // (same-type paid↔comp flip doesn't change physical occupancy)
+      if (oldRow.room_type !== input.to_room_type) {
+        const conflict = await checkAvailabilityConflict(
+          booking.visit_date,
+          booking.check_out_date,
+          [{ room_type: input.to_room_type, qty: oldRow.qty }],
+          bookingId,
+        )
+        if (conflict) return { success: false, error: `Availability conflict: ${conflict}` }
       }
 
-      const conflict = await checkAvailabilityConflict(
-        booking.visit_date,
-        booking.check_out_date,
-        [{ room_type: input.to_room_type, qty: input.qty }],
-        bookingId,
-      )
-      if (conflict) return { success: false, error: `Availability conflict: ${conflict}` }
-
+      // Validate new room numbers
       if (input.new_room_numbers.length > 0) {
         const validNums = ROOM_NUMBERS[input.to_room_type] ?? []
         for (const num of input.new_room_numbers) {
@@ -620,44 +671,32 @@ export async function swapRoomAssignment(
             return { success: false, error: `Room ${num} is not a valid ${input.to_room_type} room` }
           }
         }
+        // Re-check taken (exclude self + own row's current numbers)
         const taken = await getBookedRoomNumbers(booking.visit_date, booking.check_out_date, bookingId)
+        const ownCurrent = new Set(oldRow.room_numbers ?? [])
         for (const num of input.new_room_numbers) {
-          if (taken.includes(num)) {
+          if (taken.includes(num) && !ownCurrent.has(num)) {
             return { success: false, error: `Room ${num} is already booked on these dates` }
+          }
+        }
+        // Check against other rows in this booking
+        for (const other of bookingRooms) {
+          if (other.id === oldRow.id) continue
+          for (const num of input.new_room_numbers) {
+            if ((other.room_numbers ?? []).includes(num)) {
+              return { success: false, error: `Room ${num} is already on another row in this booking` }
+            }
           }
         }
       }
 
-      const oldRow = bookingRooms.find((r) => r.room_type === input.from_room_type)
-      if (!oldRow) return { success: false, error: `No ${input.from_room_type} rooms in this booking` }
-
-      const oldQtyRemaining = oldRow.qty - input.qty
-      if (oldQtyRemaining < 0) return { success: false, error: 'Cannot change more rooms than available in this type' }
-
-      if (oldQtyRemaining > 0) {
-        const keptNums = (oldRow.room_numbers ?? []).slice(0, oldQtyRemaining)
-        await db.from('booking_rooms').update({ qty: oldQtyRemaining, room_numbers: keptNums }).eq('id', oldRow.id)
-      } else {
-        await db.from('booking_rooms').delete().eq('id', oldRow.id)
-      }
-
-      const existingNewRow = bookingRooms.find((r) => r.room_type === input.to_room_type)
-      if (existingNewRow) {
-        const mergedNums = [...(existingNewRow.room_numbers ?? []), ...input.new_room_numbers]
-        await db.from('booking_rooms').update({
-          qty:          existingNewRow.qty + input.qty,
-          unit_price:   newPrice,
-          room_numbers: mergedNums,
-        }).eq('id', existingNewRow.id)
-      } else {
-        await db.from('booking_rooms').insert({
-          booking_id:   bookingId,
-          room_type:    input.to_room_type,
-          qty:          input.qty,
-          unit_price:   newPrice,
-          room_numbers: input.new_room_numbers,
-        })
-      }
+      // Apply the update — in place on the same row (no delete/insert dance needed
+      // since we now target by ID and don't merge into a same-type row)
+      await db.from('booking_rooms').update({
+        room_type:    input.to_room_type,
+        unit_price:   newUnitPrice,
+        room_numbers: input.new_room_numbers,
+      }).eq('id', oldRow.id)
 
       // Recalculate entire booking
       const holidayDates = await getHolidayDateStrings()
@@ -729,13 +768,15 @@ export async function swapRoomAssignment(
         event:       'edited',
         actor:       'system',
         payload:     {
-          action:         'rooms_swapped',
-          mode:           'type_change',
-          from_room_type: input.from_room_type,
-          to_room_type:   input.to_room_type,
-          qty:            input.qty,
-          old_total:      booking.total,
-          new_total:      calc.total,
+          action:           'rooms_swapped',
+          mode:             'type_change',
+          from_room_type:   oldRow.room_type,
+          to_room_type:     input.to_room_type,
+          from_charge_mode: oldRow.unit_price === 0 ? 'comp' : 'paid',
+          to_charge_mode:   input.to_charge_mode,
+          qty:              oldRow.qty,
+          old_total:        booking.total,
+          new_total:        calc.total,
         },
       })
 

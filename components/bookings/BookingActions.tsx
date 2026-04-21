@@ -93,11 +93,16 @@ export function BookingActions({ booking, holidayDates, inventory, bookedRoomNum
   }, [booking.rooms])
 
   // Complimentary rooms (unit_price === 0) — daylong only
+  // Each entry tracks qty AND room_numbers for full assignment parity with paid rooms
+  type CompRoomRow = { qty: number; room_numbers: string[] }
   const initialCompRooms = useMemo(() => {
-    const map: Record<string, number> = {}
+    const map: Record<string, CompRoomRow> = {}
     for (const r of booking.rooms) {
       if (r.unit_price === 0) {
-        map[r.room_type] = (map[r.room_type] ?? 0) + r.qty
+        map[r.room_type] = {
+          qty: (map[r.room_type]?.qty ?? 0) + r.qty,
+          room_numbers: [...(map[r.room_type]?.room_numbers ?? []), ...(r.room_numbers ?? [])],
+        }
       }
     }
     return map
@@ -105,7 +110,7 @@ export function BookingActions({ booking, holidayDates, inventory, bookedRoomNum
 
   const [roomQtys,     setRoomQtys]     = useState<Record<string, RoomQty>>(initialRooms)
   const [roomNums,     setRoomNums]     = useState<Record<string, string[]>>(initialNums)
-  const [compRoomQtys, setCompRoomQtys] = useState<Record<string, number>>(initialCompRooms)
+  const [compRoomData, setCompRoomData] = useState<Record<string, CompRoomRow>>(initialCompRooms)
   const [extraItems, setExtraItems] = useState<ExtraItem[]>(() => (booking as any).extra_items ?? [])
 
   // Available room types filtered by package type + has snapshot price
@@ -236,16 +241,16 @@ export function BookingActions({ booking, holidayDates, inventory, bookedRoomNum
         unit_price:   r.unit_price,
         room_numbers: roomNums[rt] ?? [],
       }))
-      // Complimentary rooms (daylong only, unit_price=0)
+      // Complimentary rooms (daylong only, unit_price=0) — with room_numbers
       const compRooms = booking.package_type === 'daylong'
-        ? Object.entries(compRoomQtys)
-            .filter(([, qty]) => qty > 0)
-            .map(([rt, qty]) => ({
+        ? Object.entries(compRoomData)
+            .filter(([, row]) => row.qty > 0)
+            .map(([rt, row]) => ({
               room_type:    rt as RoomType,
               display_name: ROOM_LABELS[rt as RoomType] ?? rt,
-              qty,
+              qty:          row.qty,
               unit_price:   0,
-              room_numbers: [] as string[],
+              room_numbers: row.room_numbers.slice(0, row.qty),
             }))
         : []
       const rooms = [...paidRooms, ...compRooms]
@@ -462,53 +467,128 @@ export function BookingActions({ booking, holidayDates, inventory, bookedRoomNum
           </div>
 
           {/* Complimentary Rooms (daylong only) */}
-          {booking.package_type === 'daylong' && (
-            <div>
-              <h5 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-3">Complimentary Rooms</h5>
-              <p className="text-xs text-gray-400 italic mb-2">Rooms at no charge — won't affect totals.</p>
-              <div className="space-y-2">
-                {availableRooms.map((inv) => {
-                  const qty = compRoomQtys[inv.room_type] ?? 0
-                  return (
-                    <div
-                      key={inv.room_type}
-                      className={`rounded-lg border px-4 py-2.5 transition-colors ${
-                        qty > 0 ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200 bg-gray-50'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-medium text-gray-800">{inv.display_name}</p>
-                          <p className="text-xs text-emerald-600 font-medium">Complimentary · Free</p>
+          {booking.package_type === 'daylong' && (() => {
+            // Build locally-taken set from paid rooms (each comp row also excludes others)
+            const locallyTakenByPaid = new Set<string>()
+            for (const nums of Object.values(roomNums)) {
+              for (const n of nums) locallyTakenByPaid.add(n)
+            }
+            return (
+              <div>
+                <h5 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-3">Complimentary Rooms</h5>
+                <p className="text-xs text-gray-400 italic mb-2">Rooms at no charge — won't affect totals.</p>
+                <div className="space-y-2">
+                  {availableRooms.map((inv) => {
+                    const row = compRoomData[inv.room_type] ?? { qty: 0, room_numbers: [] }
+                    const qty = row.qty
+                    const fixedNums = ROOM_NUMBERS[inv.room_type as RoomType] ?? []
+                    const selectedNums = row.room_numbers
+
+                    // Other comp rows' numbers (exclude this row's own)
+                    const otherCompTaken = new Set<string>()
+                    for (const [rt, r] of Object.entries(compRoomData)) {
+                      if (rt !== inv.room_type) {
+                        for (const n of r.room_numbers) otherCompTaken.add(n)
+                      }
+                    }
+
+                    return (
+                      <div
+                        key={inv.room_type}
+                        className={`rounded-lg border px-4 py-2.5 transition-colors ${
+                          qty > 0 ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200 bg-gray-50'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-gray-800">{inv.display_name}</p>
+                            <p className="text-xs text-emerald-600 font-medium">Complimentary · Free</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => setCompRoomData((prev) => {
+                                const next = { ...prev }
+                                const cur = prev[inv.room_type] ?? { qty: 0, room_numbers: [] }
+                                const newQty = Math.max(0, cur.qty - 1)
+                                if (newQty === 0) delete next[inv.room_type]
+                                else next[inv.room_type] = { qty: newQty, room_numbers: cur.room_numbers.slice(0, newQty) }
+                                return next
+                              })}
+                              disabled={qty === 0}
+                              className="flex h-7 w-7 items-center justify-center rounded-full border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-30"
+                            >
+                              <Minus size={13} />
+                            </button>
+                            <span className={`w-5 text-center text-sm font-semibold tabular-nums ${qty > 0 ? 'text-emerald-700' : 'text-gray-500'}`}>{qty}</span>
+                            <button
+                              onClick={() => setCompRoomData((prev) => {
+                                const cur = prev[inv.room_type] ?? { qty: 0, room_numbers: [] }
+                                return { ...prev, [inv.room_type]: { qty: cur.qty + 1, room_numbers: cur.room_numbers } }
+                              })}
+                              className="flex h-7 w-7 items-center justify-center rounded-full border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                            >
+                              <Plus size={13} />
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => setCompRoomQtys((prev) => {
-                              const next = { ...prev }
-                              if (qty <= 1) delete next[inv.room_type]
-                              else next[inv.room_type] = qty - 1
-                              return next
-                            })}
-                            disabled={qty === 0}
-                            className="flex h-7 w-7 items-center justify-center rounded-full border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-30"
-                          >
-                            <Minus size={13} />
-                          </button>
-                          <span className={`w-5 text-center text-sm font-semibold tabular-nums ${qty > 0 ? 'text-emerald-700' : 'text-gray-500'}`}>{qty}</span>
-                          <button
-                            onClick={() => setCompRoomQtys((prev) => ({ ...prev, [inv.room_type]: qty + 1 }))}
-                            className="flex h-7 w-7 items-center justify-center rounded-full border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                          >
-                            <Plus size={13} />
-                          </button>
-                        </div>
+
+                        {/* Room number picker for comp rows with fixed numbers */}
+                        {qty > 0 && fixedNums.length > 0 && (
+                          <div className="mt-3 pt-2 border-t border-emerald-200">
+                            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-2">
+                              Room Numbers — select {qty}
+                            </p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {fixedNums.map((num) => {
+                                const isPickedHere = selectedNums.includes(num)
+                                const isTakenByBooked = bookedRoomNumbers.includes(num) && !isPickedHere
+                                const isTakenByLocalPaid = locallyTakenByPaid.has(num) && !isPickedHere
+                                const isTakenByOtherComp = otherCompTaken.has(num) && !isPickedHere
+                                const isTaken = isTakenByBooked || isTakenByLocalPaid || isTakenByOtherComp
+                                return (
+                                  <button
+                                    key={num}
+                                    onClick={() => !isTaken && setCompRoomData((prev) => {
+                                      const cur = prev[inv.room_type] ?? { qty: 0, room_numbers: [] }
+                                      let newNums: string[]
+                                      if (cur.room_numbers.includes(num)) {
+                                        newNums = cur.room_numbers.filter((n) => n !== num)
+                                      } else {
+                                        if (cur.room_numbers.length >= cur.qty) return prev
+                                        newNums = [...cur.room_numbers, num]
+                                      }
+                                      return { ...prev, [inv.room_type]: { ...cur, room_numbers: newNums } }
+                                    })}
+                                    disabled={isTaken}
+                                    title={isTakenByBooked ? `Room ${num} is booked by another booking` : isTakenByLocalPaid ? `Room ${num} is assigned to a paid row here` : isTakenByOtherComp ? `Room ${num} is assigned to another comp row` : undefined}
+                                    className={[
+                                      'rounded-md border px-2.5 py-1 text-xs font-mono font-semibold transition-colors',
+                                      isPickedHere
+                                        ? 'border-emerald-500 bg-emerald-600 text-white'
+                                        : isTaken
+                                        ? 'border-gray-200 bg-gray-100 text-gray-300 cursor-not-allowed'
+                                        : 'border-gray-300 bg-white text-gray-700 hover:border-emerald-400 hover:bg-emerald-50',
+                                    ].join(' ')}
+                                  >
+                                    {num}
+                                  </button>
+                                )
+                              })}
+                            </div>
+                            {selectedNums.length < qty && (
+                              <p className="mt-1.5 text-[10px] text-amber-600">
+                                Select {qty - selectedNums.length} more room{qty - selectedNums.length !== 1 ? 's' : ''}
+                              </p>
+                            )}
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  )
-                })}
+                    )
+                  })}
+                </div>
               </div>
-            </div>
-          )}
+            )
+          })()}
 
           {/* Guests */}
           <div>

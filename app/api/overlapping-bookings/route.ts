@@ -49,10 +49,10 @@ export async function GET(req: NextRequest) {
       const bEnd   = b.check_out_date ?? nextDay(b.visit_date)
       // Overlap: [aStart, aEnd) ∩ [bStart, bEnd) ≠ ∅
       if (aStart < bEnd && bStart < aEnd) {
-        // Fetch rooms for this booking
+        // Fetch rooms for this booking (include id + unit_price so client can distinguish paid/comp rows)
         const { data: rooms } = await db
           .from('booking_rooms')
-          .select('room_type, qty, room_numbers')
+          .select('id, room_type, qty, unit_price, room_numbers')
           .eq('booking_id', b.id)
 
         overlapping.push({
