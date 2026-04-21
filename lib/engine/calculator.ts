@@ -159,9 +159,10 @@ export function calculateDaylong(inputs: DaylongInputs): CalculationResult {
   const { rate: adultRate, used: adultRateUsed } = resolveAdultRate(date, packageRates, holidayDates)
   const lineItems: LineItem[] = []
 
-  // Room charges
+  // Room charges — skip complimentary rooms (unit_price === 0)
   for (const room of rooms) {
     if (room.qty <= 0) continue
+    if (room.unit_price === 0) continue  // complimentary — excluded from billing
     lineItems.push({
       label:      `${room.display_name} × ${room.qty}`,
       qty:        room.qty,

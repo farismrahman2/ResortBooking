@@ -48,6 +48,15 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
   const [extraItems,           setExtraItems]           = useState<ExtraItem[]>(initialExtraItems ?? [])
   const [roomAvailableAfterNoon, setRoomAvailableAfterNoon] = useState(false)
 
+  // Separate complimentary rooms (unit_price=0) from paid rooms in initialValues
+  // so RoomSelector only sees paid rooms
+  const paidInitialRooms = ((initialValues?.rooms ?? []) as RoomSelection[]).filter((r) => r.unit_price > 0)
+  const compInitialQtys: Record<string, number> = {}
+  for (const r of (initialValues?.rooms ?? []) as RoomSelection[]) {
+    if (r.unit_price === 0) compInitialQtys[r.room_type] = (compInitialQtys[r.room_type] ?? 0) + r.qty
+  }
+  const [compRoomQtys, setCompRoomQtys] = useState<Record<string, number>>(compInitialQtys)
+
   const {
     register,
     handleSubmit,
@@ -70,14 +79,14 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
       children_free:       0,
       drivers:             0,
       extra_beds:          0,
-      rooms:               [],
       discount:            0,
       discount_pct:        0,
       service_charge_pct:  0,
       advance_required:    0,
       advance_paid:        0,
       extra_items:         [],
-      ...initialValues,
+      // Spread initialValues last; rooms always overridden to paid-only list
+      ...{ ...initialValues, rooms: paidInitialRooms },
     },
   })
 
@@ -211,11 +220,29 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
   }, [visitDate, checkOutDate])
 
 
+  // Helper: build comp room selections for submission
+  function buildCompRoomSelections(): RoomSelection[] {
+    return Object.entries(compRoomQtys)
+      .filter(([, qty]) => qty > 0)
+      .map(([room_type, qty]) => ({
+        room_type,
+        display_name: rooms.find((r) => r.room_type === room_type)?.display_name ?? room_type,
+        qty,
+        unit_price: 0,
+      }))
+  }
+
   async function onSubmit(data: CreateQuoteInput) {
     setSubmitting(true)
     setErrorMsg(null)
     try {
-      const payload = { ...data, extra_items: extraItems }
+      // Merge paid rooms (from react-hook-form) with complimentary rooms
+      // Ensure room_numbers is always an array (RoomSelection has it optional)
+      const allRooms = [...data.rooms, ...buildCompRoomSelections()].map((r) => ({
+        ...r,
+        room_numbers: r.room_numbers ?? [],
+      }))
+      const payload = { ...data, extra_items: extraItems, rooms: allRooms }
       if (isEditMode) {
         const result = await updateQuote(quoteId!, payload)
         if (result.success) {
@@ -254,18 +281,32 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
 
   const currentRooms = (watchedValues.rooms ?? []) as RoomSelection[]
 
+  // All rooms including complimentary — used for WhatsApp preview and noon-notice check
+  const allRoomsWithComp: RoomSelection[] = [
+    ...currentRooms,
+    ...Object.entries(compRoomQtys)
+      .filter(([, qty]) => qty > 0)
+      .map(([room_type, qty]) => ({
+        room_type,
+        display_name: rooms.find((r) => r.room_type === room_type)?.display_name ?? room_type,
+        qty,
+        unit_price: 0,
+      })),
+  ]
+
   // Check if any selected rooms have a night stay checking out on the visit date (daylong only)
   useEffect(() => {
-    if (packageType !== 'daylong' || !visitDate || currentRooms.length === 0) {
+    if (packageType !== 'daylong' || !visitDate || allRoomsWithComp.length === 0) {
       setRoomAvailableAfterNoon(false)
       return
     }
-    const roomTypes = currentRooms.map((r) => r.room_type).join(',')
+    const roomTypes = allRoomsWithComp.map((r) => r.room_type).join(',')
     fetch(`/api/room-noon-notice?visitDate=${visitDate}&roomTypes=${roomTypes}`)
       .then((r) => r.json())
       .then((d) => setRoomAvailableAfterNoon(d.hasConflict ?? false))
       .catch(() => setRoomAvailableAfterNoon(false))
-  }, [packageType, visitDate, currentRooms])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [packageType, visitDate, currentRooms, compRoomQtys])
 
   const dayBadge = dayType ? DAY_LABELS[dayType] : null
 
@@ -393,6 +434,70 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
             </p>
           )}
         </FormSection>
+
+        {/* SECTION: Complimentary Rooms (daylong only) */}
+        {packageType === 'daylong' && selectedPackage && (
+          <FormSection title="Complimentary Rooms">
+            <p className="text-xs text-gray-500 -mt-1">
+              Rooms provided at no extra charge. Won't affect the total cost. Daylong packages only.
+            </p>
+            <div className="space-y-2">
+              {rooms
+                .filter((inv) => {
+                  // Only show rooms that have a price in this package (so we know the type exists)
+                  const price = selectedPackage.room_prices.find((p) => p.room_type === inv.room_type)?.price
+                  return price !== undefined
+                })
+                .map((inv) => {
+                  const qty = compRoomQtys[inv.room_type] ?? 0
+                  return (
+                    <div
+                      key={inv.room_type}
+                      className={`rounded-lg border px-4 py-3 transition-colors ${
+                        qty > 0 ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200 bg-white'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">{inv.display_name}</p>
+                          <p className="text-xs text-emerald-600 font-medium">Complimentary · Free</p>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            disabled={qty <= 0}
+                            onClick={() => setCompRoomQtys((prev) => {
+                              const next = { ...prev }
+                              if (qty <= 1) delete next[inv.room_type]
+                              else next[inv.room_type] = qty - 1
+                              return next
+                            })}
+                            className={`h-7 w-7 rounded border flex items-center justify-center text-sm font-medium transition-colors ${
+                              qty > 0
+                                ? 'border-emerald-400 bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                                : 'border-gray-200 bg-gray-50 text-gray-300 cursor-not-allowed'
+                            }`}
+                          >
+                            −
+                          </button>
+                          <span className={`w-8 text-center text-sm font-semibold tabular-nums ${qty > 0 ? 'text-emerald-700' : 'text-gray-600'}`}>
+                            {qty}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setCompRoomQtys((prev) => ({ ...prev, [inv.room_type]: qty + 1 }))}
+                            className="h-7 w-7 rounded border border-emerald-400 bg-emerald-100 text-emerald-700 hover:bg-emerald-200 flex items-center justify-center text-sm font-medium transition-colors"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+            </div>
+          </FormSection>
+        )}
 
         {/* SECTION: Guests */}
         <FormSection title="Guests">
@@ -646,7 +751,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
               checkOutDate={checkOutDate ?? null}
               checkIn={selectedPackage.check_in}
               checkOut={selectedPackage.check_out}
-              rooms={currentRooms}
+              rooms={allRoomsWithComp}
               calcResult={calcResult}
               mealsText={selectedPackage.meals}
               notesText={selectedPackage.notes}
@@ -718,14 +823,21 @@ function WhatsAppPreview({
       ? formatDateRange(visitDate, checkOutDate)
       : formatDate(visitDate)
 
-  const roomLines = rooms
-    .filter((r) => r.qty > 0)
+  // Split paid vs complimentary rooms for preview
+  const paidRoomsPreview = rooms.filter((r) => r.qty > 0 && r.unit_price > 0)
+  const compRoomsPreview = rooms.filter((r) => r.qty > 0 && r.unit_price === 0)
+
+  const roomLines = paidRoomsPreview
     .map((r) => {
       const n = calcResult.nights
       return n
         ? `${r.display_name} × ${r.qty}: ${formatBDT(r.unit_price)}/rm × ${n}N = ${formatBDT(r.qty * r.unit_price * n)}`
         : `${r.display_name} × ${r.qty}: ${formatBDT(r.unit_price)}/rm = ${formatBDT(r.qty * r.unit_price)}`
     })
+    .join('\n')
+
+  const compRoomLines = compRoomsPreview
+    .map((r) => `${r.display_name} × ${r.qty}: Complimentary`)
     .join('\n')
 
   const pricingLines = calcResult.line_items
@@ -747,7 +859,8 @@ function WhatsAppPreview({
     `🕐 *Check-in:* ${checkIn}  |  *Check-out:* ${checkOut}`,
     SEP,
     '🏨 *ROOMS*',
-    roomLines || '  (no rooms selected)',
+    roomLines || (compRoomsPreview.length > 0 ? '  (no paid rooms)' : '  (no rooms selected)'),
+    ...(compRoomsPreview.length > 0 ? [``, `🎁 *COMPLIMENTARY ROOMS*`, compRoomLines] : []),
     ...(roomAvailableAfterNoon ? ['⚠️ *Note:* Room will be available after 12:00 PM (previous guest checking out)'] : []),
     SEP,
     '💰 *PRICING BREAKDOWN*',

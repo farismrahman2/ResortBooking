@@ -175,7 +175,7 @@ export default async function BookingDetailPage({ params }: PageProps) {
                   <p className="text-sm text-gray-400">No rooms recorded</p>
                 ) : (
                   booking.rooms.map((r) => {
-                    const snapshotPrice = snap.room_prices?.[r.room_type] ?? r.unit_price
+                    const isComp = r.unit_price === 0
                     const nights = booking.nights ?? 1
                     const subtotal =
                       booking.package_type === 'night'
@@ -184,21 +184,36 @@ export default async function BookingDetailPage({ params }: PageProps) {
                     return (
                       <div
                         key={r.id}
-                        className="rounded-lg border border-gray-100 bg-gray-50 px-4 py-2"
+                        className={`rounded-lg border px-4 py-2 ${
+                          isComp ? 'border-emerald-100 bg-emerald-50' : 'border-gray-100 bg-gray-50'
+                        }`}
                       >
                         <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium text-gray-800">
-                            {ROOM_LABELS[r.room_type] ?? r.room_type.replace(/_/g, ' ')}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-gray-800">
+                              {ROOM_LABELS[r.room_type] ?? r.room_type.replace(/_/g, ' ')}
+                            </span>
+                            {isComp && (
+                              <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                🎁 Complimentary
+                              </span>
+                            )}
+                          </div>
                           <div className="flex items-center gap-4 text-sm text-gray-600">
                             <span>×{r.qty}</span>
-                            <span className="font-mono">{formatBDT(r.unit_price)}/rm</span>
-                            {booking.nights && (
-                              <span className="text-xs text-gray-400">×{booking.nights}N</span>
+                            {isComp ? (
+                              <span className="font-semibold text-emerald-600">Free</span>
+                            ) : (
+                              <>
+                                <span className="font-mono">{formatBDT(r.unit_price)}/rm</span>
+                                {booking.nights && (
+                                  <span className="text-xs text-gray-400">×{booking.nights}N</span>
+                                )}
+                                <span className="font-semibold text-gray-900 font-mono">
+                                  {formatBDT(subtotal)}
+                                </span>
+                              </>
                             )}
-                            <span className="font-semibold text-gray-900 font-mono">
-                              {formatBDT(subtotal)}
-                            </span>
                           </div>
                         </div>
                         {r.room_numbers && r.room_numbers.length > 0 && (

@@ -176,26 +176,44 @@ export default async function QuoteDetailPage({ params }: PageProps) {
                 {quote.rooms.length === 0 ? (
                   <p className="text-sm text-gray-400">No rooms recorded</p>
                 ) : (
-                  quote.rooms.map((r) => (
-                    <div
-                      key={r.id}
-                      className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-4 py-2"
-                    >
-                      <span className="text-sm font-medium text-gray-800 capitalize">
-                        {r.room_type.replace(/_/g, ' ')}
-                      </span>
-                      <div className="flex items-center gap-4 text-sm text-gray-600">
-                        <span>×{r.qty}</span>
-                        <span className="font-mono">{formatBDT(r.unit_price)}/rm</span>
-                        {quote.nights && (
-                          <span className="text-xs text-gray-400">×{quote.nights}N</span>
-                        )}
-                        <span className="font-semibold text-gray-900 font-mono">
-                          {formatBDT(r.unit_price * r.qty * (quote.nights ?? 1))}
-                        </span>
+                  quote.rooms.map((r) => {
+                    const isComp = r.unit_price === 0
+                    return (
+                      <div
+                        key={r.id}
+                        className={`flex items-center justify-between rounded-lg border px-4 py-2 ${
+                          isComp ? 'border-emerald-100 bg-emerald-50' : 'border-gray-100 bg-gray-50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-gray-800 capitalize">
+                            {r.room_type.replace(/_/g, ' ')}
+                          </span>
+                          {isComp && (
+                            <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                              🎁 Complimentary
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-4 text-sm text-gray-600">
+                          <span>×{r.qty}</span>
+                          {isComp ? (
+                            <span className="font-semibold text-emerald-600">Free</span>
+                          ) : (
+                            <>
+                              <span className="font-mono">{formatBDT(r.unit_price)}/rm</span>
+                              {quote.nights && (
+                                <span className="text-xs text-gray-400">×{quote.nights}N</span>
+                              )}
+                              <span className="font-semibold text-gray-900 font-mono">
+                                {formatBDT(r.unit_price * r.qty * (quote.nights ?? 1))}
+                              </span>
+                            </>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    )
+                  })
                 )}
               </div>
             </Card>

@@ -75,7 +75,9 @@ export function BookingActions({ booking, holidayDates, inventory, bookedRoomNum
   const initialRooms = useMemo(() => {
     const map: Record<string, RoomQty> = {}
     for (const r of booking.rooms) {
-      map[r.room_type] = { qty: r.qty, unit_price: r.unit_price, display_name: ROOM_LABELS[r.room_type] ?? r.room_type }
+      if (r.unit_price > 0) {
+        map[r.room_type] = { qty: r.qty, unit_price: r.unit_price, display_name: ROOM_LABELS[r.room_type] ?? r.room_type }
+      }
     }
     return map
   }, [booking.rooms])
@@ -83,13 +85,27 @@ export function BookingActions({ booking, holidayDates, inventory, bookedRoomNum
   const initialNums = useMemo(() => {
     const map: Record<string, string[]> = {}
     for (const r of booking.rooms) {
-      map[r.room_type] = r.room_numbers ?? []
+      if (r.unit_price > 0) {
+        map[r.room_type] = r.room_numbers ?? []
+      }
     }
     return map
   }, [booking.rooms])
 
-  const [roomQtys, setRoomQtys] = useState<Record<string, RoomQty>>(initialRooms)
-  const [roomNums, setRoomNums] = useState<Record<string, string[]>>(initialNums)
+  // Complimentary rooms (unit_price === 0) — daylong only
+  const initialCompRooms = useMemo(() => {
+    const map: Record<string, number> = {}
+    for (const r of booking.rooms) {
+      if (r.unit_price === 0) {
+        map[r.room_type] = (map[r.room_type] ?? 0) + r.qty
+      }
+    }
+    return map
+  }, [booking.rooms])
+
+  const [roomQtys,     setRoomQtys]     = useState<Record<string, RoomQty>>(initialRooms)
+  const [roomNums,     setRoomNums]     = useState<Record<string, string[]>>(initialNums)
+  const [compRoomQtys, setCompRoomQtys] = useState<Record<string, number>>(initialCompRooms)
   const [extraItems, setExtraItems] = useState<ExtraItem[]>(() => (booking as any).extra_items ?? [])
 
   // Available room types filtered by package type + has snapshot price
@@ -212,13 +228,27 @@ export function BookingActions({ booking, holidayDates, inventory, bookedRoomNum
     }
     setEditLoading(true); setEditError(null)
     try {
-      const rooms = Object.entries(roomQtys).map(([rt, r]) => ({
+      // Paid rooms
+      const paidRooms = Object.entries(roomQtys).map(([rt, r]) => ({
         room_type:    rt as RoomType,
         display_name: r.display_name,
         qty:          r.qty,
         unit_price:   r.unit_price,
         room_numbers: roomNums[rt] ?? [],
       }))
+      // Complimentary rooms (daylong only, unit_price=0)
+      const compRooms = booking.package_type === 'daylong'
+        ? Object.entries(compRoomQtys)
+            .filter(([, qty]) => qty > 0)
+            .map(([rt, qty]) => ({
+              room_type:    rt as RoomType,
+              display_name: ROOM_LABELS[rt as RoomType] ?? rt,
+              qty,
+              unit_price:   0,
+              room_numbers: [] as string[],
+            }))
+        : []
+      const rooms = [...paidRooms, ...compRooms]
       const result = await updateBooking(booking.id, {
         customer_name:      customerName.trim(),
         customer_phone:     customerPhone.trim(),
@@ -430,6 +460,55 @@ export function BookingActions({ booking, holidayDates, inventory, bookedRoomNum
               })}
             </div>
           </div>
+
+          {/* Complimentary Rooms (daylong only) */}
+          {booking.package_type === 'daylong' && (
+            <div>
+              <h5 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-3">Complimentary Rooms</h5>
+              <p className="text-xs text-gray-400 italic mb-2">Rooms at no charge — won't affect totals.</p>
+              <div className="space-y-2">
+                {availableRooms.map((inv) => {
+                  const qty = compRoomQtys[inv.room_type] ?? 0
+                  return (
+                    <div
+                      key={inv.room_type}
+                      className={`rounded-lg border px-4 py-2.5 transition-colors ${
+                        qty > 0 ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200 bg-gray-50'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-gray-800">{inv.display_name}</p>
+                          <p className="text-xs text-emerald-600 font-medium">Complimentary · Free</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setCompRoomQtys((prev) => {
+                              const next = { ...prev }
+                              if (qty <= 1) delete next[inv.room_type]
+                              else next[inv.room_type] = qty - 1
+                              return next
+                            })}
+                            disabled={qty === 0}
+                            className="flex h-7 w-7 items-center justify-center rounded-full border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-30"
+                          >
+                            <Minus size={13} />
+                          </button>
+                          <span className={`w-5 text-center text-sm font-semibold tabular-nums ${qty > 0 ? 'text-emerald-700' : 'text-gray-500'}`}>{qty}</span>
+                          <button
+                            onClick={() => setCompRoomQtys((prev) => ({ ...prev, [inv.room_type]: qty + 1 }))}
+                            className="flex h-7 w-7 items-center justify-center rounded-full border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                          >
+                            <Plus size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Guests */}
           <div>

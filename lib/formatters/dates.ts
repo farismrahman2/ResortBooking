@@ -3,11 +3,13 @@
  */
 
 /**
- * Format a date string or Date to 'DD Mon YYYY' (e.g. '14 Apr 2025')
+ * Format a date string or Date to 'Weekday, DD Mon YYYY' (e.g. 'Saturday, 11 Apr 2026')
  */
 export function formatDate(date: string | Date): string {
   const d = typeof date === 'string' ? new Date(date + 'T00:00:00') : date
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  const weekday  = d.toLocaleDateString('en-GB', { weekday: 'long' })
+  const datePart = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  return `${weekday}, ${datePart}`
 }
 
 /**

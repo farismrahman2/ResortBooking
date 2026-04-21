@@ -65,13 +65,21 @@ export function formatWhatsApp(p: WhatsAppParams): string {
     dateLine = formatDate(p.visitDate)
   }
 
-  // Rooms
-  const roomLines = p.rooms
-    .filter((r) => r.qty > 0)
+  // Split rooms into paid and complimentary
+  const paidRooms = p.rooms.filter((r) => r.qty > 0 && r.unit_price > 0)
+  const compRooms = p.rooms.filter((r) => r.qty > 0 && r.unit_price === 0)
+
+  // Paid room lines
+  const roomLines = paidRooms
     .map((r) => {
       const base = `${r.display_name} × ${r.qty}: ${formatBDT(r.unit_price)}/room`
       return r.nights ? `${base} × ${r.nights} nights = ${formatBDT(r.qty * r.unit_price * r.nights)}` : `${base} = ${formatBDT(r.qty * r.unit_price)}`
     })
+    .join('\n')
+
+  // Complimentary room lines
+  const compRoomLines = compRooms
+    .map((r) => `${r.display_name} × ${r.qty}: Complimentary`)
     .join('\n')
 
   // Guest summary
@@ -103,7 +111,8 @@ export function formatWhatsApp(p: WhatsAppParams): string {
     `🕐 *Check-in:* ${p.checkIn}  |  *Check-out:* ${p.checkOut}`,
     SEP,
     `🏨 *ROOMS*`,
-    roomLines || '  (no rooms selected)',
+    roomLines || (compRooms.length > 0 ? '  (no paid rooms)' : '  (no rooms selected)'),
+    ...(compRooms.length > 0 ? [``, `🎁 *COMPLIMENTARY ROOMS*`, compRoomLines] : []),
     ...(p.roomAvailableAfterNoon ? [`⚠️ *Note:* Room will be available after 12:00 PM (previous guest checking out)`] : []),
     SEP,
     `👥 *GUESTS*`,
