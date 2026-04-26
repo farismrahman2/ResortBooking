@@ -23,22 +23,32 @@ import type { PaymentMethod } from '@/lib/supabase/types'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+/**
+ * Audit-log helper. Best-effort: a missing or misconfigured `history_log`
+ * table must NOT take down the user-facing operation. We log the error and
+ * swallow it so create/update/delete actions still succeed.
+ */
 async function logHistory(
   entityId: string,
   event: 'created' | 'edited',
   action: string,
   payload: Record<string, unknown> = {},
 ) {
-  const supabase = createClient()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db = supabase as any
-  await db.from('history_log').insert({
-    entity_type: 'expense',
-    entity_id:   entityId,
-    event,
-    actor:       'system',
-    payload:     { action, ...payload },
-  })
+  try {
+    const supabase = createClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = supabase as any
+    const { error } = await db.from('history_log').insert({
+      entity_type: 'expense',
+      entity_id:   entityId,
+      event,
+      actor:       'system',
+      payload:     { action, ...payload },
+    })
+    if (error) console.warn(`[history_log] non-fatal: ${error.message}`)
+  } catch (err) {
+    console.warn(`[history_log] non-fatal:`, err)
+  }
 }
 
 async function currentUserId(): Promise<string | null> {
