@@ -1,15 +1,16 @@
 'use client'
 
-import { useState, useMemo, useTransition } from 'react'
+import { useState, useMemo, useTransition, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2, FolderPlus, UserPlus } from 'lucide-react'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { NumberInput } from '@/components/ui/NumberInput'
-import { Textarea } from '@/components/ui/Textarea'
 import { Button } from '@/components/ui/Button'
 import { createDailyExpenses } from '@/lib/actions/expenses'
 import { PAYMENT_METHOD_OPTIONS, CATEGORY_GROUP_BADGE } from '@/components/expenses/labels'
+import { QuickAddCategoryModal } from '@/components/expenses/QuickAddCategoryModal'
+import { QuickAddPayeeModal } from '@/components/expenses/QuickAddPayeeModal'
 import { formatBDT } from '@/lib/formatters/currency'
 import { toISODate } from '@/lib/formatters/dates'
 import type {
@@ -45,6 +46,13 @@ export function DailyExpenseGrid({ categories, payees, defaultDate }: DailyExpen
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash')
   const [notes,         setNotes]         = useState('')
 
+  // Local state for categories & payees so the quick-add modals can append items
+  // mid-session without a full page reload.
+  const [localCategories, setLocalCategories] = useState<ExpenseCategoryRow[]>(categories)
+  const [localPayees,     setLocalPayees]     = useState<ExpensePayeeRow[]>(payees)
+  const [quickCategoryOpen, setQuickCategoryOpen] = useState(false)
+  const [quickPayeeOpen,    setQuickPayeeOpen]    = useState(false)
+
   // Initialize one line per category in display_order
   const [lines, setLines] = useState<GridLine[]>(() =>
     categories.map((c, i) => ({
@@ -55,6 +63,42 @@ export function DailyExpenseGrid({ categories, payees, defaultDate }: DailyExpen
       amount:      0,
     })),
   )
+
+  // When the user adds a new category mid-session, automatically add a starter line for it.
+  useEffect(() => {
+    setLines((prev) => {
+      const known = new Set(prev.map((l) => l.category_id))
+      const additions: GridLine[] = []
+      for (const c of localCategories) {
+        if (!known.has(c.id)) {
+          additions.push({
+            key:         `${c.id}-added-${Date.now()}`,
+            category_id: c.id,
+            payee_id:    null,
+            description: '',
+            amount:      0,
+          })
+        }
+      }
+      return additions.length > 0 ? [...prev, ...additions] : prev
+    })
+  }, [localCategories])
+
+  function handleCategoryCreated(newCat: ExpenseCategoryRow) {
+    setLocalCategories((prev) => {
+      const next = [...prev, newCat]
+      next.sort((a, b) => a.display_order - b.display_order || a.name.localeCompare(b.name))
+      return next
+    })
+  }
+
+  function handlePayeeCreated(newPayee: ExpensePayeeRow) {
+    setLocalPayees((prev) => {
+      const next = [...prev, newPayee]
+      next.sort((a, b) => a.display_order - b.display_order || a.name.localeCompare(b.name))
+      return next
+    })
+  }
 
   const dayTotal = useMemo(
     () => lines.reduce((sum, l) => sum + (Number.isFinite(l.amount) ? l.amount : 0), 0),
@@ -75,11 +119,11 @@ export function DailyExpenseGrid({ categories, payees, defaultDate }: DailyExpen
     }
     const wantedType = lookup[slug]
     if (!wantedType) return null
-    return payees.find((p) => p.payee_type === wantedType)?.id ?? null
+    return localPayees.find((p) => p.payee_type === wantedType)?.id ?? null
   }
 
   function addRow(categoryId: string) {
-    const cat = categories.find((c) => c.id === categoryId)
+    const cat = localCategories.find((c) => c.id === categoryId)
     setLines((prev) => [
       ...prev,
       {
@@ -113,7 +157,7 @@ export function DailyExpenseGrid({ categories, payees, defaultDate }: DailyExpen
     // because they vary by category)
     const errors: string[] = []
     for (const l of submittable) {
-      const cat = categories.find((c) => c.id === l.category_id)
+      const cat = localCategories.find((c) => c.id === l.category_id)
       if (!cat) continue
       if (cat.requires_payee && !l.payee_id) {
         errors.push(`${cat.name}: payee is required`)
@@ -182,14 +226,35 @@ export function DailyExpenseGrid({ categories, payees, defaultDate }: DailyExpen
         />
       </div>
 
+      {/* Quick-add row: append a new category or payee mid-session */}
+      <div className="flex flex-wrap items-center justify-end gap-2 rounded-lg border border-dashed border-gray-300 bg-gray-50 px-3 py-2">
+        <span className="text-xs text-gray-500 mr-auto">Need a new bucket or vendor?</span>
+        <button
+          type="button"
+          onClick={() => setQuickCategoryOpen(true)}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-forest-300 bg-white px-3 py-1.5 text-xs font-medium text-forest-700 hover:bg-forest-50 transition-colors"
+        >
+          <FolderPlus size={12} />
+          Add Category
+        </button>
+        <button
+          type="button"
+          onClick={() => setQuickPayeeOpen(true)}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-forest-300 bg-white px-3 py-1.5 text-xs font-medium text-forest-700 hover:bg-forest-50 transition-colors"
+        >
+          <UserPlus size={12} />
+          Add Payee
+        </button>
+      </div>
+
       {/* Grid — one card per category, with possibly multiple lines for misc-style categories */}
       <div className="space-y-3">
-        {categories.map((cat) => {
+        {localCategories.map((cat) => {
           const catLines = lines.filter((l) => l.category_id === cat.id)
           const subtotal = catLines.reduce((s, l) => s + (Number.isFinite(l.amount) ? l.amount : 0), 0)
           const filteredPayees = cat.requires_payee
-            ? payees   // show all and let user pick — display_order keeps suppliers/contractors useful
-            : payees
+            ? localPayees   // show all and let user pick — display_order keeps suppliers/contractors useful
+            : localPayees
 
           return (
             <div key={cat.id} className="rounded-xl border border-gray-200 bg-white p-4">
@@ -300,6 +365,17 @@ export function DailyExpenseGrid({ categories, payees, defaultDate }: DailyExpen
           Save All ({lines.filter((l) => l.amount > 0).length} lines)
         </Button>
       </div>
+
+      <QuickAddCategoryModal
+        open={quickCategoryOpen}
+        onClose={() => setQuickCategoryOpen(false)}
+        onCreated={handleCategoryCreated}
+      />
+      <QuickAddPayeeModal
+        open={quickPayeeOpen}
+        onClose={() => setQuickPayeeOpen(false)}
+        onCreated={handlePayeeCreated}
+      />
     </div>
   )
 }

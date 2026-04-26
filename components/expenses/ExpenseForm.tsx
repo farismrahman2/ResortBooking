@@ -4,6 +4,7 @@ import { useState, useTransition, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
+import { Plus } from 'lucide-react'
 import { Input } from '@/components/ui/Input'
 import { NumberInput } from '@/components/ui/NumberInput'
 import { Select } from '@/components/ui/Select'
@@ -12,6 +13,8 @@ import { Button } from '@/components/ui/Button'
 import { expenseFormSchema, type ExpenseFormInput } from '@/lib/validators/expense'
 import { createExpense, updateExpense } from '@/lib/actions/expenses'
 import { PAYMENT_METHOD_OPTIONS } from '@/components/expenses/labels'
+import { QuickAddCategoryModal } from '@/components/expenses/QuickAddCategoryModal'
+import { QuickAddPayeeModal } from '@/components/expenses/QuickAddPayeeModal'
 import { toISODate } from '@/lib/formatters/dates'
 import type { ExpenseCategoryRow, ExpensePayeeRow, ExpenseRowWithRefs } from '@/lib/supabase/types'
 
@@ -25,6 +28,13 @@ export function ExpenseForm({ categories, payees, existing }: ExpenseFormProps) 
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [error,   setError]        = useState<string | null>(null)
+
+  // Local state so quick-add can append new categories/payees without a page refresh.
+  // Initialised from props; the server `router.refresh()` keeps server data in sync after creation.
+  const [localCategories, setLocalCategories] = useState<ExpenseCategoryRow[]>(categories)
+  const [localPayees,     setLocalPayees]     = useState<ExpensePayeeRow[]>(payees)
+  const [quickCategoryOpen, setQuickCategoryOpen] = useState(false)
+  const [quickPayeeOpen,    setQuickPayeeOpen]    = useState(false)
 
   const isEdit = !!existing
 
@@ -60,9 +70,27 @@ export function ExpenseForm({ categories, payees, existing }: ExpenseFormProps) 
   const paymentMethod      = watch('payment_method')
 
   const selectedCategory = useMemo(
-    () => categories.find((c) => c.id === selectedCategoryId) ?? null,
-    [categories, selectedCategoryId],
+    () => localCategories.find((c) => c.id === selectedCategoryId) ?? null,
+    [localCategories, selectedCategoryId],
   )
+
+  function handleCategoryCreated(newCat: ExpenseCategoryRow) {
+    setLocalCategories((prev) => {
+      const next = [...prev, newCat]
+      next.sort((a, b) => a.display_order - b.display_order || a.name.localeCompare(b.name))
+      return next
+    })
+    setValue('category_id', newCat.id)
+  }
+
+  function handlePayeeCreated(newPayee: ExpensePayeeRow) {
+    setLocalPayees((prev) => {
+      const next = [...prev, newPayee]
+      next.sort((a, b) => a.display_order - b.display_order || a.name.localeCompare(b.name))
+      return next
+    })
+    setValue('payee_id', newPayee.id)
+  }
 
   // Description and payee fields are ALWAYS shown — only the label and required-flag change.
   // (Hiding them prevented users from adding optional notes/payees, which is a frequent need.)
@@ -112,43 +140,67 @@ export function ExpenseForm({ categories, payees, existing }: ExpenseFormProps) 
           {...register('expense_date')}
         />
 
-        <Controller
-          name="category_id"
-          control={control}
-          render={({ field }) => (
-            <Select
-              label="Category"
-              required
-              value={field.value ?? ''}
-              onChange={(e) => field.onChange(e.target.value)}
-              error={errors.category_id?.message}
-            >
-              <option value="">Select a category…</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </Select>
-          )}
-        />
+        <div className="flex items-end gap-2">
+          <div className="flex-1 min-w-0">
+            <Controller
+              name="category_id"
+              control={control}
+              render={({ field }) => (
+                <Select
+                  label="Category"
+                  required
+                  value={field.value ?? ''}
+                  onChange={(e) => field.onChange(e.target.value)}
+                  error={errors.category_id?.message}
+                >
+                  <option value="">Select a category…</option>
+                  {localCategories.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </Select>
+              )}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => setQuickCategoryOpen(true)}
+            title="Add new category"
+            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-forest-300 bg-forest-50 text-forest-700 hover:bg-forest-100 transition-colors"
+          >
+            <Plus size={14} />
+          </button>
+        </div>
       </div>
 
-      <Controller
-        name="payee_id"
-        control={control}
-        render={({ field }) => (
-          <Select
-            label={payeeRequired ? 'Payee (required)' : 'Payee (optional)'}
-            required={payeeRequired}
-            value={field.value ?? ''}
-            onChange={(e) => field.onChange(e.target.value || null)}
-          >
-            <option value="">No payee</option>
-            {payees.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </Select>
-        )}
-      />
+      <div className="flex items-end gap-2">
+        <div className="flex-1 min-w-0">
+          <Controller
+            name="payee_id"
+            control={control}
+            render={({ field }) => (
+              <Select
+                label={payeeRequired ? 'Payee (required)' : 'Payee (optional)'}
+                required={payeeRequired}
+                value={field.value ?? ''}
+                onChange={(e) => field.onChange(e.target.value || null)}
+              >
+                <option value="">No payee</option>
+                {localPayees.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </Select>
+            )}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => setQuickPayeeOpen(true)}
+          title="Add new payee"
+          className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-forest-300 bg-forest-50 text-forest-700 hover:bg-forest-100 transition-colors"
+        >
+          <Plus size={14} />
+        </button>
+      </div>
 
       <Input
         label={descriptionRequired ? 'Description (required)' : 'Description (optional)'}
@@ -228,6 +280,17 @@ export function ExpenseForm({ categories, payees, existing }: ExpenseFormProps) 
           {isEdit ? 'Save Changes' : 'Save Expense'}
         </Button>
       </div>
+
+      <QuickAddCategoryModal
+        open={quickCategoryOpen}
+        onClose={() => setQuickCategoryOpen(false)}
+        onCreated={handleCategoryCreated}
+      />
+      <QuickAddPayeeModal
+        open={quickPayeeOpen}
+        onClose={() => setQuickPayeeOpen(false)}
+        onCreated={handlePayeeCreated}
+      />
     </form>
   )
 }
