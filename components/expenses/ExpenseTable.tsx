@@ -3,6 +3,7 @@ import { Paperclip } from 'lucide-react'
 import { formatBDT } from '@/lib/formatters/currency'
 import { formatDate } from '@/lib/formatters/dates'
 import { CATEGORY_GROUP_BADGE, PAYMENT_METHOD_LABELS } from '@/components/expenses/labels'
+import { ExpenseRowActions } from '@/components/expenses/ExpenseRowActions'
 import type { ExpenseRowWithRefs } from '@/lib/supabase/types'
 
 interface ExpenseTableProps {
@@ -36,6 +37,7 @@ export function ExpenseTable({ rows, total }: ExpenseTableProps) {
               <th className="px-4 py-2.5 font-medium">Method</th>
               <th className="px-4 py-2.5 text-right font-medium">Amount</th>
               <th className="px-2 py-2.5 font-medium" />
+              <th className="px-3 py-2.5 text-right font-medium">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -75,6 +77,14 @@ export function ExpenseTable({ rows, total }: ExpenseTableProps) {
                     </span>
                   )}
                 </td>
+                <td className="px-3 py-2.5 align-top text-right">
+                  <ExpenseRowActions
+                    id={r.id}
+                    amount={Number(r.amount)}
+                    expense_date={r.expense_date}
+                    category={r.category.name}
+                  />
+                </td>
               </tr>
             ))}
           </tbody>
@@ -86,6 +96,7 @@ export function ExpenseTable({ rows, total }: ExpenseTableProps) {
               <td className="px-4 py-2.5 text-right font-mono tabular-nums text-gray-900">
                 {formatBDT(sumShown)}
               </td>
+              <td />
               <td />
             </tr>
           </tfoot>
