@@ -3,7 +3,7 @@ import { Topbar } from '@/components/layout/Topbar'
 import { Button } from '@/components/ui/Button'
 import { ExpenseFilters } from '@/components/expenses/ExpenseFilters'
 import { ExpenseTable } from '@/components/expenses/ExpenseTable'
-import { Plus, ListChecks, AlertCircle } from 'lucide-react'
+import { Plus, ListChecks, BarChart3, FileSpreadsheet } from 'lucide-react'
 import {
   getExpenses,
   getActiveCategories,
@@ -61,7 +61,19 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
               {' shown'}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Link href="/expenses/report">
+              <Button variant="outline" size="md" className="gap-1.5">
+                <FileSpreadsheet size={14} />
+                Monthly Report
+              </Button>
+            </Link>
+            <Link href="/expenses/analytics">
+              <Button variant="outline" size="md" className="gap-1.5">
+                <BarChart3 size={14} />
+                Analytics
+              </Button>
+            </Link>
             <Link href="/expenses/bulk">
               <Button variant="outline" size="md" className="gap-1.5">
                 <ListChecks size={14} />
@@ -105,6 +117,3 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
   )
 }
 
-// Suppress unused-import warning for AlertCircle (reserved for Phase 3 drafts banner)
-const _reserve = AlertCircle
-void _reserve

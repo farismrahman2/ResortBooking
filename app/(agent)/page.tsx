@@ -6,6 +6,7 @@ import { RecentQuotes } from '@/components/dashboard/RecentQuotes'
 import { QuickActions } from '@/components/dashboard/QuickActions'
 import { RevenueWidget } from '@/components/dashboard/RevenueWidget'
 import { ExpensesThisMonth } from '@/components/dashboard/ExpensesThisMonth'
+import { MonthlyPnLWidget } from '@/components/dashboard/MonthlyPnLWidget'
 import { formatDate } from '@/lib/formatters/dates'
 import { formatBDT } from '@/lib/formatters/currency'
 import Link from 'next/link'
@@ -46,10 +47,11 @@ export default async function DashboardPage() {
             <RecentQuotes quotes={recentQuotes} />
           </div>
 
-          {/* Right: Quick actions + revenue + expenses + upcoming */}
+          {/* Right: Quick actions + revenue + expenses + P&L + upcoming */}
           <div className="lg:col-span-2 space-y-6">
             <QuickActions />
             <RevenueWidget />
+            <MonthlyPnLWidget />
             <ExpensesThisMonth />
 
             {/* Upcoming bookings mini list */}

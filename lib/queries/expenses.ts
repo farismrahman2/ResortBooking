@@ -4,6 +4,7 @@ import type {
   ExpenseRowWithRefs,
   ExpenseCategoryRow,
   ExpensePayeeRow,
+  ExpenseCategoryGroup,
   PayeeType,
 } from '@/lib/supabase/types'
 
@@ -206,5 +207,368 @@ export async function getExpensesThisMonthSummary(date: Date = new Date()): Prom
     last_month_total: lastTotal,
     delta:            thisTotal - lastTotal,
     draft_count:      drafts.count ?? 0,
+  }
+}
+
+// ─── PHASE 2: Analytics & reporting ──────────────────────────────────────────
+
+/** Range helpers shared by Phase 2 queries */
+function isoDate(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${dd}`
+}
+
+function daysInRangeInclusive(from: string, to: string): number {
+  const f = new Date(from + 'T00:00:00')
+  const t = new Date(to   + 'T00:00:00')
+  return Math.max(1, Math.round((t.getTime() - f.getTime()) / 86400000) + 1)
+}
+
+// ─── KPI summary ─────────────────────────────────────────────────────────────
+
+export interface ExpenseTotalsSummary {
+  total:        number
+  txn_count:    number
+  avg_per_day:  number
+  top_category: { name: string; amount: number } | null
+  top_payee:    { name: string; amount: number } | null
+}
+
+export async function getExpenseTotalsSummary(
+  from: string, to: string,
+): Promise<ExpenseTotalsSummary> {
+  const supabase = createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any
+
+  const { data } = await db
+    .from('expenses')
+    .select(`
+      amount,
+      category:expense_categories!inner (name),
+      payee:expense_payees (name)
+    `)
+    .eq('is_draft', false)
+    .gte('expense_date', from)
+    .lte('expense_date', to)
+
+  const rows = (data ?? []) as { amount: any; category: { name: string }; payee: { name: string } | null }[]
+
+  let total      = 0
+  const byCat    = new Map<string, number>()
+  const byPayee  = new Map<string, number>()
+
+  for (const r of rows) {
+    const amt = Number(r.amount ?? 0)
+    total += amt
+    if (r.category?.name) byCat.set(r.category.name, (byCat.get(r.category.name) ?? 0) + amt)
+    if (r.payee?.name)    byPayee.set(r.payee.name,  (byPayee.get(r.payee.name)  ?? 0) + amt)
+  }
+
+  function topOf(map: Map<string, number>): { name: string; amount: number } | null {
+    let best: { name: string; amount: number } | null = null
+    for (const [name, amount] of map) {
+      if (!best || amount > best.amount) best = { name, amount }
+    }
+    return best
+  }
+
+  const days = daysInRangeInclusive(from, to)
+  return {
+    total,
+    txn_count:    rows.length,
+    avg_per_day:  days > 0 ? Math.round(total / days) : 0,
+    top_category: topOf(byCat),
+    top_payee:    topOf(byPayee),
+  }
+}
+
+// ─── Daily expense trend (zero-filled across the range) ──────────────────────
+
+export interface DailyExpenseTrendRow {
+  date:  string
+  total: number
+}
+
+export async function getDailyExpenseTrend(
+  from: string, to: string,
+): Promise<DailyExpenseTrendRow[]> {
+  const supabase = createClient()
+  const { data } = await supabase
+    .from('expenses')
+    .select('expense_date, amount')
+    .eq('is_draft', false)
+    .gte('expense_date', from)
+    .lte('expense_date', to)
+
+  const map = new Map<string, number>()
+  for (const r of (data ?? []) as { expense_date: string; amount: any }[]) {
+    map.set(r.expense_date, (map.get(r.expense_date) ?? 0) + Number(r.amount ?? 0))
+  }
+
+  // Continuous fill so charts stay smooth
+  const result: DailyExpenseTrendRow[] = []
+  const cursor = new Date(from + 'T00:00:00')
+  const end    = new Date(to   + 'T00:00:00')
+  while (cursor <= end) {
+    const d = isoDate(cursor)
+    result.push({ date: d, total: map.get(d) ?? 0 })
+    cursor.setDate(cursor.getDate() + 1)
+  }
+  return result
+}
+
+// ─── Category breakdown ──────────────────────────────────────────────────────
+
+export interface CategoryBreakdownRow {
+  category_id:    string
+  category_name:  string
+  category_group: ExpenseCategoryGroup
+  total:          number
+  txn_count:      number
+  pct_of_total:   number
+}
+
+export async function getCategoryBreakdown(
+  from: string, to: string,
+): Promise<CategoryBreakdownRow[]> {
+  const supabase = createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any
+
+  const { data } = await db
+    .from('expenses')
+    .select(`
+      amount,
+      category:expense_categories!inner (id, name, category_group)
+    `)
+    .eq('is_draft', false)
+    .gte('expense_date', from)
+    .lte('expense_date', to)
+
+  const map = new Map<string, CategoryBreakdownRow>()
+  let grand = 0
+  for (const r of (data ?? []) as any[]) {
+    const c = r.category
+    if (!c) continue
+    const amt = Number(r.amount ?? 0)
+    grand += amt
+    const cur = map.get(c.id) ?? {
+      category_id:    c.id,
+      category_name:  c.name,
+      category_group: c.category_group,
+      total:          0,
+      txn_count:      0,
+      pct_of_total:   0,
+    }
+    cur.total     += amt
+    cur.txn_count += 1
+    map.set(c.id, cur)
+  }
+
+  const result = Array.from(map.values())
+  for (const row of result) {
+    row.pct_of_total = grand > 0 ? Math.round((row.total / grand) * 1000) / 10 : 0
+  }
+  result.sort((a, b) => b.total - a.total)
+  return result
+}
+
+// ─── Payee breakdown ─────────────────────────────────────────────────────────
+
+export interface PayeeBreakdownRow {
+  payee_id:       string
+  payee_name:     string
+  payee_type:     PayeeType
+  total:          number
+  txn_count:      number
+  last_paid_date: string
+}
+
+export async function getPayeeBreakdown(
+  from: string, to: string, payeeType?: PayeeType,
+): Promise<PayeeBreakdownRow[]> {
+  const supabase = createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any
+
+  let query = db
+    .from('expenses')
+    .select(`
+      amount, expense_date,
+      payee:expense_payees!inner (id, name, payee_type)
+    `)
+    .eq('is_draft', false)
+    .gte('expense_date', from)
+    .lte('expense_date', to)
+    .not('payee_id', 'is', null)
+
+  if (payeeType) query = query.eq('expense_payees.payee_type', payeeType)
+
+  const { data } = await query
+  const map = new Map<string, PayeeBreakdownRow>()
+  for (const r of (data ?? []) as any[]) {
+    const p = r.payee
+    if (!p) continue
+    const amt = Number(r.amount ?? 0)
+    const cur = map.get(p.id) ?? {
+      payee_id:       p.id,
+      payee_name:     p.name,
+      payee_type:     p.payee_type,
+      total:          0,
+      txn_count:      0,
+      last_paid_date: r.expense_date,
+    }
+    cur.total     += amt
+    cur.txn_count += 1
+    if (r.expense_date > cur.last_paid_date) cur.last_paid_date = r.expense_date
+    map.set(p.id, cur)
+  }
+
+  const result = Array.from(map.values())
+  result.sort((a, b) => b.total - a.total)
+  return result
+}
+
+// ─── Monthly Excel-style pivot ───────────────────────────────────────────────
+
+export interface MonthlyExpenseSummary {
+  month:           string                                  // YYYY-MM
+  from:            string
+  to:              string
+  categories:      ExpenseCategoryRow[]                    // active categories (column order)
+  days: {
+    date:        string
+    cells:       Record<string /* category_slug */, number>
+    day_total:   number
+  }[]
+  category_totals: Record<string /* slug */, number>       // column totals
+  grand_total:     number
+}
+
+export async function getMonthlyExpenseSummary(
+  monthIso: string,   // 'YYYY-MM'
+): Promise<MonthlyExpenseSummary> {
+  const [y, m] = monthIso.split('-').map(Number)
+  if (!y || !m || m < 1 || m > 12) throw new Error(`getMonthlyExpenseSummary: invalid month ${monthIso}`)
+
+  const from = isoDate(new Date(y, m - 1, 1))
+  const to   = isoDate(new Date(y, m, 0))     // last day of month
+
+  const supabase = createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any
+
+  // 1) Active categories — column order is stable month-to-month
+  const { data: categories } = await db
+    .from('expense_categories')
+    .select('*')
+    .eq('is_active', true)
+    .order('display_order', { ascending: true })
+
+  // 2) Long-form pivot via RPC
+  const { data: pivot, error } = await db.rpc('get_expense_daily_pivot', { p_from: from, p_to: to })
+  if (error) throw new Error(`get_expense_daily_pivot: ${error.message}`)
+
+  // 3) Index by date → slug → amount
+  const byDate = new Map<string, Record<string, number>>()
+  const catTotals: Record<string, number> = {}
+  let grandTotal = 0
+
+  for (const row of (pivot ?? []) as { expense_date: string; category_slug: string; daily_total: any }[]) {
+    const amt = Number(row.daily_total ?? 0)
+    grandTotal += amt
+    catTotals[row.category_slug] = (catTotals[row.category_slug] ?? 0) + amt
+
+    const cells = byDate.get(row.expense_date) ?? {}
+    cells[row.category_slug] = (cells[row.category_slug] ?? 0) + amt
+    byDate.set(row.expense_date, cells)
+  }
+
+  // 4) Walk every day of the month so the row layout is stable even on zero-spend days
+  const days: MonthlyExpenseSummary['days'] = []
+  const cursor = new Date(from + 'T00:00:00')
+  const end    = new Date(to   + 'T00:00:00')
+  while (cursor <= end) {
+    const d = isoDate(cursor)
+    const cells = byDate.get(d) ?? {}
+    const day_total = Object.values(cells).reduce((s, v) => s + v, 0)
+    days.push({ date: d, cells, day_total })
+    cursor.setDate(cursor.getDate() + 1)
+  }
+
+  return {
+    month: monthIso,
+    from,
+    to,
+    categories:      categories ?? [],
+    days,
+    category_totals: catTotals,
+    grand_total:     grandTotal,
+  }
+}
+
+// ─── Profit & Loss (joins bookings + expenses) ───────────────────────────────
+
+export interface ProfitAndLoss {
+  revenue: {
+    booking_revenue:     number   // sum of bookings.total in range, status != 'cancelled'
+    booking_collected:   number   // advance_paid same scope
+    booking_outstanding: number   // remaining same scope
+  }
+  expenses: {
+    total:    number              // is_draft = false
+    by_group: Record<ExpenseCategoryGroup, number>
+  }
+  profit: {
+    gross:    number              // revenue.booking_revenue - expenses.total
+    cash_net: number              // revenue.booking_collected - expenses.total
+  }
+}
+
+export async function getProfitAndLoss(from: string, to: string): Promise<ProfitAndLoss> {
+  const supabase = createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any
+
+  const [bookingsRes, expensesRes] = await Promise.all([
+    db.from('bookings')
+      .select('total, advance_paid, remaining')
+      .neq('status', 'cancelled')
+      .gte('visit_date', from)
+      .lte('visit_date', to),
+    db.from('expenses')
+      .select('amount, category:expense_categories!inner (category_group)')
+      .eq('is_draft', false)
+      .gte('expense_date', from)
+      .lte('expense_date', to),
+  ])
+
+  const bookings = (bookingsRes.data ?? []) as { total: number; advance_paid: number; remaining: number }[]
+  const booking_revenue     = bookings.reduce((s, b) => s + Number(b.total ?? 0), 0)
+  const booking_collected   = bookings.reduce((s, b) => s + Number(b.advance_paid ?? 0), 0)
+  const booking_outstanding = bookings.reduce((s, b) => s + Number(b.remaining ?? 0), 0)
+
+  const byGroup: Record<ExpenseCategoryGroup, number> = {
+    bazar: 0, beverages: 0, utilities: 0, maintenance: 0,
+    salary: 0, services: 0, materials: 0, miscellaneous: 0,
+  }
+  let expensesTotal = 0
+  for (const r of (expensesRes.data ?? []) as any[]) {
+    const amt = Number(r.amount ?? 0)
+    const grp = r.category?.category_group as ExpenseCategoryGroup | undefined
+    expensesTotal += amt
+    if (grp && grp in byGroup) byGroup[grp] += amt
+  }
+
+  return {
+    revenue: { booking_revenue, booking_collected, booking_outstanding },
+    expenses: { total: expensesTotal, by_group: byGroup },
+    profit: {
+      gross:    booking_revenue   - expensesTotal,
+      cash_net: booking_collected - expensesTotal,
+    },
   }
 }
