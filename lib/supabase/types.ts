@@ -170,12 +170,112 @@ export interface BookingRoomRow {
 
 export interface HistoryLogRow {
   id: string
-  entity_type: 'quote' | 'booking'
+  entity_type: 'quote' | 'booking' | 'expense'
   entity_id: string
   event: HistoryEvent
   actor: string
   payload: Record<string, unknown> | null
   created_at: string
+}
+
+// ─── Expense module ───────────────────────────────────────────────────────────
+
+export type ExpenseCategoryGroup =
+  | 'bazar' | 'beverages' | 'utilities' | 'maintenance'
+  | 'salary' | 'services'  | 'materials' | 'miscellaneous'
+
+export type PayeeType =
+  | 'supplier' | 'contractor' | 'staff' | 'utility' | 'other'
+
+export type PaymentMethod =
+  | 'cash' | 'bkash' | 'nagad' | 'rocket'
+  | 'bank_transfer' | 'cheque' | 'other'
+
+export type BudgetPeriodType = 'monthly' | 'yearly'
+
+export interface ExpenseCategoryRow {
+  id: string
+  name: string
+  slug: string
+  category_group: ExpenseCategoryGroup
+  requires_description: boolean
+  requires_payee: boolean
+  is_active: boolean
+  display_order: number
+  created_at: string
+}
+
+export interface ExpensePayeeRow {
+  id: string
+  name: string
+  payee_type: PayeeType
+  phone: string | null
+  notes: string | null
+  is_active: boolean
+  display_order: number
+  created_at: string
+}
+
+export interface ExpenseRow {
+  id: string
+  expense_date: string                // YYYY-MM-DD
+  category_id: string
+  payee_id: string | null
+  description: string | null
+  amount: number
+  payment_method: PaymentMethod
+  reference_number: string | null
+  notes: string | null
+  is_draft: boolean
+  recurring_template_id: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ExpenseAttachmentRow {
+  id: string
+  expense_id: string
+  storage_path: string
+  file_name: string
+  mime_type: 'image/jpeg' | 'image/png' | 'image/webp' | 'application/pdf'
+  size_bytes: number
+  uploaded_by: string | null
+  uploaded_at: string
+}
+
+export interface ExpenseBudgetRow {
+  id: string
+  category_id: string | null          // NULL = "overall" budget
+  period_type: BudgetPeriodType
+  period_start: string                // YYYY-MM-DD (always day 1 of period)
+  amount: number
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface RecurringExpenseTemplateRow {
+  id: string
+  name: string
+  category_id: string
+  default_payee_id: string | null
+  default_amount: number | null
+  default_description: string | null
+  default_payment_method: PaymentMethod
+  day_of_month: number                // 1..28
+  is_active: boolean
+  last_generated_for: string | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** Joined shape returned by getExpenses / getExpenseById */
+export interface ExpenseRowWithRefs extends ExpenseRow {
+  category: Pick<ExpenseCategoryRow, 'id' | 'name' | 'slug' | 'category_group'>
+  payee:    Pick<ExpensePayeeRow, 'id' | 'name' | 'payee_type'> | null
+  attachments: ExpenseAttachmentRow[]
 }
 
 // ─── Derived / Computed Types ──────────────────────────────────────────────────
@@ -320,6 +420,42 @@ export interface Database {
         Row: HistoryLogRow
         Insert: Omit<HistoryLogRow, 'id' | 'created_at'>
         Update: never
+        Relationships: []
+      }
+      expense_categories: {
+        Row: ExpenseCategoryRow
+        Insert: Omit<ExpenseCategoryRow, 'id' | 'created_at'>
+        Update: Partial<Omit<ExpenseCategoryRow, 'id' | 'created_at'>>
+        Relationships: []
+      }
+      expense_payees: {
+        Row: ExpensePayeeRow
+        Insert: Omit<ExpensePayeeRow, 'id' | 'created_at'>
+        Update: Partial<Omit<ExpensePayeeRow, 'id' | 'created_at'>>
+        Relationships: []
+      }
+      expenses: {
+        Row: ExpenseRow
+        Insert: Omit<ExpenseRow, 'id' | 'created_at' | 'updated_at'>
+        Update: Partial<Omit<ExpenseRow, 'id' | 'created_at' | 'updated_at'>>
+        Relationships: []
+      }
+      expense_attachments: {
+        Row: ExpenseAttachmentRow
+        Insert: Omit<ExpenseAttachmentRow, 'id' | 'uploaded_at'>
+        Update: Partial<Omit<ExpenseAttachmentRow, 'id' | 'uploaded_at'>>
+        Relationships: []
+      }
+      expense_budgets: {
+        Row: ExpenseBudgetRow
+        Insert: Omit<ExpenseBudgetRow, 'id' | 'created_at' | 'updated_at'>
+        Update: Partial<Omit<ExpenseBudgetRow, 'id' | 'created_at' | 'updated_at'>>
+        Relationships: []
+      }
+      recurring_expense_templates: {
+        Row: RecurringExpenseTemplateRow
+        Insert: Omit<RecurringExpenseTemplateRow, 'id' | 'created_at' | 'updated_at'>
+        Update: Partial<Omit<RecurringExpenseTemplateRow, 'id' | 'created_at' | 'updated_at'>>
         Relationships: []
       }
     }

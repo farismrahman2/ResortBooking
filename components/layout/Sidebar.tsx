@@ -9,6 +9,7 @@ import {
   CalendarSearch,
   Package,
   BarChart2,
+  Wallet,
   Settings,
   Leaf,
   X,
@@ -24,6 +25,7 @@ const navItems = [
   { href: '/bookings',     label: 'Bookings',     icon: CalendarCheck   },
   { href: '/availability', label: 'Availability', icon: CalendarSearch  },
   { href: '/analytics',    label: 'Analytics',    icon: BarChart2       },
+  { href: '/expenses',     label: 'Expenses',     icon: Wallet          },
   { href: '/packages',     label: 'Packages',     icon: Package         },
   { href: '/settings',     label: 'Settings',     icon: Settings        },
 ]

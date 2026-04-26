@@ -36,6 +36,19 @@ const config: Config = {
           800: '#92400e',
           900: '#78350f',
         },
+        // Expense module accent — distinct from forest/emerald (revenue) and amber (warnings)
+        rose: {
+          50:  '#fff1f2',
+          100: '#ffe4e6',
+          200: '#fecdd3',
+          300: '#fda4af',
+          400: '#fb7185',
+          500: '#f43f5e',
+          600: '#e11d48',
+          700: '#be123c',
+          800: '#9f1239',
+          900: '#881337',
+        },
         // Status colours
         status: {
           draft:     '#64748b', // slate-500
