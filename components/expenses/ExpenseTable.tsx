@@ -1,9 +1,9 @@
 import Link from 'next/link'
-import { Paperclip } from 'lucide-react'
 import { formatBDT } from '@/lib/formatters/currency'
 import { formatDate } from '@/lib/formatters/dates'
 import { CATEGORY_GROUP_BADGE, PAYMENT_METHOD_LABELS } from '@/components/expenses/labels'
 import { ExpenseRowActions } from '@/components/expenses/ExpenseRowActions'
+import { AttachmentsViewerButton } from '@/components/expenses/AttachmentsViewerButton'
 import type { ExpenseRowWithRefs } from '@/lib/supabase/types'
 
 interface ExpenseTableProps {
@@ -70,12 +70,10 @@ export function ExpenseTable({ rows, total }: ExpenseTableProps) {
                   {formatBDT(Number(r.amount))}
                 </td>
                 <td className="px-2 py-2.5 align-top text-right">
-                  {r.attachments && r.attachments.length > 0 && (
-                    <span title={`${r.attachments.length} receipt${r.attachments.length !== 1 ? 's' : ''}`}>
-                      <Paperclip size={13} className="inline text-gray-400" />
-                      <span className="ml-0.5 text-[10px] font-mono text-gray-400">{r.attachments.length}</span>
-                    </span>
-                  )}
+                  <AttachmentsViewerButton
+                    expenseId={r.id}
+                    attachmentCount={r.attachments?.length ?? 0}
+                  />
                 </td>
                 <td className="px-3 py-2.5 align-top text-right">
                   <ExpenseRowActions

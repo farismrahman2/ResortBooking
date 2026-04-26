@@ -1,22 +1,26 @@
 'use client'
 
-import { useState, useTransition, useMemo } from 'react'
+import { useState, useTransition, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Plus } from 'lucide-react'
+import { Plus, Paperclip, X, FileText } from 'lucide-react'
 import { Input } from '@/components/ui/Input'
 import { NumberInput } from '@/components/ui/NumberInput'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { Button } from '@/components/ui/Button'
 import { expenseFormSchema, type ExpenseFormInput } from '@/lib/validators/expense'
-import { createExpense, updateExpense } from '@/lib/actions/expenses'
+import { createExpense, updateExpense, attachReceipt } from '@/lib/actions/expenses'
+import { createClient } from '@/lib/supabase/client'
 import { PAYMENT_METHOD_OPTIONS } from '@/components/expenses/labels'
 import { QuickAddCategoryModal } from '@/components/expenses/QuickAddCategoryModal'
 import { QuickAddPayeeModal } from '@/components/expenses/QuickAddPayeeModal'
 import { toISODate } from '@/lib/formatters/dates'
 import type { ExpenseCategoryRow, ExpensePayeeRow, ExpenseRowWithRefs } from '@/lib/supabase/types'
+
+const ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'] as const
+const MAX_BYTES    = 10 * 1024 * 1024  // 10 MB
 
 interface ExpenseFormProps {
   categories: ExpenseCategoryRow[]
@@ -35,6 +39,11 @@ export function ExpenseForm({ categories, payees, existing }: ExpenseFormProps) 
   const [localPayees,     setLocalPayees]     = useState<ExpensePayeeRow[]>(payees)
   const [quickCategoryOpen, setQuickCategoryOpen] = useState(false)
   const [quickPayeeOpen,    setQuickPayeeOpen]    = useState(false)
+
+  // Pending receipt files (create-mode only — we can only upload after we know the expense id)
+  const [pendingFiles, setPendingFiles] = useState<File[]>([])
+  const [uploadProgress, setUploadProgress] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const isEdit = !!existing
 
@@ -98,8 +107,73 @@ export function ExpenseForm({ categories, payees, existing }: ExpenseFormProps) 
   const descriptionRequired = selectedCategory?.requires_description ?? false
   const showReferenceField  = paymentMethod !== 'cash'
 
+  function addPendingFiles(filesList: FileList | null) {
+    if (!filesList || filesList.length === 0) return
+    const errors: string[] = []
+    const accepted: File[] = []
+    for (const f of Array.from(filesList)) {
+      if (!ALLOWED_MIME.includes(f.type as typeof ALLOWED_MIME[number])) {
+        errors.push(`${f.name}: only JPEG, PNG, WebP, or PDF accepted`)
+        continue
+      }
+      if (f.size > MAX_BYTES) {
+        errors.push(`${f.name}: ${(f.size / 1024 / 1024).toFixed(1)} MB exceeds 10 MB limit`)
+        continue
+      }
+      if (f.size === 0) {
+        errors.push(`${f.name}: empty file`)
+        continue
+      }
+      accepted.push(f)
+    }
+    if (errors.length > 0) setError(errors.join('\n'))
+    if (accepted.length > 0) setPendingFiles((prev) => [...prev, ...accepted])
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  function removePendingFile(idx: number) {
+    setPendingFiles((prev) => prev.filter((_, i) => i !== idx))
+  }
+
+  /**
+   * Uploads all pending files to Storage under the new expense's folder, then
+   * records each via attachReceipt. Returns the count of failures (0 = all ok).
+   */
+  async function uploadPendingReceipts(expenseId: string, expenseDate: string): Promise<number> {
+    if (pendingFiles.length === 0) return 0
+    const supabase = createClient()
+    const [y, m] = expenseDate.split('-')
+    let failures = 0
+    for (let i = 0; i < pendingFiles.length; i++) {
+      const f = pendingFiles[i]
+      setUploadProgress(`Uploading ${i + 1} of ${pendingFiles.length}: ${f.name}`)
+      const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const storagePath = `${y}/${m}/${expenseId}/${Date.now()}-${safeName}`
+      const { error: upErr } = await supabase
+        .storage
+        .from('expense-receipts')
+        .upload(storagePath, f, { contentType: f.type, upsert: false })
+      if (upErr) { failures += 1; continue }
+      const result = await attachReceipt({
+        expense_id:   expenseId,
+        storage_path: storagePath,
+        file_name:    f.name,
+        mime_type:    f.type as typeof ALLOWED_MIME[number],
+        size_bytes:   f.size,
+      })
+      if (!result.success) {
+        // Clean up the storage object — its DB row didn't get recorded
+        await supabase.storage.from('expense-receipts').remove([storagePath])
+        failures += 1
+      }
+    }
+    setUploadProgress(null)
+    return failures
+  }
+
   function onSubmit(values: ExpenseFormInput) {
     setError(null)
+    setUploadProgress(null)
 
     // Per-category requirements aren't in the Zod schema (they depend on the
     // selected category which is dynamic). Enforce them here.
@@ -121,8 +195,22 @@ export function ExpenseForm({ categories, payees, existing }: ExpenseFormProps) 
           setError(result.error)
           return
         }
-        if (isEdit) router.push(`/expenses/${existing!.id}`)
-        else        router.push(`/expenses/${(result as any).data.id}`)
+
+        const newExpenseId = isEdit ? existing!.id : (result as any).data.id
+
+        // Upload any pending receipts (create-mode only). Edit-mode users use the
+        // ReceiptUploader on the edit page.
+        if (!isEdit && pendingFiles.length > 0) {
+          const failures = await uploadPendingReceipts(newExpenseId, values.expense_date)
+          if (failures > 0) {
+            setError(`Expense saved, but ${failures} of ${pendingFiles.length} receipt${pendingFiles.length !== 1 ? 's' : ''} failed to upload. You can retry from the detail page.`)
+            // Still navigate — the expense exists and partial uploads are recorded
+            setTimeout(() => router.push(`/expenses/${newExpenseId}`), 1500)
+            return
+          }
+        }
+
+        router.push(`/expenses/${newExpenseId}`)
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
       }
@@ -259,6 +347,68 @@ export function ExpenseForm({ categories, payees, existing }: ExpenseFormProps) 
         placeholder="Internal notes…"
         {...register('notes')}
       />
+
+      {/* Receipt attach — create mode only. Edit page has a separate full uploader. */}
+      {!isEdit && (
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold uppercase tracking-wider text-gray-600 inline-flex items-center gap-1.5">
+              <Paperclip size={12} />
+              Receipts (optional)
+            </span>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={pending}
+              className="inline-flex items-center gap-1 rounded-lg border border-forest-300 bg-white px-2.5 py-1 text-xs font-medium text-forest-700 hover:bg-forest-50 transition-colors disabled:opacity-50"
+            >
+              <Plus size={12} />
+              Add files
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,application/pdf"
+              multiple
+              onChange={(e) => addPendingFiles(e.target.files)}
+              disabled={pending}
+              className="hidden"
+            />
+          </div>
+          {pendingFiles.length === 0 ? (
+            <p className="text-xs text-gray-400 italic">
+              JPEG / PNG / WebP / PDF · max 10 MB each. Files upload after you save.
+            </p>
+          ) : (
+            <ul className="space-y-1">
+              {pendingFiles.map((f, idx) => (
+                <li key={idx} className="flex items-center justify-between rounded border border-gray-200 bg-white px-2 py-1.5 text-xs">
+                  <span className="flex items-center gap-1.5 text-gray-700 min-w-0">
+                    <FileText size={12} className="text-gray-400 flex-shrink-0" />
+                    <span className="truncate" title={f.name}>{f.name}</span>
+                    <span className="text-gray-400 tabular-nums flex-shrink-0">{(f.size / 1024).toFixed(0)} KB</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removePendingFile(idx)}
+                    disabled={pending}
+                    className="ml-2 rounded p-0.5 text-gray-400 hover:bg-red-50 hover:text-red-600 transition-colors flex-shrink-0"
+                    title="Remove"
+                  >
+                    <X size={11} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {uploadProgress && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+          {uploadProgress}
+        </div>
+      )}
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 whitespace-pre-wrap">
