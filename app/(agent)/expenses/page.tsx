@@ -3,11 +3,12 @@ import { Topbar } from '@/components/layout/Topbar'
 import { Button } from '@/components/ui/Button'
 import { ExpenseFilters } from '@/components/expenses/ExpenseFilters'
 import { ExpenseTable } from '@/components/expenses/ExpenseTable'
-import { Plus, ListChecks, BarChart3, FileSpreadsheet } from 'lucide-react'
+import { Plus, ListChecks, BarChart3, FileSpreadsheet, AlertCircle } from 'lucide-react'
 import {
   getExpenses,
   getActiveCategories,
   getActivePayees,
+  getDrafts,
 } from '@/lib/queries/expenses'
 import { toISODate } from '@/lib/formatters/dates'
 import { formatBDT } from '@/lib/formatters/currency'
@@ -31,7 +32,7 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
   const from = searchParams.from ?? toISODate(new Date(now.getFullYear(), now.getMonth(), 1))
   const to   = searchParams.to   ?? toISODate(new Date(now.getFullYear(), now.getMonth() + 1, 0))
 
-  const [{ rows, total }, categories, payees] = await Promise.all([
+  const [{ rows, total }, categories, payees, drafts] = await Promise.all([
     getExpenses({
       from,
       to,
@@ -43,6 +44,7 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
     }),
     getActiveCategories(),
     getActivePayees(),
+    getDrafts().catch(() => []),   // tolerate missing table on first deploy
   ])
 
   const grandTotal = rows.reduce((s, r) => s + Number(r.amount ?? 0), 0)
@@ -89,9 +91,21 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
           </div>
         </div>
 
-        {/* Pending drafts banner — only render if anything is in draft state. Phase 3 fully wires
-            the drafts page; Phase 1 still surfaces the count if any drafts exist (via includeDrafts) */}
-        {/* Placeholder: real banner ships in Phase 3 alongside the drafts page */}
+        {/* Pending drafts banner */}
+        {drafts.length > 0 && (
+          <Link
+            href="/expenses/drafts"
+            className="flex items-center justify-between rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 hover:bg-amber-100/60 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <AlertCircle size={16} className="text-amber-700" />
+              <span className="text-sm font-medium text-amber-900">
+                {drafts.length} pending draft{drafts.length !== 1 ? 's' : ''} from recurring templates — review and confirm
+              </span>
+            </div>
+            <span className="text-xs font-semibold text-amber-700">Review →</span>
+          </Link>
+        )}
 
         <ExpenseFilters
           from={from}
@@ -107,10 +121,16 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
         <ExpenseTable rows={rows} total={total} />
 
         {/* Quick links to admin */}
-        <div className="flex items-center justify-end gap-3 text-xs text-gray-500">
-          <Link href="/expenses/categories" className="hover:text-forest-700 hover:underline">Manage categories</Link>
+        <div className="flex items-center justify-end gap-3 text-xs text-gray-500 flex-wrap">
+          <Link href="/expenses/budgets"    className="hover:text-forest-700 hover:underline">Budgets</Link>
           <span>·</span>
-          <Link href="/expenses/payees" className="hover:text-forest-700 hover:underline">Manage payees</Link>
+          <Link href="/expenses/recurring"  className="hover:text-forest-700 hover:underline">Recurring templates</Link>
+          <span>·</span>
+          <Link href="/expenses/drafts"     className="hover:text-forest-700 hover:underline">Pending drafts</Link>
+          <span>·</span>
+          <Link href="/expenses/categories" className="hover:text-forest-700 hover:underline">Categories</Link>
+          <span>·</span>
+          <Link href="/expenses/payees"     className="hover:text-forest-700 hover:underline">Payees</Link>
         </div>
       </div>
     </div>

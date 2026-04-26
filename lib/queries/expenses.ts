@@ -4,8 +4,12 @@ import type {
   ExpenseRowWithRefs,
   ExpenseCategoryRow,
   ExpensePayeeRow,
+  ExpenseAttachmentRow,
+  ExpenseBudgetRow,
   ExpenseCategoryGroup,
+  RecurringExpenseTemplateRow,
   PayeeType,
+  BudgetPeriodType,
 } from '@/lib/supabase/types'
 
 /**
@@ -571,4 +575,210 @@ export async function getProfitAndLoss(from: string, to: string): Promise<Profit
       cash_net: booking_collected - expensesTotal,
     },
   }
+}
+
+// ─── PHASE 3: Receipts, Budgets, Recurring Templates ─────────────────────────
+
+// ─── Receipts (attachments) ──────────────────────────────────────────────────
+
+export async function getExpenseAttachments(expenseId: string): Promise<ExpenseAttachmentRow[]> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('expense_attachments')
+    .select('*')
+    .eq('expense_id', expenseId)
+    .order('uploaded_at', { ascending: false })
+  if (error) throw new Error(`getExpenseAttachments: ${error.message}`)
+  return (data ?? []).map((a: any) => ({ ...a, size_bytes: Number(a.size_bytes) }))
+}
+
+/**
+ * Returns a short-lived signed URL for a private-bucket attachment.
+ * The bucket is private; we mint URLs server-side for each detail-page render.
+ */
+export async function getSignedAttachmentUrl(
+  storagePath: string,
+  expirySec = 60 * 60,   // 1 hour default — enough for a detail page session
+): Promise<string> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .storage
+    .from('expense-receipts')
+    .createSignedUrl(storagePath, expirySec)
+  if (error || !data?.signedUrl) {
+    throw new Error(`getSignedAttachmentUrl: ${error?.message ?? 'no url returned'}`)
+  }
+  return data.signedUrl
+}
+
+// ─── Budgets ─────────────────────────────────────────────────────────────────
+
+export async function getBudgets(
+  period: BudgetPeriodType,
+  periodStart: string,   // YYYY-MM-DD (first day of period)
+): Promise<ExpenseBudgetRow[]> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('expense_budgets')
+    .select('*')
+    .eq('period_type', period)
+    .eq('period_start', periodStart)
+  if (error) throw new Error(`getBudgets: ${error.message}`)
+  return (data ?? []).map((b: any) => ({ ...b, amount: Number(b.amount) }))
+}
+
+export interface BudgetVsActualRow {
+  category_id:   string | null
+  category_name: string             // 'Overall' if category_id is null
+  budget:        number
+  actual:        number
+  variance:      number              // actual - budget (negative = under budget)
+  pct_consumed:  number              // 0..1+
+}
+
+export async function getBudgetVsActual(
+  period: BudgetPeriodType,
+  periodStart: string,
+): Promise<BudgetVsActualRow[]> {
+  // Compute the period range
+  const start = new Date(periodStart + 'T00:00:00')
+  let endDate: Date
+  if (period === 'monthly') {
+    endDate = new Date(start.getFullYear(), start.getMonth() + 1, 0)   // last day of month
+  } else {
+    endDate = new Date(start.getFullYear(), 11, 31)                    // Dec 31 of year
+  }
+  const periodEnd = toISODate(endDate)
+
+  const supabase = createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any
+
+  // 1. Budgets for the period
+  const { data: budgets } = await db
+    .from('expense_budgets')
+    .select('id, category_id, amount, category:expense_categories (id, name)')
+    .eq('period_type', period)
+    .eq('period_start', periodStart)
+
+  // 2. All non-draft expenses in the period — per category + grand total
+  const { data: expenses } = await db
+    .from('expenses')
+    .select('amount, category_id')
+    .eq('is_draft', false)
+    .gte('expense_date', periodStart)
+    .lte('expense_date', periodEnd)
+
+  const actualPerCat = new Map<string, number>()
+  let actualOverall = 0
+  for (const r of (expenses ?? []) as any[]) {
+    const amt = Number(r.amount ?? 0)
+    actualOverall += amt
+    actualPerCat.set(r.category_id, (actualPerCat.get(r.category_id) ?? 0) + amt)
+  }
+
+  const result: BudgetVsActualRow[] = []
+  for (const b of (budgets ?? []) as any[]) {
+    const isOverall = b.category_id === null
+    const budget = Number(b.amount ?? 0)
+    const actual = isOverall ? actualOverall : (actualPerCat.get(b.category_id) ?? 0)
+    result.push({
+      category_id:   b.category_id,
+      category_name: isOverall ? 'Overall' : (b.category?.name ?? '—'),
+      budget,
+      actual,
+      variance:      actual - budget,
+      pct_consumed:  budget > 0 ? actual / budget : 0,
+    })
+  }
+
+  // Sort: overall first, then by pct_consumed descending so overruns surface
+  result.sort((a, b) => {
+    if (a.category_id === null) return -1
+    if (b.category_id === null) return 1
+    return b.pct_consumed - a.pct_consumed
+  })
+  return result
+}
+
+// ─── Recurring templates ─────────────────────────────────────────────────────
+
+export async function getRecurringTemplates(activeOnly = false): Promise<RecurringExpenseTemplateRow[]> {
+  const supabase = createClient()
+  let query = supabase
+    .from('recurring_expense_templates')
+    .select('*')
+    .order('day_of_month', { ascending: true })
+  if (activeOnly) query = query.eq('is_active', true)
+  const { data, error } = await query
+  if (error) throw new Error(`getRecurringTemplates: ${error.message}`)
+  return (data ?? []).map((t: any) => ({
+    ...t,
+    default_amount: t.default_amount === null ? null : Number(t.default_amount),
+  }))
+}
+
+export async function getRecurringTemplateById(id: string): Promise<RecurringExpenseTemplateRow | null> {
+  const supabase = createClient()
+  const { data } = await supabase
+    .from('recurring_expense_templates')
+    .select('*')
+    .eq('id', id)
+    .single()
+  if (!data) return null
+  return {
+    ...data,
+    default_amount: data.default_amount === null ? null : Number(data.default_amount),
+  } as RecurringExpenseTemplateRow
+}
+
+/**
+ * Templates that haven't generated a draft for the given month yet.
+ * (last_generated_for IS NULL OR < first day of given month)
+ */
+export async function getTemplatesPendingForMonth(
+  monthIso: string,   // 'YYYY-MM'
+): Promise<RecurringExpenseTemplateRow[]> {
+  const [y, m] = monthIso.split('-').map(Number)
+  const periodStart = toISODate(new Date(y, m - 1, 1))
+  const supabase = createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any
+  const { data, error } = await db
+    .from('recurring_expense_templates')
+    .select('*')
+    .eq('is_active', true)
+    .or(`last_generated_for.is.null,last_generated_for.lt.${periodStart}`)
+    .order('day_of_month', { ascending: true })
+  if (error) throw new Error(`getTemplatesPendingForMonth: ${error.message}`)
+  return (data ?? []).map((t: any) => ({
+    ...t,
+    default_amount: t.default_amount === null ? null : Number(t.default_amount),
+  }))
+}
+
+// ─── Drafts ──────────────────────────────────────────────────────────────────
+
+/** Pending recurring drafts — used by the /expenses/drafts page. */
+export async function getDrafts(): Promise<ExpenseRowWithRefs[]> {
+  const supabase = createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any
+  const { data, error } = await db
+    .from('expenses')
+    .select(`
+      *,
+      category:expense_categories!inner (id, name, slug, category_group),
+      payee:expense_payees (id, name, payee_type),
+      attachments:expense_attachments (*)
+    `)
+    .eq('is_draft', true)
+    .order('expense_date', { ascending: true })
+
+  if (error) throw new Error(`getDrafts: ${error.message}`)
+  return (data ?? []).map((r: any) => ({
+    ...r,
+    amount: Number(r.amount),
+    attachments: (r.attachments ?? []).map((a: any) => ({ ...a, size_bytes: Number(a.size_bytes) })),
+  })) as ExpenseRowWithRefs[]
 }

@@ -8,8 +8,9 @@ Run these in order in the **Supabase SQL editor**:
 | `001_expense_schema.sql` | Creates all six tables, indexes, triggers, RLS policies | Run after 000. |
 | `002_seed_categories_and_payees.sql` | Seeds default categories, payees, recurring templates | Idempotent — safe to re-run. |
 | `003_expense_pivot_rpc.sql` | Adds the `get_expense_daily_pivot` RPC used by the monthly report and analytics queries | Phase 2. Safe to run any time. |
+| `004_storage_bucket.sql` | RLS policies for the `expense-receipts` Storage bucket | Phase 3. **First create the bucket in the Supabase Dashboard (Storage → New bucket → name `expense-receipts` → Private), then run this SQL.** |
 
-After 000–002 are committed, the Phase 1 pages (`/expenses`, `/expenses/new`, `/expenses/bulk`, `/expenses/categories`, `/expenses/payees`) will work. Run 003 to enable `/expenses/report` and `/expenses/analytics`.
+After 000–002 are committed, the Phase 1 pages (`/expenses`, `/expenses/new`, `/expenses/bulk`, `/expenses/categories`, `/expenses/payees`) will work. Run 003 to enable `/expenses/report` and `/expenses/analytics`. Run 004 + create the Storage bucket to enable receipt uploads on expense detail pages and the `/expenses/budgets`, `/expenses/recurring`, `/expenses/drafts` pages.
 
 ## Storage bucket (Phase 3)
 

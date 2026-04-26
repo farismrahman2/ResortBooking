@@ -3,8 +3,10 @@ import { notFound } from 'next/navigation'
 import { Topbar } from '@/components/layout/Topbar'
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
-import { Pencil, Receipt } from 'lucide-react'
+import { Pencil } from 'lucide-react'
 import { getExpenseById } from '@/lib/queries/expenses'
+import { ReceiptThumbnails } from '@/components/expenses/ReceiptThumbnails'
+import { ReceiptUploader } from '@/components/expenses/ReceiptUploader'
 import { formatBDT } from '@/lib/formatters/currency'
 import { formatDate } from '@/lib/formatters/dates'
 import {
@@ -109,28 +111,19 @@ export default async function ExpenseDetailPage({ params }: PageProps) {
             </dl>
           </Card>
 
-          {/* Receipts (Phase 3) */}
+          {/* Receipts */}
           <Card>
             <CardHeader>
               <CardTitle>Receipts</CardTitle>
             </CardHeader>
-            {expense.attachments && expense.attachments.length > 0 ? (
-              <ul className="space-y-1.5 text-sm">
-                {expense.attachments.map((a) => (
-                  <li key={a.id} className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2">
-                    <span className="flex items-center gap-2 text-gray-700">
-                      <Receipt size={14} className="text-gray-400" />
-                      {a.file_name}
-                    </span>
-                    <span className="text-xs text-gray-400">{(a.size_bytes / 1024).toFixed(0)} KB</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-xs text-gray-400 italic">
-                No receipts attached. Receipt uploads ship in Phase 3.
-              </p>
-            )}
+            <div className="space-y-3">
+              <ReceiptThumbnails
+                expenseId={expense.id}
+                attachments={expense.attachments ?? []}
+                editable
+              />
+              <ReceiptUploader expenseId={expense.id} expenseDate={expense.expense_date} />
+            </div>
           </Card>
 
           {/* Actions */}
