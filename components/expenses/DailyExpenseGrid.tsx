@@ -102,19 +102,37 @@ export function DailyExpenseGrid({ categories, payees, defaultDate }: DailyExpen
 
   function handleSubmit() {
     setError(null)
-    const submittable = lines
-      .filter((l) => Number(l.amount) > 0)
-      .map((l) => ({
-        category_id: l.category_id,
-        payee_id:    l.payee_id ?? null,
-        description: l.description.trim() || null,
-        amount:      Number(l.amount),
-      }))
+    const submittable = lines.filter((l) => Number(l.amount) > 0)
 
     if (submittable.length === 0) {
       setError('Add at least one line with an amount > 0')
       return
     }
+
+    // Per-category requirements: payee + description (zod can't enforce these
+    // because they vary by category)
+    const errors: string[] = []
+    for (const l of submittable) {
+      const cat = categories.find((c) => c.id === l.category_id)
+      if (!cat) continue
+      if (cat.requires_payee && !l.payee_id) {
+        errors.push(`${cat.name}: payee is required`)
+      }
+      if (cat.requires_description && !l.description.trim()) {
+        errors.push(`${cat.name}: description is required`)
+      }
+    }
+    if (errors.length > 0) {
+      setError(errors.join('\n'))
+      return
+    }
+
+    const payload = submittable.map((l) => ({
+      category_id: l.category_id,
+      payee_id:    l.payee_id ?? null,
+      description: l.description.trim() || null,
+      amount:      Number(l.amount),
+    }))
 
     startTransition(async () => {
       try {
@@ -122,7 +140,7 @@ export function DailyExpenseGrid({ categories, payees, defaultDate }: DailyExpen
           expense_date:   date,
           payment_method: paymentMethod,
           notes:          notes.trim() || null,
-          lines:          submittable,
+          lines:          payload,
         })
         if (!result.success) {
           setError(result.error)

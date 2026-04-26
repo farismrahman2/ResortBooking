@@ -7,6 +7,7 @@ import { Pencil } from 'lucide-react'
 import { getExpenseById } from '@/lib/queries/expenses'
 import { ReceiptThumbnails } from '@/components/expenses/ReceiptThumbnails'
 import { ReceiptUploader } from '@/components/expenses/ReceiptUploader'
+import { MigrationErrorBanner } from '@/components/expenses/MigrationErrorBanner'
 import { formatBDT } from '@/lib/formatters/currency'
 import { formatDate } from '@/lib/formatters/dates'
 import {
@@ -23,7 +24,25 @@ interface PageProps {
 }
 
 export default async function ExpenseDetailPage({ params }: PageProps) {
-  const expense = await getExpenseById(params.id)
+  let expense: Awaited<ReturnType<typeof getExpenseById>> = null
+  let migrationError: string | null = null
+  try {
+    expense = await getExpenseById(params.id)
+  } catch (err) {
+    migrationError = err instanceof Error ? err.message : String(err)
+  }
+
+  if (migrationError) {
+    return (
+      <div className="flex h-full flex-col">
+        <Topbar title="Expense Detail" />
+        <div className="px-6 py-6">
+          <MigrationErrorBanner error={migrationError} />
+        </div>
+      </div>
+    )
+  }
+
   if (!expense) notFound()
 
   return (

@@ -2,10 +2,10 @@
 
 import { useState, useTransition, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { Save } from 'lucide-react'
+import { Save, X } from 'lucide-react'
 import { NumberInput } from '@/components/ui/NumberInput'
 import { Button } from '@/components/ui/Button'
-import { upsertBudget } from '@/lib/actions/expenses'
+import { upsertBudget, deleteBudget } from '@/lib/actions/expenses'
 import { formatBDT } from '@/lib/formatters/currency'
 import { CATEGORY_GROUP_BADGE } from '@/components/expenses/labels'
 import type {
@@ -34,8 +34,7 @@ export function BudgetManager({ period, periodStart, periodLabel, categories, vs
   const [pending, startTransition] = useTransition()
   const [error,   setError]        = useState<string | null>(null)
 
-  // Build initial editable state: "Overall" + one row per category, prefilled
-  // from vsActual when present.
+  // Build initial editable state: "Overall" + one row per category, prefilled from vsActual.
   const initial: RowState[] = useMemo(() => {
     const byCategory = new Map<string | null, BudgetVsActualRow>()
     for (const row of vsActual) byCategory.set(row.category_id, row)
@@ -43,8 +42,8 @@ export function BudgetManager({ period, periodStart, periodLabel, categories, vs
     const rows: RowState[] = [
       {
         category_id: null,
+        budget_id:   byCategory.get(null)?.budget_id ?? null,
         budget:      byCategory.get(null)?.budget ?? 0,
-        budget_id:   null,   // we don't have the id from getBudgetVsActual; the action upserts by (cat, type, start)
         actual:      byCategory.get(null)?.actual ?? 0,
       },
     ]
@@ -52,8 +51,8 @@ export function BudgetManager({ period, periodStart, periodLabel, categories, vs
       const v = byCategory.get(c.id)
       rows.push({
         category_id: c.id,
+        budget_id:   v?.budget_id ?? null,
         budget:      v?.budget ?? 0,
-        budget_id:   null,
         actual:      v?.actual ?? 0,
       })
     }
@@ -80,20 +79,33 @@ export function BudgetManager({ period, periodStart, periodLabel, categories, vs
   async function handleSave(idx: number) {
     const row = rowState[idx]
     setError(null)
+
+    if (row.budget <= 0) {
+      setError('Amount must be greater than 0. Use the × button to remove a budget.')
+      return
+    }
     startTransition(async () => {
-      if (row.budget <= 0) {
-        // Treat 0 as "remove budget if it exists"
-        // We don't have the row's id — but upsertBudget would fail validation.
-        // For v1, require a positive amount; clearing is via the Delete button.
-        setError('Enter a positive amount or use Delete to clear.')
-        return
-      }
       const result = await upsertBudget({
         category_id:  row.category_id,
         period_type:  period,
         period_start: periodStart,
         amount:       row.budget,
       })
+      if (!result.success) { setError(result.error); return }
+      router.refresh()
+    })
+  }
+
+  async function handleDelete(idx: number) {
+    const row = rowState[idx]
+    if (!row.budget_id) {
+      setError('No saved budget to remove on this row.')
+      return
+    }
+    if (!confirm(`Remove the ${period} budget for ${categoryName(row.category_id)}?`)) return
+    setError(null)
+    startTransition(async () => {
+      const result = await deleteBudget(row.budget_id!)
       if (!result.success) { setError(result.error); return }
       router.refresh()
     })
@@ -124,6 +136,7 @@ export function BudgetManager({ period, periodStart, periodLabel, categories, vs
               const isOver  = row.budget > 0 && row.actual > row.budget
               const pct     = row.budget > 0 ? Math.min(1.5, row.actual / row.budget) : 0
               const barCls  = isOver ? 'bg-red-500' : pct > 0.85 ? 'bg-amber-500' : 'bg-emerald-500'
+              const hasSavedBudget = row.budget_id !== null
               return (
                 <tr key={row.category_id ?? 'overall'} className="hover:bg-gray-50/40">
                   <td className="px-4 py-2.5 font-medium text-gray-800">
@@ -171,16 +184,29 @@ export function BudgetManager({ period, periodStart, periodLabel, categories, vs
                     )}
                   </td>
                   <td className="px-4 py-2.5 text-right">
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      loading={pending}
-                      onClick={() => handleSave(idx)}
-                      className="gap-1"
-                    >
-                      <Save size={11} />
-                      Save
-                    </Button>
+                    <div className="inline-flex gap-1">
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        loading={pending}
+                        onClick={() => handleSave(idx)}
+                        className="gap-1"
+                      >
+                        <Save size={11} />
+                        Save
+                      </Button>
+                      {hasSavedBudget && (
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(idx)}
+                          disabled={pending}
+                          className="flex h-7 w-7 items-center justify-center rounded-md border border-red-200 bg-red-50 text-red-500 hover:bg-red-100 transition-colors disabled:opacity-50"
+                          title="Remove this budget"
+                        >
+                          <X size={12} />
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               )

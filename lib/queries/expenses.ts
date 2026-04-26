@@ -628,6 +628,7 @@ export async function getBudgets(
 }
 
 export interface BudgetVsActualRow {
+  budget_id:     string             // id of the expense_budgets row (used by UI for delete)
   category_id:   string | null
   category_name: string             // 'Overall' if category_id is null
   budget:        number
@@ -654,7 +655,7 @@ export async function getBudgetVsActual(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = supabase as any
 
-  // 1. Budgets for the period
+  // 1. Budgets for the period (includes id so the UI can delete)
   const { data: budgets } = await db
     .from('expense_budgets')
     .select('id, category_id, amount, category:expense_categories (id, name)')
@@ -683,6 +684,7 @@ export async function getBudgetVsActual(
     const budget = Number(b.amount ?? 0)
     const actual = isOverall ? actualOverall : (actualPerCat.get(b.category_id) ?? 0)
     result.push({
+      budget_id:     b.id,
       category_id:   b.category_id,
       category_name: isOverall ? 'Overall' : (b.category?.name ?? '—'),
       budget,

@@ -3,6 +3,7 @@ import { Topbar } from '@/components/layout/Topbar'
 import { Button } from '@/components/ui/Button'
 import { ExpenseFilters } from '@/components/expenses/ExpenseFilters'
 import { ExpenseTable } from '@/components/expenses/ExpenseTable'
+import { MigrationErrorBanner } from '@/components/expenses/MigrationErrorBanner'
 import { Plus, ListChecks, BarChart3, FileSpreadsheet, AlertCircle } from 'lucide-react'
 import {
   getExpenses,
@@ -32,20 +33,33 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
   const from = searchParams.from ?? toISODate(new Date(now.getFullYear(), now.getMonth(), 1))
   const to   = searchParams.to   ?? toISODate(new Date(now.getFullYear(), now.getMonth() + 1, 0))
 
-  const [{ rows, total }, categories, payees, drafts] = await Promise.all([
-    getExpenses({
-      from,
-      to,
-      categoryId:    searchParams.categoryId,
-      payeeId:       searchParams.payeeId,
-      paymentMethod: searchParams.paymentMethod,
-      search:        searchParams.search,
-      limit:         100,
-    }),
-    getActiveCategories(),
-    getActivePayees(),
-    getDrafts().catch(() => []),   // tolerate missing table on first deploy
-  ])
+  let rows: Awaited<ReturnType<typeof getExpenses>>['rows']      = []
+  let total                                                      = 0
+  let categories: Awaited<ReturnType<typeof getActiveCategories>> = []
+  let payees: Awaited<ReturnType<typeof getActivePayees>>         = []
+  let drafts: Awaited<ReturnType<typeof getDrafts>>               = []
+  let migrationError: string | null = null
+
+  try {
+    const [list, cats, ps, drs] = await Promise.all([
+      getExpenses({
+        from,
+        to,
+        categoryId:    searchParams.categoryId,
+        payeeId:       searchParams.payeeId,
+        paymentMethod: searchParams.paymentMethod,
+        search:        searchParams.search,
+        limit:         100,
+      }),
+      getActiveCategories(),
+      getActivePayees(),
+      getDrafts().catch(() => [] as Awaited<ReturnType<typeof getDrafts>>),
+    ])
+    rows  = list.rows; total = list.total
+    categories = cats; payees = ps; drafts = drs
+  } catch (err) {
+    migrationError = err instanceof Error ? err.message : String(err)
+  }
 
   const grandTotal = rows.reduce((s, r) => s + Number(r.amount ?? 0), 0)
 
@@ -54,6 +68,8 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
       <Topbar title="Expenses" subtitle="Day-to-day spending" />
 
       <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 space-y-4">
+        {migrationError && <MigrationErrorBanner error={migrationError} />}
+
         {/* Action bar */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">

@@ -64,12 +64,26 @@ export function ExpenseForm({ categories, payees, existing }: ExpenseFormProps) 
     [categories, selectedCategoryId],
   )
 
-  const showPayeeField       = selectedCategory?.requires_payee ?? true   // default: show
-  const showDescriptionField = selectedCategory?.requires_description ?? true
-  const showReferenceField   = paymentMethod !== 'cash'
+  // Description and payee fields are ALWAYS shown — only the label and required-flag change.
+  // (Hiding them prevented users from adding optional notes/payees, which is a frequent need.)
+  const payeeRequired       = selectedCategory?.requires_payee ?? false
+  const descriptionRequired = selectedCategory?.requires_description ?? false
+  const showReferenceField  = paymentMethod !== 'cash'
 
   function onSubmit(values: ExpenseFormInput) {
     setError(null)
+
+    // Per-category requirements aren't in the Zod schema (they depend on the
+    // selected category which is dynamic). Enforce them here.
+    if (payeeRequired && !values.payee_id) {
+      setError(`A payee is required for ${selectedCategory?.name ?? 'this category'}.`)
+      return
+    }
+    if (descriptionRequired && !values.description?.trim()) {
+      setError(`A description is required for ${selectedCategory?.name ?? 'this category'}.`)
+      return
+    }
+
     startTransition(async () => {
       try {
         const result = isEdit
@@ -118,37 +132,31 @@ export function ExpenseForm({ categories, payees, existing }: ExpenseFormProps) 
         />
       </div>
 
-      {showPayeeField && (
-        <Controller
-          name="payee_id"
-          control={control}
-          render={({ field }) => (
-            <Select
-              label={selectedCategory?.requires_payee ? 'Payee (required)' : 'Payee (optional)'}
-              required={selectedCategory?.requires_payee}
-              value={field.value ?? ''}
-              onChange={(e) => field.onChange(e.target.value || null)}
-            >
-              <option value="">No payee</option>
-              {payees.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </Select>
-          )}
-        />
-      )}
+      <Controller
+        name="payee_id"
+        control={control}
+        render={({ field }) => (
+          <Select
+            label={payeeRequired ? 'Payee (required)' : 'Payee (optional)'}
+            required={payeeRequired}
+            value={field.value ?? ''}
+            onChange={(e) => field.onChange(e.target.value || null)}
+          >
+            <option value="">No payee</option>
+            {payees.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </Select>
+        )}
+      />
 
-      {showDescriptionField && (
-        <Input
-          label={selectedCategory?.requires_description ? 'Description (required)' : 'Description (optional)'}
-          required={selectedCategory?.requires_description}
-          placeholder={selectedCategory?.requires_description
-            ? 'What was purchased?'
-            : 'Optional details…'}
-          error={errors.description?.message}
-          {...register('description')}
-        />
-      )}
+      <Input
+        label={descriptionRequired ? 'Description (required)' : 'Description (optional)'}
+        required={descriptionRequired}
+        placeholder={descriptionRequired ? 'What was purchased?' : 'Optional details…'}
+        error={errors.description?.message}
+        {...register('description')}
+      />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Controller

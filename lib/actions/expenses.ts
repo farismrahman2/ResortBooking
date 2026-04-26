@@ -645,14 +645,15 @@ export async function generateMonthlyDrafts(
 
     let generated = 0
     let skipped   = 0
+    const generatedIds: string[] = []
 
     for (const t of (templates ?? []) as any[]) {
       // The expense_date for the draft = day_of_month within periodStart's month
       const day = String(Math.min(t.day_of_month, 28)).padStart(2, '0')
       const expense_date = `${m[1]}-${m[2]}-${day}`
 
-      // Insert the draft expense
-      const { error: insErr } = await db.from('expenses').insert({
+      // Insert the draft expense — return the new id so we can use it for history logging
+      const { data: insRow, error: insErr } = await db.from('expenses').insert({
         expense_date,
         category_id:           t.category_id,
         payee_id:              t.default_payee_id ?? null,
@@ -662,8 +663,8 @@ export async function generateMonthlyDrafts(
         is_draft:              true,
         recurring_template_id: t.id,
         created_by:            userId,
-      })
-      if (insErr) {
+      }).select('id').single()
+      if (insErr || !insRow) {
         skipped += 1
         continue
       }
@@ -675,13 +676,20 @@ export async function generateMonthlyDrafts(
         .eq('id', t.id)
 
       generated += 1
+      generatedIds.push(insRow.id)
     }
 
-    await logHistory(periodStart, 'created', 'recurring_drafts_generated', {
-      month:     monthIso,
-      generated, skipped,
-      template_count: (templates ?? []).length,
-    })
+    // Log the batch operation against the first generated draft's id (history_log.entity_id
+    // is a UUID column — passing a date string would error). Skip if nothing was generated.
+    if (generatedIds.length > 0) {
+      await logHistory(generatedIds[0], 'created', 'recurring_drafts_generated', {
+        month:          monthIso,
+        period_start:   periodStart,
+        generated, skipped,
+        template_count: (templates ?? []).length,
+        all_draft_ids:  generatedIds,
+      })
+    }
 
     revalidatePath('/expenses/recurring')
     revalidatePath('/expenses/drafts')
