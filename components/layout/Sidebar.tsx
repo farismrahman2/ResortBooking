@@ -12,6 +12,7 @@ import {
   Wallet,
   Settings,
   Leaf,
+  Users,
   X,
   LogOut,
   User,
@@ -26,6 +27,7 @@ const navItems = [
   { href: '/availability', label: 'Availability', icon: CalendarSearch  },
   { href: '/analytics',    label: 'Analytics',    icon: BarChart2       },
   { href: '/expenses',     label: 'Expenses',     icon: Wallet          },
+  { href: '/hr',           label: 'HR',           icon: Users           },
   { href: '/packages',     label: 'Packages',     icon: Package         },
   { href: '/settings',     label: 'Settings',     icon: Settings        },
 ]

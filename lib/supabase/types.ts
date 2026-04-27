@@ -170,7 +170,7 @@ export interface BookingRoomRow {
 
 export interface HistoryLogRow {
   id: string
-  entity_type: 'quote' | 'booking' | 'expense'
+  entity_type: 'quote' | 'booking' | 'expense' | 'employee' | 'payroll_run' | 'loan'
   entity_id: string
   event: HistoryEvent
   actor: string
@@ -276,6 +276,196 @@ export interface ExpenseRowWithRefs extends ExpenseRow {
   category: Pick<ExpenseCategoryRow, 'id' | 'name' | 'slug' | 'category_group'>
   payee:    Pick<ExpensePayeeRow, 'id' | 'name' | 'payee_type'> | null
   attachments: ExpenseAttachmentRow[]
+}
+
+// ─── HR module ───────────────────────────────────────────────────────────────
+
+export type Department =
+  | 'management' | 'frontdesk' | 'housekeeping' | 'kitchen' | 'f_and_b'
+  | 'security'   | 'maintenance' | 'gardener'   | 'accounts' | 'other'
+
+export type Gender = 'male' | 'female' | 'other'
+
+export type EmploymentStatus = 'active' | 'on_leave' | 'terminated' | 'resigned'
+
+export type AttendanceStatus =
+  | 'present' | 'absent' | 'paid_leave' | 'unpaid_leave'
+  | 'weekly_off' | 'holiday' | 'half_day'
+
+export type SalaryAdjustmentType =
+  | 'fine' | 'bonus' | 'eid_bonus' | 'advance'
+  | 'loan_repayment' | 'other_addition' | 'other_deduction'
+
+export type LoanStatus = 'active' | 'closed' | 'written_off'
+
+export type PayrollRunStatus = 'draft' | 'finalized'
+
+export interface EmployeeRow {
+  id: string
+  employee_code: string
+  full_name: string
+  photo_url: string | null
+  designation: string
+  department: Department
+  nid_number: string | null
+  date_of_birth: string | null
+  gender: Gender | null
+  blood_group: string | null
+  phone: string
+  email: string | null
+  present_address: string | null
+  permanent_address: string | null
+  emergency_contact_name: string | null
+  emergency_contact_phone: string | null
+  emergency_contact_relation: string | null
+  joining_date: string
+  employment_status: EmploymentStatus
+  termination_date: string | null
+  termination_reason: string | null
+  is_live_in: boolean
+  meal_allowance_in_kind: boolean
+  expense_payee_id: string | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface SalaryStructureRow {
+  id: string
+  employee_id: string
+  effective_from: string
+  effective_to: string | null
+  basic: number
+  house_rent: number
+  medical: number
+  transport: number
+  mobile: number
+  other_allowance: number
+  gross: number
+  notes: string | null
+  created_at: string
+}
+
+export interface LeaveTypeRow {
+  id: string
+  name: string
+  slug: string
+  default_annual_balance: number
+  is_paid: boolean
+  display_order: number
+  is_active: boolean
+  created_at: string
+}
+
+export interface LeaveBalanceRow {
+  id: string
+  employee_id: string
+  leave_type_id: string
+  year: number
+  opening_balance: number
+  accrued: number
+  used: number
+  available: number
+}
+
+export interface AttendanceRow {
+  id: string
+  employee_id: string
+  date: string
+  status: AttendanceStatus
+  leave_type_id: string | null
+  notes: string | null
+  marked_by: string | null
+  marked_at: string
+}
+
+export interface SalaryAdjustmentRow {
+  id: string
+  employee_id: string
+  applies_to_month: string          // YYYY-MM-01
+  type: SalaryAdjustmentType
+  amount: number
+  description: string | null
+  loan_id: string | null
+  created_by: string | null
+  created_at: string
+  payroll_run_line_id: string | null
+}
+
+export interface LoanRow {
+  id: string
+  employee_id: string
+  principal: number
+  monthly_installment: number
+  amount_repaid: number
+  outstanding: number
+  taken_on: string
+  repayment_starts: string
+  status: LoanStatus
+  notes: string | null
+  created_at: string
+}
+
+export interface ServiceChargePayoutRow {
+  id: string
+  employee_id: string
+  applies_to_month: string
+  amount: number
+  notes: string | null
+  created_by: string | null
+  created_at: string
+}
+
+export interface PayrollRunRow {
+  id: string
+  period: string                    // YYYY-MM-01
+  status: PayrollRunStatus
+  generated_at: string
+  generated_by: string | null
+  finalized_at: string | null
+  finalized_by: string | null
+  total_gross: number
+  total_net: number
+  notes: string | null
+}
+
+export interface PayrollRunLineRow {
+  id: string
+  payroll_run_id: string
+  employee_id: string
+  basic: number
+  house_rent: number
+  medical: number
+  transport: number
+  mobile: number
+  other_allowance: number
+  gross: number
+  days_in_month: number
+  days_present: number
+  days_absent: number
+  days_paid_leave: number
+  days_unpaid_leave: number
+  days_weekly_off: number
+  days_holiday: number
+  unpaid_deduction: number
+  bonuses: number
+  eid_bonus: number
+  other_additions: number
+  fines: number
+  advance_deduction: number
+  loan_deduction: number
+  other_deductions: number
+  service_charge: number
+  net_pay: number
+  expense_id: string | null
+  payment_method: PaymentMethod | null
+  paid_at: string | null
+  notes: string | null
+}
+
+/** Employee with the currently-effective salary structure attached. */
+export interface EmployeeWithCurrentSalary extends EmployeeRow {
+  current_salary: SalaryStructureRow | null
 }
 
 // ─── Derived / Computed Types ──────────────────────────────────────────────────
@@ -456,6 +646,66 @@ export interface Database {
         Row: RecurringExpenseTemplateRow
         Insert: Omit<RecurringExpenseTemplateRow, 'id' | 'created_at' | 'updated_at'>
         Update: Partial<Omit<RecurringExpenseTemplateRow, 'id' | 'created_at' | 'updated_at'>>
+        Relationships: []
+      }
+      employees: {
+        Row: EmployeeRow
+        Insert: Omit<EmployeeRow, 'id' | 'created_at' | 'updated_at'>
+        Update: Partial<Omit<EmployeeRow, 'id' | 'created_at' | 'updated_at'>>
+        Relationships: []
+      }
+      salary_structures: {
+        Row: SalaryStructureRow
+        Insert: Omit<SalaryStructureRow, 'id' | 'gross' | 'created_at'>
+        Update: Partial<Omit<SalaryStructureRow, 'id' | 'gross' | 'created_at'>>
+        Relationships: []
+      }
+      leave_types: {
+        Row: LeaveTypeRow
+        Insert: Omit<LeaveTypeRow, 'id' | 'created_at'>
+        Update: Partial<Omit<LeaveTypeRow, 'id' | 'created_at'>>
+        Relationships: []
+      }
+      leave_balances: {
+        Row: LeaveBalanceRow
+        Insert: Omit<LeaveBalanceRow, 'id' | 'available'>
+        Update: Partial<Omit<LeaveBalanceRow, 'id' | 'available'>>
+        Relationships: []
+      }
+      attendance: {
+        Row: AttendanceRow
+        Insert: Omit<AttendanceRow, 'id' | 'marked_at'>
+        Update: Partial<Omit<AttendanceRow, 'id' | 'marked_at'>>
+        Relationships: []
+      }
+      salary_adjustments: {
+        Row: SalaryAdjustmentRow
+        Insert: Omit<SalaryAdjustmentRow, 'id' | 'created_at'>
+        Update: Partial<Omit<SalaryAdjustmentRow, 'id' | 'created_at'>>
+        Relationships: []
+      }
+      loans: {
+        Row: LoanRow
+        Insert: Omit<LoanRow, 'id' | 'outstanding' | 'created_at'>
+        Update: Partial<Omit<LoanRow, 'id' | 'outstanding' | 'created_at'>>
+        Relationships: []
+      }
+      service_charge_payouts: {
+        Row: ServiceChargePayoutRow
+        Insert: Omit<ServiceChargePayoutRow, 'id' | 'created_at'>
+        Update: Partial<Omit<ServiceChargePayoutRow, 'id' | 'created_at'>>
+        Relationships: []
+      }
+      payroll_runs: {
+        Row: PayrollRunRow
+        Insert: Omit<PayrollRunRow, 'id' | 'generated_at'>
+        Update: Partial<Omit<PayrollRunRow, 'id' | 'generated_at'>>
+        Relationships: []
+      }
+      payroll_run_lines: {
+        Row: PayrollRunLineRow
+        Insert: Omit<PayrollRunLineRow, 'id'>
+        Update: Partial<Omit<PayrollRunLineRow, 'id'>>
         Relationships: []
       }
     }
