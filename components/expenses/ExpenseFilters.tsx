@@ -36,7 +36,7 @@ export function ExpenseFilters({
 
   return (
     <div className="flex flex-wrap items-end gap-3 rounded-xl border border-gray-200 bg-white p-4">
-      <div>
+      <div className="w-full sm:w-auto">
         <label className="mb-1 block text-xs font-medium text-gray-600">Date range</label>
         <DateRangePicker
           from={from}
@@ -46,7 +46,7 @@ export function ExpenseFilters({
         />
       </div>
 
-      <div className="min-w-[180px]">
+      <div className="w-full sm:w-auto sm:min-w-[180px]">
         <label className="mb-1 block text-xs font-medium text-gray-600">Category</label>
         <Select
           value={categoryId}
@@ -59,7 +59,7 @@ export function ExpenseFilters({
         </Select>
       </div>
 
-      <div className="min-w-[160px]">
+      <div className="w-full sm:w-auto sm:min-w-[160px]">
         <label className="mb-1 block text-xs font-medium text-gray-600">Payee</label>
         <Select
           value={payeeId}
@@ -72,7 +72,7 @@ export function ExpenseFilters({
         </Select>
       </div>
 
-      <div className="min-w-[140px]">
+      <div className="w-full sm:w-auto sm:min-w-[140px]">
         <label className="mb-1 block text-xs font-medium text-gray-600">Payment</label>
         <Select
           value={paymentMethod}
@@ -85,7 +85,7 @@ export function ExpenseFilters({
         </Select>
       </div>
 
-      <div className="min-w-[200px] flex-1">
+      <div className="w-full sm:flex-1 sm:min-w-[200px]">
         <label className="mb-1 block text-xs font-medium text-gray-600">Search</label>
         <div className="relative">
           <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />

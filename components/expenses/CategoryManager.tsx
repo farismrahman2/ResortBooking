@@ -55,7 +55,8 @@ export function CategoryManager({ categories }: CategoryManagerProps) {
       </div>
 
       <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[720px]">
           <thead className="border-b border-gray-200 bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
             <tr>
               <th className="px-4 py-2.5 font-medium">Order</th>
@@ -108,6 +109,7 @@ export function CategoryManager({ categories }: CategoryManagerProps) {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {error && (

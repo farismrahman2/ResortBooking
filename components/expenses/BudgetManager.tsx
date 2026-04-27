@@ -120,7 +120,8 @@ export function BudgetManager({ period, periodStart, periodLabel, categories, vs
       </div>
 
       <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[640px]">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr className="text-left text-xs uppercase tracking-wide text-gray-500">
               <th className="px-4 py-2.5 font-medium">Category</th>
@@ -213,6 +214,7 @@ export function BudgetManager({ period, periodStart, periodLabel, categories, vs
             })}
           </tbody>
         </table>
+        </div>
       </div>
 
       {error && (

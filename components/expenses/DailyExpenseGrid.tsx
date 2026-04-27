@@ -201,7 +201,7 @@ export function DailyExpenseGrid({ categories, payees, defaultDate }: DailyExpen
   return (
     <div className="space-y-4">
       {/* Top toolbar: date + default payment method + notes */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-xl border border-gray-200 bg-white p-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 rounded-xl border border-gray-200 bg-white p-4">
         <Input
           label="Date"
           type="date"
@@ -276,54 +276,64 @@ export function DailyExpenseGrid({ categories, payees, defaultDate }: DailyExpen
                 </span>
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-3 md:space-y-2">
                 {catLines.map((line, idx) => (
-                  <div key={line.key} className="grid grid-cols-12 items-center gap-2">
-                    {cat.requires_payee ? (
+                  <div
+                    key={line.key}
+                    className="space-y-2 md:space-y-0 md:grid md:grid-cols-12 md:items-center md:gap-2"
+                  >
+                    {/* Payee — only renders if category needs one */}
+                    {cat.requires_payee && (
                       <Select
                         value={line.payee_id ?? ''}
                         onChange={(e) => updateRow(line.key, { payee_id: e.target.value || null })}
-                        className="col-span-4"
+                        className="md:col-span-4"
                       >
                         <option value="">Select payee…</option>
                         {filteredPayees.map((p) => (
                           <option key={p.id} value={p.id}>{p.name}</option>
                         ))}
                       </Select>
-                    ) : (
-                      <div className="col-span-4 text-xs text-gray-400 italic px-2">No payee</div>
+                    )}
+                    {/* Desktop alignment placeholder; hidden on mobile */}
+                    {!cat.requires_payee && (
+                      <div className="hidden md:block md:col-span-4 text-xs text-gray-400 italic px-2">No payee</div>
                     )}
 
-                    {cat.requires_description ? (
+                    {/* Description — only renders if category needs one */}
+                    {cat.requires_description && (
                       <input
                         type="text"
                         value={line.description}
                         onChange={(e) => updateRow(line.key, { description: e.target.value })}
                         placeholder={idx === 0 ? 'Description…' : 'More details…'}
-                        className="col-span-5 rounded-lg border border-gray-300 px-2.5 py-2 text-sm focus:border-forest-500 focus:outline-none focus:ring-2 focus:ring-forest-200"
+                        className="w-full rounded-lg border border-gray-300 px-2.5 py-2 text-sm focus:border-forest-500 focus:outline-none focus:ring-2 focus:ring-forest-200 md:col-span-5"
                       />
-                    ) : (
-                      <div className="col-span-5 text-xs text-gray-300 italic px-2">—</div>
+                    )}
+                    {!cat.requires_description && (
+                      <div className="hidden md:block md:col-span-5 text-xs text-gray-300 italic px-2">—</div>
                     )}
 
-                    <div className="col-span-2">
-                      <NumberInput
-                        prefix="৳"
-                        value={line.amount}
-                        onChange={(v) => updateRow(line.key, { amount: v })}
-                      />
-                    </div>
-
-                    <div className="col-span-1 flex justify-end">
-                      {catLines.length > 1 && (
+                    {/* Amount + remove — share a row on mobile via flex; cols 2 + 1 on desktop */}
+                    <div className="flex items-center gap-2 md:contents">
+                      <div className="flex-1 md:col-span-2">
+                        <NumberInput
+                          prefix="৳"
+                          value={line.amount}
+                          onChange={(v) => updateRow(line.key, { amount: v })}
+                        />
+                      </div>
+                      {catLines.length > 1 ? (
                         <button
                           type="button"
                           onClick={() => removeRow(line.key)}
-                          className="flex h-7 w-7 items-center justify-center rounded-md border border-red-200 bg-red-50 text-red-500 hover:bg-red-100 transition-colors"
+                          className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md border border-red-200 bg-red-50 text-red-500 hover:bg-red-100 transition-colors md:col-span-1 md:h-7 md:w-7 md:justify-self-end"
                           title="Remove line"
                         >
                           <Trash2 size={13} />
                         </button>
+                      ) : (
+                        <div className="hidden md:block md:col-span-1" />
                       )}
                     </div>
                   </div>
