@@ -1,7 +1,7 @@
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
 export type PackageType = 'daylong' | 'night'
-export type BookingStatus = 'draft' | 'sent' | 'confirmed' | 'cancelled'
+export type BookingStatus = 'draft' | 'sent' | 'confirmed' | 'cancelled' | 'checked_out'
 export type HistoryEvent = 'created' | 'edited' | 'status_changed' | 'converted_to_booking'
 export type RoomType =
   | 'cottage'
@@ -527,6 +527,92 @@ export interface RoleWithPermissions extends RoleRow {
   }>
 }
 
+// ─── Checkout module ─────────────────────────────────────────────────────────
+
+export type CheckoutStatus       = 'draft' | 'finalized' | 'voided'
+export type CheckoutPaymentMethod = 'cash' | 'bkash' | 'nagad' | 'rocket' | 'card' | 'bank_transfer' | 'other'
+
+export interface ChargeCategoryRow {
+  id: string
+  slug: string
+  display_name: string
+  display_order: number
+  is_active: boolean
+  created_at: string
+}
+
+export interface ChargeItemRow {
+  id: string
+  category_id: string
+  name: string
+  default_price: number
+  description: string | null
+  is_active: boolean
+  display_order: number
+  created_at: string
+  updated_at: string
+}
+
+export interface CheckoutRow {
+  id: string
+  booking_id: string
+  status: CheckoutStatus
+  advance_amount: number
+  charges_total: number
+  payments_total: number
+  net_due: number              // generated
+  refund_amount: number
+  refund_expense_id: string | null
+  notes: string | null
+  finalized_at: string | null
+  finalized_by: string | null
+  voided_at: string | null
+  voided_by: string | null
+  void_reason: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CheckoutChargeRow {
+  id: string
+  checkout_id: string
+  category_id: string
+  charge_item_id: string | null
+  description: string
+  quantity: number
+  unit_price: number
+  amount: number               // generated
+  notes: string | null
+  added_by: string | null
+  added_at: string
+}
+
+export interface CheckoutPaymentRow {
+  id: string
+  checkout_id: string
+  amount: number
+  method: CheckoutPaymentMethod
+  reference: string | null
+  paid_at: string
+  recorded_by: string | null
+  notes: string | null
+}
+
+export interface ChargeItemWithCategory extends ChargeItemRow {
+  category: Pick<ChargeCategoryRow, 'id' | 'slug' | 'display_name'>
+}
+
+export interface CheckoutChargeWithRefs extends CheckoutChargeRow {
+  category: Pick<ChargeCategoryRow, 'id' | 'slug' | 'display_name'>
+  charge_item: Pick<ChargeItemRow, 'id' | 'name'> | null
+}
+
+export interface CheckoutWithFull extends CheckoutRow {
+  booking: BookingRow
+  charges: CheckoutChargeWithRefs[]
+  payments: CheckoutPaymentRow[]
+}
+
 // ─── Derived / Computed Types ──────────────────────────────────────────────────
 
 /** Complete package state captured at quote/booking creation time */
@@ -789,6 +875,36 @@ export interface Database {
         Row: UserProfileRow
         Insert: Omit<UserProfileRow, 'created_at' | 'updated_at'>
         Update: Partial<Omit<UserProfileRow, 'user_id' | 'created_at' | 'updated_at'>>
+        Relationships: []
+      }
+      charge_categories: {
+        Row: ChargeCategoryRow
+        Insert: Omit<ChargeCategoryRow, 'id' | 'created_at'>
+        Update: Partial<Omit<ChargeCategoryRow, 'id' | 'created_at'>>
+        Relationships: []
+      }
+      charge_items: {
+        Row: ChargeItemRow
+        Insert: Omit<ChargeItemRow, 'id' | 'created_at' | 'updated_at'>
+        Update: Partial<Omit<ChargeItemRow, 'id' | 'created_at' | 'updated_at'>>
+        Relationships: []
+      }
+      checkouts: {
+        Row: CheckoutRow
+        Insert: Omit<CheckoutRow, 'id' | 'net_due' | 'created_at' | 'updated_at'>
+        Update: Partial<Omit<CheckoutRow, 'id' | 'net_due' | 'created_at' | 'updated_at'>>
+        Relationships: []
+      }
+      checkout_charges: {
+        Row: CheckoutChargeRow
+        Insert: Omit<CheckoutChargeRow, 'id' | 'amount' | 'added_at'>
+        Update: Partial<Omit<CheckoutChargeRow, 'id' | 'amount' | 'added_at'>>
+        Relationships: []
+      }
+      checkout_payments: {
+        Row: CheckoutPaymentRow
+        Insert: Omit<CheckoutPaymentRow, 'id' | 'paid_at'>
+        Update: Partial<Omit<CheckoutPaymentRow, 'id' | 'paid_at'>>
         Relationships: []
       }
     }

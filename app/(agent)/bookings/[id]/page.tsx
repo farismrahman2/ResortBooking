@@ -6,10 +6,14 @@ import { StatusBadge } from '@/components/ui/Badge'
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
 import { BookingActions } from '@/components/bookings/BookingActions'
 import { BookingWhatsAppOutput } from '@/components/bookings/BookingWhatsAppOutput'
+import { BookingChargesTab } from '@/components/checkout/BookingChargesTab'
 import { getBookingById } from '@/lib/queries/bookings'
 import { getSettings, getHolidayDateStrings, getRoomInventory } from '@/lib/queries/settings'
 import { WhatsAppLink } from '@/components/ui/WhatsAppLink'
 import { getBookedRoomNumbers } from '@/lib/queries/availability'
+import { getCheckoutByBooking, getChargesByCheckout } from '@/lib/queries/checkout'
+import { listChargeCategories, listChargeItems } from '@/lib/queries/charge-catalog'
+import { hasPermission } from '@/lib/auth/permissions'
 import { createClient } from '@/lib/supabase/server'
 import { formatDate, formatDateRange } from '@/lib/formatters/dates'
 import { formatBDT } from '@/lib/formatters/currency'
@@ -45,6 +49,34 @@ export default async function BookingDetailPage({ params }: PageProps) {
     : []
 
   if (!booking) notFound()
+
+  // Charges section (best-effort: ignore errors so unmigrated installs still load)
+  const [canSeeCheckout, canWriteCheckout] = await Promise.all([
+    hasPermission('checkout', 'read'),
+    hasPermission('checkout', 'write'),
+  ])
+  const showCharges = canSeeCheckout && (booking.status === 'confirmed' || booking.status === 'checked_out')
+  let charges: Awaited<ReturnType<typeof getChargesByCheckout>> = []
+  let categories: Awaited<ReturnType<typeof listChargeCategories>> = []
+  let chargeItems: Awaited<ReturnType<typeof listChargeItems>> = []
+  let checkoutStatus: Awaited<ReturnType<typeof getCheckoutByBooking>> extends infer T ? (T extends { status: infer S } ? S : null) : null = null
+  if (showCharges) {
+    try {
+      const [co, cats, items] = await Promise.all([
+        getCheckoutByBooking(booking.id),
+        listChargeCategories(),
+        listChargeItems(),
+      ])
+      categories = cats
+      chargeItems = items
+      if (co) {
+        checkoutStatus = co.status as any
+        charges = await getChargesByCheckout(co.id)
+      }
+    } catch {
+      // unmigrated — skip silently
+    }
+  }
 
   // Check if any selected rooms have a night stay checking out on the visit date
   let roomAvailableAfterNoon = false
@@ -295,6 +327,20 @@ export default async function BookingDetailPage({ params }: PageProps) {
                 </div>
               </div>
             </Card>
+
+            {/* Guest charges (during-stay extras) */}
+            {showCharges && (
+              <Card>
+                <BookingChargesTab
+                  bookingId={booking.id}
+                  canWrite={canWriteCheckout}
+                  checkoutStatus={checkoutStatus}
+                  charges={charges}
+                  categories={categories}
+                  items={chargeItems}
+                />
+              </Card>
+            )}
 
             {/* 5. Actions */}
             <Card>

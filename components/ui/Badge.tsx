@@ -7,10 +7,11 @@ interface BadgeProps {
 }
 
 const statusConfig: Record<BookingStatus, { label: string; className: string }> = {
-  draft:     { label: 'Draft',     className: 'bg-gray-100 text-gray-600 border-gray-200' },
-  sent:      { label: 'Sent',      className: 'bg-blue-50 text-blue-700 border-blue-200' },
-  confirmed: { label: 'Confirmed', className: 'bg-green-50 text-green-700 border-green-200' },
-  cancelled: { label: 'Cancelled', className: 'bg-red-50 text-red-700 border-red-200' },
+  draft:       { label: 'Draft',       className: 'bg-gray-100 text-gray-600 border-gray-200' },
+  sent:        { label: 'Sent',        className: 'bg-blue-50 text-blue-700 border-blue-200' },
+  confirmed:   { label: 'Confirmed',   className: 'bg-green-50 text-green-700 border-green-200' },
+  cancelled:   { label: 'Cancelled',   className: 'bg-red-50 text-red-700 border-red-200' },
+  checked_out: { label: 'Checked Out', className: 'bg-violet-50 text-violet-700 border-violet-200' },
 }
 
 export function StatusBadge({ status, className }: BadgeProps) {
