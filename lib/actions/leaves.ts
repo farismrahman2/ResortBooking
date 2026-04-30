@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
+import { leaveTypeFormSchema } from '@/lib/validators/hr'
 import type { ActionResult, ActionData } from './types'
 
 async function logHistory(
@@ -83,6 +84,75 @@ export async function initializeLeaveBalances(
     }
     revalidatePath('/hr/leaves')
     return { success: true, data: { created, skipped } }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+// ─── Leave type admin ────────────────────────────────────────────────────────
+
+export async function createLeaveType(input: unknown): Promise<ActionData<{ id: string }>> {
+  try {
+    const parsed = leaveTypeFormSchema.parse(input)
+    const supabase = createClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = supabase as any
+    const { data, error } = await db
+      .from('leave_types')
+      .insert(parsed)
+      .select('id')
+      .single()
+    if (error || !data) return { success: false, error: error?.message ?? 'Insert failed' }
+    revalidatePath('/hr/leaves')
+    revalidatePath('/hr/leaves/types')
+    return { success: true, data: { id: data.id } }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+export async function updateLeaveType(id: string, input: unknown): Promise<ActionResult> {
+  try {
+    const parsed = leaveTypeFormSchema.parse(input)
+    const supabase = createClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = supabase as any
+    // Slug should be immutable once leave_balances reference it. We allow editing
+    // every other field in place.
+    const { error } = await db
+      .from('leave_types')
+      .update({
+        name:                   parsed.name,
+        default_annual_balance: parsed.default_annual_balance,
+        is_paid:                parsed.is_paid,
+        display_order:          parsed.display_order,
+        is_active:              parsed.is_active,
+      })
+      .eq('id', id)
+    if (error) return { success: false, error: error.message }
+    revalidatePath('/hr/leaves')
+    revalidatePath('/hr/leaves/types')
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+export async function toggleLeaveTypeActive(id: string): Promise<ActionResult> {
+  try {
+    const supabase = createClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = supabase as any
+    const { data: cur } = await db.from('leave_types').select('is_active').eq('id', id).single()
+    if (!cur) return { success: false, error: 'Leave type not found' }
+    const { error } = await db
+      .from('leave_types')
+      .update({ is_active: !cur.is_active })
+      .eq('id', id)
+    if (error) return { success: false, error: error.message }
+    revalidatePath('/hr/leaves')
+    revalidatePath('/hr/leaves/types')
+    return { success: true }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }

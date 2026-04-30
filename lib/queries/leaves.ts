@@ -1,6 +1,21 @@
 import { createClient } from '@/lib/supabase/server'
 import type { LeaveTypeRow, LeaveBalanceRow } from '@/lib/supabase/types'
 
+export async function getAllLeaveTypes(): Promise<LeaveTypeRow[]> {
+  const supabase = createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any
+  const { data, error } = await db
+    .from('leave_types')
+    .select('*')
+    .order('display_order', { ascending: true })
+  if (error) throw new Error(`getAllLeaveTypes: ${error.message}`)
+  return (data ?? []).map((r: any) => ({
+    ...r,
+    default_annual_balance: Number(r.default_annual_balance ?? 0),
+  }))
+}
+
 export async function getActiveLeaveTypes(): Promise<LeaveTypeRow[]> {
   const supabase = createClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -58,6 +58,17 @@ export const adjustmentFormSchema = z.object({
 })
 export type AdjustmentFormInput = z.infer<typeof adjustmentFormSchema>
 
+// ── Leave types (admin) ──────────────────────────────────────────────────────
+export const leaveTypeFormSchema = z.object({
+  name: z.string().trim().min(2).max(60),
+  slug: z.string().trim().regex(/^[a-z0-9_]+$/, 'lowercase letters, digits, underscore only').min(2).max(40),
+  default_annual_balance: z.coerce.number().min(0).max(365),
+  is_paid:       z.coerce.boolean().default(true),
+  display_order: z.coerce.number().int().min(0).default(0),
+  is_active:     z.coerce.boolean().default(true),
+})
+export type LeaveTypeFormInput = z.infer<typeof leaveTypeFormSchema>
+
 // ── Service charge ───────────────────────────────────────────────────────────
 export const serviceChargeFormSchema = z.object({
   employee_id:       z.string().uuid(),

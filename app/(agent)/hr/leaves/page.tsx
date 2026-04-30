@@ -1,4 +1,7 @@
+import Link from 'next/link'
+import { Settings2 } from 'lucide-react'
 import { Topbar } from '@/components/layout/Topbar'
+import { Button } from '@/components/ui/Button'
 import { MigrationErrorBanner } from '@/components/hr/MigrationErrorBanner'
 import { LeaveBalanceTable } from '@/components/hr/LeaveBalanceTable'
 import { InitializeYearButton } from './InitializeYearButton'
@@ -33,7 +36,15 @@ export default async function LeavesPage({ searchParams }: PageProps) {
           <p className="text-sm text-gray-500">
             <span className="font-medium text-gray-700">{rows.length}</span> balance rows for {year}
           </p>
-          <InitializeYearButton year={year} />
+          <div className="flex items-center gap-2">
+            <Link href="/hr/leaves/types">
+              <Button variant="outline" size="md" className="gap-1.5">
+                <Settings2 size={14} />
+                Configure Leave Types
+              </Button>
+            </Link>
+            <InitializeYearButton year={year} />
+          </div>
         </div>
 
         <LeaveBalanceTable rows={rows} />
