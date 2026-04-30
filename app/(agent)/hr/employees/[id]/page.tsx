@@ -7,12 +7,13 @@ import { SalaryStructureForm } from '@/components/hr/SalaryStructureForm'
 import { TerminateEmployeeButton } from '@/components/hr/TerminateEmployeeButton'
 import { AdjustmentsList } from '@/components/hr/AdjustmentsList'
 import { AdjustmentForm } from '@/components/hr/AdjustmentForm'
-import { EmployeeDetailTabs, ComingSoonPanel } from './EmployeeDetailTabs'
+import { EmployeeDetailTabs } from './EmployeeDetailTabs'
 import { getEmployeeById, getSalaryHistory } from '@/lib/queries/employees'
 import { getActiveLoansForEmployee } from '@/lib/queries/loans'
 import { getAdjustmentsForEmployee } from '@/lib/queries/salary-adjustments'
 import { getEmployeeLeaveBalances } from '@/lib/queries/leaves'
 import { getAttendanceForMonth } from '@/lib/queries/attendance'
+import { getPayrollLinesForEmployee } from '@/lib/queries/payroll'
 import {
   DEPARTMENT_LABELS,
   EMPLOYMENT_STATUS_BADGE,
@@ -22,6 +23,9 @@ import {
   LOAN_STATUS_LABELS,
   ATTENDANCE_STATUS_BADGE,
   ATTENDANCE_STATUS_LABELS,
+  PAYROLL_STATUS_BADGE,
+  PAYROLL_STATUS_LABELS,
+  formatPeriod,
 } from '@/components/hr/labels'
 import { formatBDT } from '@/lib/formatters/currency'
 import { formatDate } from '@/lib/formatters/dates'
@@ -41,17 +45,19 @@ export default async function EmployeeDetailPage({ params }: PageProps) {
   let adjustments: Awaited<ReturnType<typeof getAdjustmentsForEmployee>> = []
   let leaveBalances: Awaited<ReturnType<typeof getEmployeeLeaveBalances>> = []
   let monthAttendance: Awaited<ReturnType<typeof getAttendanceForMonth>> = []
+  let payrollHistory: Awaited<ReturnType<typeof getPayrollLinesForEmployee>> = []
   const now = new Date()
   const monthIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 
   try {
-    [employee, salaryHistory, loans, adjustments, leaveBalances, monthAttendance] = await Promise.all([
+    [employee, salaryHistory, loans, adjustments, leaveBalances, monthAttendance, payrollHistory] = await Promise.all([
       getEmployeeById(params.id),
       getSalaryHistory(params.id).catch(() => [] as Awaited<ReturnType<typeof getSalaryHistory>>),
       getActiveLoansForEmployee(params.id).catch(() => [] as Awaited<ReturnType<typeof getActiveLoansForEmployee>>),
       getAdjustmentsForEmployee(params.id).catch(() => [] as Awaited<ReturnType<typeof getAdjustmentsForEmployee>>),
       getEmployeeLeaveBalances(params.id, now.getFullYear()).catch(() => [] as Awaited<ReturnType<typeof getEmployeeLeaveBalances>>),
       getAttendanceForMonth(params.id, monthIso).catch(() => [] as Awaited<ReturnType<typeof getAttendanceForMonth>>),
+      getPayrollLinesForEmployee(params.id).catch(() => [] as Awaited<ReturnType<typeof getPayrollLinesForEmployee>>),
     ])
   } catch (err) {
     migrationError = err instanceof Error ? err.message : String(err)
@@ -302,7 +308,66 @@ export default async function EmployeeDetailPage({ params }: PageProps) {
                 </div>
               ),
             },
-            { key: 'payroll', label: 'Payroll', content: <ComingSoonPanel phase="Phase 4" /> },
+            {
+              key:   'payroll',
+              label: 'Payroll',
+              content: payrollHistory.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-8 text-center text-sm text-gray-600">
+                  No payroll runs yet for this employee.{' '}
+                  <Link href="/hr/payroll" className="text-sky-700 hover:underline">Go to payroll</Link>
+                </div>
+              ) : (
+                <Card title="Payroll History">
+                  <div className="overflow-x-auto -mx-2">
+                    <table className="w-full text-sm min-w-[640px]">
+                      <thead className="border-b border-gray-200 bg-gray-50">
+                        <tr className="text-left text-xs uppercase tracking-wide text-gray-500">
+                          <th className="px-3 py-2 font-medium">Period</th>
+                          <th className="px-3 py-2 font-medium">Status</th>
+                          <th className="px-3 py-2 text-right font-medium">Gross</th>
+                          <th className="px-3 py-2 text-right font-medium">Deductions</th>
+                          <th className="px-3 py-2 text-right font-medium">Additions</th>
+                          <th className="px-3 py-2 text-right font-medium">Net Pay</th>
+                          <th className="px-3 py-2 font-medium">Method</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {payrollHistory.map((p) => {
+                          const additions = Number(p.bonuses) + Number(p.eid_bonus) + Number(p.other_additions) + Number(p.service_charge)
+                          const deductions = Number(p.unpaid_deduction) + Number(p.fines)
+                            + Number(p.advance_deduction) + Number(p.loan_deduction) + Number(p.other_deductions)
+                          return (
+                            <tr key={p.id}>
+                              <td className="px-3 py-2 whitespace-nowrap font-medium">
+                                <Link href={`/hr/payroll?period=${p.period}`} className="text-gray-900 hover:text-sky-700">
+                                  {formatPeriod(p.period)}
+                                </Link>
+                              </td>
+                              <td className="px-3 py-2">
+                                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${PAYROLL_STATUS_BADGE[p.status]}`}>
+                                  {PAYROLL_STATUS_LABELS[p.status]}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-right font-mono tabular-nums">{formatBDT(Number(p.gross))}</td>
+                              <td className="px-3 py-2 text-right font-mono tabular-nums text-rose-700">
+                                {deductions > 0 ? `− ${formatBDT(deductions)}` : '—'}
+                              </td>
+                              <td className="px-3 py-2 text-right font-mono tabular-nums text-emerald-700">
+                                {additions > 0 ? `+ ${formatBDT(additions)}` : '—'}
+                              </td>
+                              <td className="px-3 py-2 text-right font-mono tabular-nums font-semibold text-sky-900">
+                                {formatBDT(Number(p.net_pay))}
+                              </td>
+                              <td className="px-3 py-2 text-xs text-gray-500">{p.payment_method ?? '—'}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              ),
+            },
           ]}
         />
       </div>

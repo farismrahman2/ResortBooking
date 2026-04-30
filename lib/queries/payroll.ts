@@ -78,3 +78,26 @@ export async function getPayrollRunByPeriod(
     lines: (lines ?? []).map(coerceLine).map((l: any) => l) as PayrollRunWithLines['lines'],
   }
 }
+
+/** Per-employee payroll history — used by the employee detail Payroll tab. */
+export async function getPayrollLinesForEmployee(
+  employeeId: string,
+): Promise<(PayrollRunLineRow & { period: string; status: 'draft' | 'finalized' })[]> {
+  const supabase = createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any
+  const { data, error } = await db
+    .from('payroll_run_lines')
+    .select(`
+      *,
+      payroll_run:payroll_runs!inner (period, status)
+    `)
+    .eq('employee_id', employeeId)
+    .order('payroll_run(period)', { ascending: false })
+  if (error) throw new Error(`getPayrollLinesForEmployee: ${error.message}`)
+  return (data ?? []).map((r: any) => ({
+    ...coerceLine(r),
+    period: r.payroll_run.period,
+    status: r.payroll_run.status,
+  }))
+}
