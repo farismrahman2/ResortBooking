@@ -3,8 +3,16 @@
 import { type ReactNode } from 'react'
 import { SidebarProvider, useSidebar } from '@/lib/sidebar-context'
 import { Sidebar } from './Sidebar'
+import type { ModuleSlug, PermissionLevel } from '@/lib/supabase/types'
 
-function Shell({ children, userEmail }: { children: ReactNode; userEmail: string | null }) {
+interface ShellProps {
+  children:    ReactNode
+  userEmail:   string | null
+  permissions: Record<ModuleSlug, PermissionLevel> | null
+  roleLabel:   string | null
+}
+
+function Shell({ children, userEmail, permissions, roleLabel }: ShellProps) {
   const { isOpen, close } = useSidebar()
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
@@ -17,7 +25,7 @@ function Shell({ children, userEmail }: { children: ReactNode; userEmail: string
         />
       )}
 
-      <Sidebar userEmail={userEmail} />
+      <Sidebar userEmail={userEmail} permissions={permissions} roleLabel={roleLabel} />
 
       <main className="flex-1 min-w-0 overflow-y-auto scrollable">
         {children}
@@ -26,10 +34,14 @@ function Shell({ children, userEmail }: { children: ReactNode; userEmail: string
   )
 }
 
-export function LayoutShell({ children, userEmail }: { children: ReactNode; userEmail: string | null }) {
+export function LayoutShell({
+  children, userEmail, permissions, roleLabel,
+}: ShellProps) {
   return (
     <SidebarProvider>
-      <Shell userEmail={userEmail}>{children}</Shell>
+      <Shell userEmail={userEmail} permissions={permissions} roleLabel={roleLabel}>
+        {children}
+      </Shell>
     </SidebarProvider>
   )
 }

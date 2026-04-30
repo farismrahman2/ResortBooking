@@ -170,7 +170,10 @@ export interface BookingRoomRow {
 
 export interface HistoryLogRow {
   id: string
-  entity_type: 'quote' | 'booking' | 'expense' | 'employee' | 'payroll_run' | 'loan'
+  entity_type:
+    | 'quote' | 'booking' | 'expense'
+    | 'employee' | 'payroll_run' | 'loan'
+    | 'user' | 'role' | 'checkout' | 'charge_item'
   entity_id: string
   event: HistoryEvent
   actor: string
@@ -468,6 +471,62 @@ export interface EmployeeWithCurrentSalary extends EmployeeRow {
   current_salary: SalaryStructureRow | null
 }
 
+// ─── Auth & Roles ────────────────────────────────────────────────────────────
+
+export type RoleSlug       = 'admin' | 'manager' | 'front_desk' | 'accountant'
+export type ModuleSlug     = 'bookings' | 'checkout' | 'expenses' | 'hr' | 'reports' | 'settings'
+export type PermissionLevel = 'none' | 'read' | 'write'
+
+export interface RoleRow {
+  id: string
+  slug: RoleSlug
+  display_name: string
+  description: string | null
+  is_system: boolean
+  display_order: number
+  created_at: string
+}
+
+export interface ModuleRow {
+  id: string
+  slug: ModuleSlug
+  display_name: string
+  description: string | null
+  display_order: number
+}
+
+export interface RolePermissionRow {
+  id: string
+  role_id: string
+  module_id: string
+  level: PermissionLevel
+  updated_at: string
+  updated_by: string | null
+}
+
+export interface UserProfileRow {
+  user_id: string
+  full_name: string
+  email: string
+  role_id: string
+  is_active: boolean
+  phone: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+  last_login_at: string | null
+}
+
+export interface UserProfileWithRole extends UserProfileRow {
+  role: Pick<RoleRow, 'id' | 'slug' | 'display_name'>
+}
+
+export interface RoleWithPermissions extends RoleRow {
+  permissions: Array<RolePermissionRow & {
+    module: Pick<ModuleRow, 'id' | 'slug' | 'display_name'>
+  }>
+}
+
 // ─── Derived / Computed Types ──────────────────────────────────────────────────
 
 /** Complete package state captured at quote/booking creation time */
@@ -706,6 +765,30 @@ export interface Database {
         Row: PayrollRunLineRow
         Insert: Omit<PayrollRunLineRow, 'id'>
         Update: Partial<Omit<PayrollRunLineRow, 'id'>>
+        Relationships: []
+      }
+      roles: {
+        Row: RoleRow
+        Insert: Omit<RoleRow, 'id' | 'created_at'>
+        Update: Partial<Omit<RoleRow, 'id' | 'created_at'>>
+        Relationships: []
+      }
+      modules: {
+        Row: ModuleRow
+        Insert: Omit<ModuleRow, 'id'>
+        Update: Partial<Omit<ModuleRow, 'id'>>
+        Relationships: []
+      }
+      role_permissions: {
+        Row: RolePermissionRow
+        Insert: Omit<RolePermissionRow, 'id' | 'updated_at'>
+        Update: Partial<Omit<RolePermissionRow, 'id' | 'updated_at'>>
+        Relationships: []
+      }
+      user_profiles: {
+        Row: UserProfileRow
+        Insert: Omit<UserProfileRow, 'created_at' | 'updated_at'>
+        Update: Partial<Omit<UserProfileRow, 'user_id' | 'created_at' | 'updated_at'>>
         Relationships: []
       }
     }

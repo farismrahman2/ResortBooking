@@ -20,23 +20,38 @@ import {
 import { cn } from '@/lib/utils'
 import { useSidebar } from '@/lib/sidebar-context'
 
-const navItems = [
+import type { ModuleSlug, PermissionLevel } from '@/lib/supabase/types'
+
+interface NavItem {
+  href:   string
+  label:  string
+  icon:   typeof LayoutDashboard
+  module?: ModuleSlug          // when set, hides the link unless user has at least 'read'
+}
+
+const navItems: NavItem[] = [
   { href: '/',             label: 'Dashboard',    icon: LayoutDashboard },
-  { href: '/quotes',       label: 'Quotes',       icon: FileText        },
-  { href: '/bookings',     label: 'Bookings',     icon: CalendarCheck   },
-  { href: '/availability', label: 'Availability', icon: CalendarSearch  },
-  { href: '/analytics',    label: 'Analytics',    icon: BarChart2       },
-  { href: '/expenses',     label: 'Expenses',     icon: Wallet          },
-  { href: '/hr',           label: 'HR',           icon: Users           },
-  { href: '/packages',     label: 'Packages',     icon: Package         },
-  { href: '/settings',     label: 'Settings',     icon: Settings        },
+  { href: '/quotes',       label: 'Quotes',       icon: FileText,       module: 'bookings' },
+  { href: '/bookings',     label: 'Bookings',     icon: CalendarCheck,  module: 'bookings' },
+  { href: '/availability', label: 'Availability', icon: CalendarSearch, module: 'bookings' },
+  { href: '/analytics',    label: 'Analytics',    icon: BarChart2,      module: 'reports' },
+  { href: '/expenses',     label: 'Expenses',     icon: Wallet,         module: 'expenses' },
+  { href: '/hr',           label: 'HR',           icon: Users,          module: 'hr' },
+  { href: '/packages',     label: 'Packages',     icon: Package,        module: 'bookings' },
+  { href: '/settings',     label: 'Settings',     icon: Settings,       module: 'settings' },
 ]
 
 interface SidebarProps {
-  userEmail: string | null
+  userEmail:   string | null
+  permissions: Record<ModuleSlug, PermissionLevel> | null
+  roleLabel:   string | null
 }
 
-export function Sidebar({ userEmail }: SidebarProps) {
+function canSee(perm: PermissionLevel | undefined): boolean {
+  return perm === 'read' || perm === 'write'
+}
+
+export function Sidebar({ userEmail, permissions, roleLabel }: SidebarProps) {
   const pathname  = usePathname()
   const { isOpen, close } = useSidebar()
 
@@ -74,7 +89,10 @@ export function Sidebar({ userEmail }: SidebarProps) {
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto p-3">
         <ul className="space-y-1">
-          {navItems.map(({ href, label, icon: Icon }) => {
+          {navItems.map(({ href, label, icon: Icon, module }) => {
+            // Permission-gate. If permissions haven't loaded yet (null), we
+            // fail open and show the link — middleware still enforces server-side.
+            if (module && permissions && !canSee(permissions[module])) return null
             const isActive = href === '/' ? pathname === '/' : pathname.startsWith(href)
             return (
               <li key={href}>
@@ -104,7 +122,10 @@ export function Sidebar({ userEmail }: SidebarProps) {
             <div className="flex h-6 w-6 items-center justify-center rounded-full bg-forest-100 text-forest-700 flex-shrink-0">
               <User size={12} />
             </div>
-            <p className="text-xs text-gray-700 font-medium truncate">{userEmail}</p>
+            <div className="min-w-0">
+              <p className="text-xs text-gray-700 font-medium truncate">{userEmail}</p>
+              {roleLabel && <p className="text-[10px] text-gray-500 truncate">{roleLabel}</p>}
+            </div>
           </div>
         )}
         <form action="/auth/signout" method="POST">
