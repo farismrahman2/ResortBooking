@@ -3,7 +3,7 @@ import { Topbar } from '@/components/layout/Topbar'
 import { Button } from '@/components/ui/Button'
 import { MigrationErrorBanner } from '@/components/hr/MigrationErrorBanner'
 import {
-  Users, CalendarCheck2, Wallet, TrendingDown, ListChecks, ArrowRight,
+  Users, CalendarCheck2, Wallet, TrendingDown, ListChecks, ArrowRight, Coins,
 } from 'lucide-react'
 import { getEmployeeStats } from '@/lib/queries/employees'
 
@@ -48,25 +48,31 @@ export default async function HRDashboardPage() {
             href="/hr/attendance"
             icon={<CalendarCheck2 size={18} />}
             title="Attendance"
-            description="Daily mark-up grid (Phase 3)"
+            description="Daily mark-up grid"
           />
           <ActionCard
             href="/hr/leaves"
             icon={<ListChecks size={18} />}
             title="Leaves"
-            description="Annual / sick / casual balances (Phase 3)"
+            description="Annual / sick / casual balances"
           />
           <ActionCard
             href="/hr/loans"
             icon={<TrendingDown size={18} />}
             title="Loans"
-            description="Multi-month staff loans (Phase 3)"
+            description="Multi-month staff loans"
+          />
+          <ActionCard
+            href="/hr/service-charge"
+            icon={<Coins size={18} />}
+            title="Service Charge"
+            description="Per-staff monthly service-charge payouts"
           />
           <ActionCard
             href="/hr/payroll"
             icon={<Wallet size={18} />}
             title="Payroll"
-            description="Monthly preview + finalize (Phase 4)"
+            description="Monthly preview + finalize"
           />
         </div>
 
