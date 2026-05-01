@@ -120,6 +120,14 @@ export interface DuplicateGroup {
     advance_paid:   number
     remaining:      number
     created_at:     string
+    /** Activity signals — used to identify the likely dupe vs the real one */
+    charges_count:  number
+    payments_count: number
+    /** Status of the checkout row, if any (null = no checkout started) */
+    checkout_status: 'draft' | 'finalized' | 'voided' | null
+    /** True if this booking has zero activity AND a sibling has activity OR
+     *  it was created after a sibling with equally-zero activity. */
+    is_likely_dupe: boolean
   }>
 }
 
@@ -172,11 +180,83 @@ export async function findAllDuplicateGroups(): Promise<DuplicateGroup[]> {
       advance_paid:   Number(b.advance_paid ?? 0),
       remaining:      Number(b.remaining ?? 0),
       created_at:     b.created_at,
+      // Filled in below
+      charges_count:   0,
+      payments_count:  0,
+      checkout_status: null,
+      is_likely_dupe:  false,
     })
   }
 
-  // Keep only groups with ≥ 2 bookings, newest first
-  return Array.from(groups.values())
-    .filter((g) => g.bookings.length >= 2)
-    .sort((a, b) => b.visit_date.localeCompare(a.visit_date))
+  // Keep only groups with ≥ 2 bookings
+  const dupeGroups = Array.from(groups.values()).filter((g) => g.bookings.length >= 2)
+  if (dupeGroups.length === 0) return []
+
+  // Best-effort activity lookup. If checkout module isn't migrated, leave zeros.
+  try {
+    const allBookingIds = dupeGroups.flatMap((g) => g.bookings.map((b) => b.id))
+
+    const { data: checkouts } = await db
+      .from('checkouts')
+      .select('id, booking_id, status')
+      .in('booking_id', allBookingIds)
+
+    const checkoutByBooking = new Map<string, { id: string; status: 'draft' | 'finalized' | 'voided' }>()
+    const checkoutIds: string[] = []
+    for (const c of (checkouts ?? []) as any[]) {
+      checkoutByBooking.set(c.booking_id, { id: c.id, status: c.status })
+      checkoutIds.push(c.id)
+    }
+
+    const chargesByCheckout  = new Map<string, number>()
+    const paymentsByCheckout = new Map<string, number>()
+
+    if (checkoutIds.length > 0) {
+      const { data: chargeRows } = await db
+        .from('checkout_charges').select('checkout_id').in('checkout_id', checkoutIds)
+      for (const r of (chargeRows ?? []) as { checkout_id: string }[]) {
+        chargesByCheckout.set(r.checkout_id, (chargesByCheckout.get(r.checkout_id) ?? 0) + 1)
+      }
+      const { data: paymentRows } = await db
+        .from('checkout_payments').select('checkout_id').in('checkout_id', checkoutIds)
+      for (const r of (paymentRows ?? []) as { checkout_id: string }[]) {
+        paymentsByCheckout.set(r.checkout_id, (paymentsByCheckout.get(r.checkout_id) ?? 0) + 1)
+      }
+    }
+
+    for (const g of dupeGroups) {
+      for (const b of g.bookings) {
+        const co = checkoutByBooking.get(b.id)
+        if (co) {
+          b.checkout_status = co.status
+          b.charges_count   = chargesByCheckout.get(co.id)  ?? 0
+          b.payments_count  = paymentsByCheckout.get(co.id) ?? 0
+        }
+      }
+    }
+  } catch { /* checkout tables not migrated — leave zeros */ }
+
+  // Mark likely dupes per group:
+  //  - A booking has "activity" if it has charges, payments, or a non-null checkout
+  //  - If any booking in the group has activity → siblings without activity are likely dupes
+  //  - If NO booking has activity → all but the earliest-created are likely dupes
+  for (const g of dupeGroups) {
+    const sorted = [...g.bookings].sort((a, b) => a.created_at.localeCompare(b.created_at))
+    const hasActivity = (b: typeof g.bookings[number]) =>
+      b.charges_count > 0 || b.payments_count > 0 || b.checkout_status !== null
+    const anyActive = sorted.some(hasActivity)
+    if (anyActive) {
+      for (const b of g.bookings) {
+        if (!hasActivity(b)) b.is_likely_dupe = true
+      }
+    } else {
+      // None active — earliest survives, all later siblings are likely dupes
+      const earliestId = sorted[0]?.id
+      for (const b of g.bookings) {
+        if (b.id !== earliestId) b.is_likely_dupe = true
+      }
+    }
+  }
+
+  return dupeGroups.sort((a, b) => b.visit_date.localeCompare(a.visit_date))
 }
