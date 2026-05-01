@@ -518,10 +518,25 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
           for (const pr of currentRooms) {
             for (const n of pr.room_numbers ?? []) locallyTakenByPaid.add(n)
           }
+          const totalCompQty = Object.values(compRoomData)
+            .reduce((sum, r) => sum + (r?.qty ?? 0), 0)
+          // Auto-open if any comp rooms are already selected (e.g. when editing)
           return (
-            <FormSection title="Complimentary Rooms">
-              <p className="text-xs text-gray-500 -mt-1">
-                Rooms provided at no extra charge. Won't affect the total cost. Daylong packages only.
+            <CollapsibleSection
+              title="Complimentary Rooms"
+              defaultOpen={totalCompQty > 0}
+              summary={
+                totalCompQty > 0 ? (
+                  <span className="rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 px-2 py-0.5 text-[10px] font-semibold">
+                    {totalCompQty} room{totalCompQty === 1 ? '' : 's'}
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-gray-400 italic">none</span>
+                )
+              }
+            >
+              <p className="text-xs text-gray-500 -mt-2">
+                Rooms provided at no extra charge. Won&apos;t affect the total cost. Daylong packages only.
               </p>
               <div className="space-y-2">
                 {rooms
@@ -646,7 +661,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
                     )
                   })}
               </div>
-            </FormSection>
+            </CollapsibleSection>
           )
         })()}
 
@@ -923,6 +938,31 @@ function FormSection({ title, children }: { title: string; children: React.React
       <h3 className="text-xs font-semibold uppercase tracking-widest text-gray-500">{title}</h3>
       {children}
     </div>
+  )
+}
+
+/**
+ * Collapsible variant of FormSection. `defaultOpen` controls initial state.
+ * Used for low-frequency sections like Complimentary Rooms so they don't
+ * eat vertical space when the operator isn't using them.
+ */
+function CollapsibleSection({
+  title, defaultOpen = false, summary, children,
+}: { title: string; defaultOpen?: boolean; summary?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <details
+      className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm group"
+      {...(defaultOpen ? { open: true } : {})}
+    >
+      <summary className="flex items-center justify-between cursor-pointer select-none list-none">
+        <h3 className="text-xs font-semibold uppercase tracking-widest text-gray-500">{title}</h3>
+        <div className="flex items-center gap-2">
+          {summary}
+          <span className="text-gray-400 text-xs transition-transform group-open:rotate-90">▶</span>
+        </div>
+      </summary>
+      <div className="mt-4 space-y-4">{children}</div>
+    </details>
   )
 }
 
