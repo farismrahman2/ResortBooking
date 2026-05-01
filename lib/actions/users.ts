@@ -186,8 +186,20 @@ export async function deactivateUser(userId: string): Promise<ActionResult> {
     if (error) return { success: false, error: error.message }
 
     await logHistory(userId, 'edited', 'user_deactivated', { email: target.email })
+
+    const { flagAlert } = await import('@/lib/auth/alerts')
+    await flagAlert({
+      event_type:  'user_deactivated',
+      entity_type: 'user',
+      entity_id:   userId,
+      summary:     `User deactivated — ${target.full_name} (${target.email}, role: ${target.role.display_name})`,
+      payload:     { email: target.email, role_slug: target.role.slug },
+      created_by:  ctx.user_id,
+    })
+
     revalidatePath('/settings/users')
     revalidatePath(`/settings/users/${userId}`)
+    revalidatePath('/settings/audit-log')
     return { success: true }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }

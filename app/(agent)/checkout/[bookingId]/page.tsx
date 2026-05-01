@@ -7,6 +7,7 @@ import { MigrationErrorBanner } from '@/components/checkout/MigrationErrorBanner
 import { CheckoutSummary } from '@/components/checkout/CheckoutSummary'
 import { PaymentForm } from '@/components/checkout/PaymentForm'
 import { FinalizeAndVoid } from '@/components/checkout/FinalizeAndVoid'
+import { DiscountButton } from '@/components/checkout/DiscountButton'
 import { BookingChargesTab } from '@/components/checkout/BookingChargesTab'
 import { CHECKOUT_STATUS_BADGE, CHECKOUT_STATUS_LABELS } from '@/components/checkout/labels'
 import { getBookingById } from '@/lib/queries/bookings'
@@ -56,15 +57,17 @@ export default async function CheckoutDetailPage({ params }: PageProps) {
     migrationError = err instanceof Error ? err.message : String(err)
   }
 
-  const bookingTotal  = Number(booking.total)
-  const advance       = Number(booking.advance_paid)
-  const chargesTotal  = calcChargesTotal(charges)
-  const paymentsTotal = calcPaymentsTotal(payments)
-  const netDue        = calcNetDue({
+  const bookingTotal   = Number(booking.total)
+  const advance        = Number(booking.advance_paid)
+  const chargesTotal   = calcChargesTotal(charges)
+  const paymentsTotal  = calcPaymentsTotal(payments)
+  const discountAmount = Number(checkout?.discount_amount ?? 0)
+  const netDue         = calcNetDue({
     bookingTotal,
     chargesTotal,
     advance,
     paymentsTotal,
+    discountAmount,
   })
 
   const isLocked = checkout?.status === 'finalized' || checkout?.status === 'voided'
@@ -226,7 +229,21 @@ export default async function CheckoutDetailPage({ params }: PageProps) {
               chargesTotal={chargesTotal}
               paymentsTotal={paymentsTotal}
               netDue={netDue}
+              discountAmount={discountAmount}
             />
+
+            {checkout && canWrite && (
+              <DiscountButton
+                checkoutId={checkout.id}
+                subtotal={bookingTotal + chargesTotal}
+                current={{
+                  amount: discountAmount,
+                  pct:    Number(checkout.discount_pct ?? 0),
+                  reason: checkout.discount_reason,
+                }}
+                disabled={isLocked}
+              />
+            )}
 
             {checkout ? (
               <FinalizeAndVoid

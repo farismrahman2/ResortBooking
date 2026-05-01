@@ -569,8 +569,31 @@ export interface CheckoutRow {
   voided_at: string | null
   voided_by: string | null
   void_reason: string | null
+  // Discount (Phase B). Default 0 / null when never applied.
+  discount_amount: number
+  discount_pct: number
+  discount_reason: string | null
+  discount_applied_by: string | null
+  discount_applied_at: string | null
   created_at: string
   updated_at: string
+}
+
+export type AdminAlertEvent =
+  | 'discount_applied' | 'guest_reduced' | 'checkout_voided'
+  | 'refund_recorded'  | 'booking_cancelled' | 'user_deactivated'
+
+export interface AdminAlertRow {
+  id: string
+  event_type: AdminAlertEvent
+  entity_type: string
+  entity_id: string
+  summary: string
+  payload: Record<string, unknown> | null
+  acknowledged_at: string | null
+  acknowledged_by: string | null
+  created_by: string | null
+  created_at: string
 }
 
 export interface CheckoutChargeRow {
@@ -905,6 +928,12 @@ export interface Database {
         Row: CheckoutPaymentRow
         Insert: Omit<CheckoutPaymentRow, 'id' | 'paid_at'>
         Update: Partial<Omit<CheckoutPaymentRow, 'id' | 'paid_at'>>
+        Relationships: []
+      }
+      admin_alerts: {
+        Row: AdminAlertRow
+        Insert: Omit<AdminAlertRow, 'id' | 'created_at'>
+        Update: Partial<Omit<AdminAlertRow, 'id' | 'created_at'>>
         Relationships: []
       }
     }

@@ -1,6 +1,7 @@
 import Link from 'next/link'
-import { Users, ShieldCheck, ListChecks, Settings as SettingsIcon, Calendar, ArrowRight, Copy } from 'lucide-react'
+import { Users, ShieldCheck, ListChecks, Settings as SettingsIcon, Calendar, ArrowRight, Copy, Bell } from 'lucide-react'
 import { getSettings, getHolidayDates } from '@/lib/queries/settings'
+import { getUnreadAlertCount } from '@/lib/auth/alerts'
 import { Topbar } from '@/components/layout/Topbar'
 import { SettingsForm } from '@/components/settings/SettingsForm'
 import { HolidayManager } from '@/components/settings/HolidayManager'
@@ -12,9 +13,10 @@ export const dynamic = 'force-dynamic'
 export default async function SettingsPage() {
   await requirePermission('settings', 'read')
 
-  const [settings, holidays] = await Promise.all([
+  const [settings, holidays, unreadAlerts] = await Promise.all([
     getSettings(),
     getHolidayDates(),
+    getUnreadAlertCount(),
   ])
 
   return (
@@ -46,6 +48,13 @@ export default async function SettingsPage() {
             icon={<Copy size={18} />}
             title="Duplicate Bookings"
             description="Find bookings that share the same guest, date, and package — then cancel duplicates"
+          />
+          <HubTile
+            href="/settings/audit-log"
+            icon={<Bell size={18} />}
+            title="Audit Log"
+            description="Discounts, guest reductions, voids, refunds, and other flagged events"
+            badge={unreadAlerts > 0 ? String(unreadAlerts) : undefined}
           />
         </div>
 
@@ -81,8 +90,8 @@ export default async function SettingsPage() {
 }
 
 function HubTile({
-  href, icon, title, description,
-}: { href: string; icon: React.ReactNode; title: string; description: string }) {
+  href, icon, title, description, badge,
+}: { href: string; icon: React.ReactNode; title: string; description: string; badge?: string }) {
   return (
     <Link
       href={href}
@@ -93,7 +102,14 @@ function HubTile({
           {icon}
         </div>
         <div>
-          <p className="text-sm font-semibold text-gray-900">{title}</p>
+          <p className="text-sm font-semibold text-gray-900 inline-flex items-center gap-1.5">
+            {title}
+            {badge && (
+              <span className="inline-flex items-center justify-center rounded-full bg-amber-500 text-white text-[10px] font-bold px-1.5 min-w-[18px] h-[18px]">
+                {badge}
+              </span>
+            )}
+          </p>
           <p className="text-xs text-gray-500">{description}</p>
         </div>
       </div>

@@ -171,6 +171,16 @@ export async function updateAdvancePaid(
 export async function cancelBooking(bookingId: string): Promise<ActionResult> {
   try {
     const supabase = createClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = supabase as any
+
+    // Pull the booking for the alert summary
+    const { data: booking } = await db
+      .from('bookings')
+      .select('booking_number, customer_name, status')
+      .eq('id', bookingId)
+      .maybeSingle()
+
     const { error } = await supabase
       .from('bookings')
       .update({ status: 'cancelled' })
@@ -183,11 +193,27 @@ export async function cancelBooking(bookingId: string): Promise<ActionResult> {
       entity_id:   bookingId,
       event:       'status_changed',
       actor:       'system',
-      payload:     { from: 'confirmed', to: 'cancelled' },
+      payload:     { from: booking?.status ?? 'confirmed', to: 'cancelled' },
     })
+
+    if (booking) {
+      // Best-effort alert. Lazy-import to avoid circular module deps.
+      const { flagAlert } = await import('@/lib/auth/alerts')
+      const { getCurrentUserContext } = await import('@/lib/auth/permissions')
+      const ctx = await getCurrentUserContext()
+      await flagAlert({
+        event_type:  'booking_cancelled',
+        entity_type: 'booking',
+        entity_id:   bookingId,
+        summary:     `Booking ${booking.booking_number} cancelled — ${booking.customer_name}`,
+        payload:     { from: booking.status ?? 'confirmed' },
+        created_by:  ctx?.user_id ?? null,
+      })
+    }
 
     revalidatePath('/bookings')
     revalidatePath(`/bookings/${bookingId}`)
+    revalidatePath('/settings/audit-log')
     return { success: true }
   } catch (err) {
     return { success: false, error: String(err) }

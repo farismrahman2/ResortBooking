@@ -65,3 +65,16 @@ export const voidCheckoutSchema = z.object({
   reason: z.string().trim().min(2, 'Reason is required').max(500),
 })
 export type VoidCheckoutInput = z.infer<typeof voidCheckoutSchema>
+
+// ── Discount ────────────────────────────────────────────────────────────────
+export const applyDiscountSchema = z.object({
+  /** 'fixed' uses the amount as-is; 'percent' multiplies subtotal. */
+  mode:    z.enum(['fixed', 'percent']),
+  value:   z.coerce.number().min(0),
+  reason:  z.string().trim().min(2, 'Reason is required').max(500),
+}).superRefine((v, ctx) => {
+  if (v.mode === 'percent' && v.value > 100) {
+    ctx.addIssue({ code: 'custom', message: 'Percent must be 0–100', path: ['value'] })
+  }
+})
+export type ApplyDiscountInput = z.infer<typeof applyDiscountSchema>

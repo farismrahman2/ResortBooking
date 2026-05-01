@@ -6,13 +6,14 @@ import { Sidebar } from './Sidebar'
 import type { ModuleSlug, PermissionLevel } from '@/lib/supabase/types'
 
 interface ShellProps {
-  children:    ReactNode
-  userEmail:   string | null
-  permissions: Record<ModuleSlug, PermissionLevel> | null
-  roleLabel:   string | null
+  children:      ReactNode
+  userEmail:     string | null
+  permissions:   Record<ModuleSlug, PermissionLevel> | null
+  roleLabel:     string | null
+  unreadAlerts?: number
 }
 
-function Shell({ children, userEmail, permissions, roleLabel }: ShellProps) {
+function Shell({ children, userEmail, permissions, roleLabel, unreadAlerts }: ShellProps) {
   const { isOpen, close } = useSidebar()
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
@@ -25,7 +26,12 @@ function Shell({ children, userEmail, permissions, roleLabel }: ShellProps) {
         />
       )}
 
-      <Sidebar userEmail={userEmail} permissions={permissions} roleLabel={roleLabel} />
+      <Sidebar
+        userEmail={userEmail}
+        permissions={permissions}
+        roleLabel={roleLabel}
+        unreadAlerts={unreadAlerts ?? 0}
+      />
 
       <main className="flex-1 min-w-0 overflow-y-auto scrollable">
         {children}
@@ -35,11 +41,16 @@ function Shell({ children, userEmail, permissions, roleLabel }: ShellProps) {
 }
 
 export function LayoutShell({
-  children, userEmail, permissions, roleLabel,
+  children, userEmail, permissions, roleLabel, unreadAlerts,
 }: ShellProps) {
   return (
     <SidebarProvider>
-      <Shell userEmail={userEmail} permissions={permissions} roleLabel={roleLabel}>
+      <Shell
+        userEmail={userEmail}
+        permissions={permissions}
+        roleLabel={roleLabel}
+        unreadAlerts={unreadAlerts}
+      >
         {children}
       </Shell>
     </SidebarProvider>

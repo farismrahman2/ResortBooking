@@ -44,16 +44,17 @@ const navItems: NavItem[] = [
 ]
 
 interface SidebarProps {
-  userEmail:   string | null
-  permissions: Record<ModuleSlug, PermissionLevel> | null
-  roleLabel:   string | null
+  userEmail:    string | null
+  permissions:  Record<ModuleSlug, PermissionLevel> | null
+  roleLabel:    string | null
+  unreadAlerts: number
 }
 
 function canSee(perm: PermissionLevel | undefined): boolean {
   return perm === 'read' || perm === 'write'
 }
 
-export function Sidebar({ userEmail, permissions, roleLabel }: SidebarProps) {
+export function Sidebar({ userEmail, permissions, roleLabel, unreadAlerts }: SidebarProps) {
   const pathname  = usePathname()
   const { isOpen, close } = useSidebar()
 
@@ -96,6 +97,7 @@ export function Sidebar({ userEmail, permissions, roleLabel }: SidebarProps) {
             // fail open and show the link — middleware still enforces server-side.
             if (module && permissions && !canSee(permissions[module])) return null
             const isActive = href === '/' ? pathname === '/' : pathname.startsWith(href)
+            const showBadge = href === '/settings' && unreadAlerts > 0
             return (
               <li key={href}>
                 <Link
@@ -109,7 +111,12 @@ export function Sidebar({ userEmail, permissions, roleLabel }: SidebarProps) {
                   )}
                 >
                   <Icon size={18} className={isActive ? 'text-forest-700' : 'text-gray-400'} />
-                  {label}
+                  <span className="flex-1">{label}</span>
+                  {showBadge && (
+                    <span className="inline-flex items-center justify-center rounded-full bg-amber-500 text-white text-[10px] font-bold px-1.5 min-w-[18px] h-[18px]">
+                      {unreadAlerts}
+                    </span>
+                  )}
                 </Link>
               </li>
             )

@@ -6,9 +6,12 @@ import {
   addPaymentSchema,
   recordRefundSchema,
   voidCheckoutSchema,
+  applyDiscountSchema,
 } from '@/lib/validators/checkout'
 import { requirePermission, getCurrentUserContext, isAdmin } from '@/lib/auth/permissions'
+import { flagAlert } from '@/lib/auth/alerts'
 import { calcChargesTotal, calcPaymentsTotal } from '@/lib/checkout/totals'
+import { formatBDT } from '@/lib/formatters/currency'
 import type { ActionResult, ActionData } from './types'
 
 async function logHistory(
@@ -252,9 +255,19 @@ export async function voidCheckout(
       refund_expense_id: checkout.refund_expense_id,
     })
 
+    await flagAlert({
+      event_type:  'checkout_voided',
+      entity_type: 'checkout',
+      entity_id:   checkoutId,
+      summary:     `Checkout voided — ${parsed.reason}`,
+      payload:     { booking_id: checkout.booking_id, reason: parsed.reason, refund_expense_id: checkout.refund_expense_id },
+      created_by:  ctx?.user_id ?? null,
+    })
+
     revalidatePath(`/checkout/${checkout.booking_id}`)
     revalidatePath(`/bookings/${checkout.booking_id}`)
     revalidatePath('/checkout')
+    revalidatePath('/settings/audit-log')
     return { success: true }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
@@ -355,10 +368,154 @@ export async function recordRefund(
       expense_id: exp.id,
     })
 
+    await flagAlert({
+      event_type:  'refund_recorded',
+      entity_type: 'checkout',
+      entity_id:   checkoutId,
+      summary:     `Refund of ${formatBDT(parsed.amount)} via ${parsed.method} — ${checkout.booking.customer_name} (${checkout.booking.booking_number})`,
+      payload:     { booking_id: checkout.booking_id, amount: parsed.amount, method: parsed.method, expense_id: exp.id },
+      created_by:  ctx?.user_id ?? null,
+    })
+
     revalidatePath(`/checkout/${checkout.booking_id}`)
     revalidatePath('/expenses')
     revalidatePath('/')
+    revalidatePath('/settings/audit-log')
     return { success: true, data: { expense_id: exp.id } }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+// ─── Discount ────────────────────────────────────────────────────────────────
+
+export async function applyDiscount(
+  checkoutId: string,
+  input: unknown,
+): Promise<ActionData<{ amount: number }>> {
+  try {
+    await requirePermission('checkout', 'write')
+    const parsed = applyDiscountSchema.parse(input)
+    const ctx = await getCurrentUserContext()
+    const supabase = createClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = supabase as any
+
+    const { data: checkout } = await db
+      .from('checkouts')
+      .select(`
+        id, status, booking_id, charges_total,
+        booking:bookings!inner (id, total, customer_name, booking_number)
+      `)
+      .eq('id', checkoutId)
+      .maybeSingle()
+    if (!checkout) return { success: false, error: 'Checkout not found' }
+    if (checkout.status !== 'draft') {
+      return { success: false, error: `Cannot edit discount — checkout is ${checkout.status}.` }
+    }
+
+    // Convert percent → fixed amount based on (booking total + extra charges)
+    const subtotal = Number(checkout.booking.total ?? 0) + Number(checkout.charges_total ?? 0)
+    const fixed = parsed.mode === 'percent'
+      ? Math.round((subtotal * parsed.value) / 100 * 100) / 100
+      : parsed.value
+    const pct   = parsed.mode === 'percent' ? parsed.value : 0
+
+    if (fixed > subtotal) {
+      return { success: false, error: `Discount (${formatBDT(fixed)}) cannot exceed the bill (${formatBDT(subtotal)}).` }
+    }
+
+    const { error } = await db
+      .from('checkouts')
+      .update({
+        discount_amount:     fixed,
+        discount_pct:        pct,
+        discount_reason:     parsed.reason,
+        discount_applied_by: ctx?.user_id ?? null,
+        discount_applied_at: new Date().toISOString(),
+      })
+      .eq('id', checkoutId)
+    if (error) return { success: false, error: error.message }
+
+    await logHistory(checkoutId, 'edited', 'discount_applied', {
+      booking_id: checkout.booking_id,
+      mode:       parsed.mode,
+      value:      parsed.value,
+      amount:     fixed,
+      reason:     parsed.reason,
+    })
+
+    await flagAlert({
+      event_type:  'discount_applied',
+      entity_type: 'checkout',
+      entity_id:   checkoutId,
+      summary:     `Discount ${parsed.mode === 'percent' ? parsed.value + '%' : formatBDT(fixed)} applied — ${checkout.booking.customer_name} (${checkout.booking.booking_number}). Reason: ${parsed.reason}`,
+      payload:     { booking_id: checkout.booking_id, mode: parsed.mode, value: parsed.value, amount: fixed, reason: parsed.reason },
+      created_by:  ctx?.user_id ?? null,
+    })
+
+    revalidatePath(`/checkout/${checkout.booking_id}`)
+    revalidatePath('/settings/audit-log')
+    return { success: true, data: { amount: fixed } }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+export async function clearDiscount(checkoutId: string): Promise<ActionResult> {
+  try {
+    await requirePermission('checkout', 'write')
+    const supabase = createClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = supabase as any
+
+    const { data: checkout } = await db
+      .from('checkouts').select('id, status, booking_id, discount_amount').eq('id', checkoutId).maybeSingle()
+    if (!checkout) return { success: false, error: 'Checkout not found' }
+    if (checkout.status !== 'draft') {
+      return { success: false, error: 'Cannot clear discount on a finalized/voided checkout.' }
+    }
+    if (!checkout.discount_amount || Number(checkout.discount_amount) === 0) {
+      return { success: true }
+    }
+
+    const { error } = await db
+      .from('checkouts')
+      .update({
+        discount_amount: 0,
+        discount_pct:    0,
+        discount_reason: null,
+        discount_applied_by: null,
+        discount_applied_at: null,
+      })
+      .eq('id', checkoutId)
+    if (error) return { success: false, error: error.message }
+
+    await logHistory(checkoutId, 'edited', 'discount_cleared', { booking_id: checkout.booking_id })
+    revalidatePath(`/checkout/${checkout.booking_id}`)
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+// ─── Audit log support ───────────────────────────────────────────────────────
+
+export async function acknowledgeAlert(alertId: string): Promise<ActionResult> {
+  try {
+    await requirePermission('settings', 'read')
+    const ctx = await getCurrentUserContext()
+    const supabase = createClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = supabase as any
+    const { error } = await db
+      .from('admin_alerts')
+      .update({ acknowledged_at: new Date().toISOString(), acknowledged_by: ctx?.user_id ?? null })
+      .eq('id', alertId)
+    if (error) return { success: false, error: error.message }
+    revalidatePath('/settings/audit-log')
+    revalidatePath('/settings')
+    return { success: true }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }
