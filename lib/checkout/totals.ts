@@ -28,10 +28,36 @@ export function calcPaymentsTotal(payments: Array<Pick<CheckoutPaymentRow, 'amou
 }
 
 /**
- * net_due > 0  → guest owes
- * net_due === 0 → settled
- * net_due < 0  → refund due (use Math.abs for display)
+ * Total amount the guest owes BEFORE advance and at-checkout payments are subtracted.
+ * Includes the original booking total (the night/daylong charge) PLUS any
+ * checkout charges (food, beverage, damage, etc.) MINUS any discount applied.
  */
-export function calcNetDue(chargesTotal: number, advance: number, paymentsTotal: number): number {
-  return r2(chargesTotal - advance - paymentsTotal)
+export function calcTotalDue(args: {
+  bookingTotal:  number
+  chargesTotal:  number
+  discountAmount?: number
+}): number {
+  return r2(Number(args.bookingTotal ?? 0) + Number(args.chargesTotal ?? 0) - Number(args.discountAmount ?? 0))
+}
+
+/**
+ * net_due > 0  → guest still owes (Remaining Due)
+ * net_due === 0 → settled
+ * net_due < 0  → resort owes guest (Refund Due — use Math.abs for display)
+ *
+ * Formula: (booking.total + checkout_charges - discount) - (advance_paid + checkout_payments)
+ */
+export function calcNetDue(args: {
+  bookingTotal:    number
+  chargesTotal:    number
+  advance:         number
+  paymentsTotal:   number
+  discountAmount?: number
+}): number {
+  const totalDue = calcTotalDue({
+    bookingTotal:   args.bookingTotal,
+    chargesTotal:   args.chargesTotal,
+    discountAmount: args.discountAmount ?? 0,
+  })
+  return r2(totalDue - Number(args.advance ?? 0) - Number(args.paymentsTotal ?? 0))
 }

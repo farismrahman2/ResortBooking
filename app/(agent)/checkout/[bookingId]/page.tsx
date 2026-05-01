@@ -15,7 +15,6 @@ import {
   getChargesByCheckout,
   getPaymentsByCheckout,
 } from '@/lib/queries/checkout'
-import { listChargeCategories, listChargeItems } from '@/lib/queries/charge-catalog'
 import { calcChargesTotal, calcPaymentsTotal, calcNetDue } from '@/lib/checkout/totals'
 import {
   requirePermission,
@@ -42,17 +41,11 @@ export default async function CheckoutDetailPage({ params }: PageProps) {
   if (!booking) notFound()
 
   let migrationError: string | null = null
-  let categories: Awaited<ReturnType<typeof listChargeCategories>> = []
-  let items: Awaited<ReturnType<typeof listChargeItems>> = []
   let checkout: Awaited<ReturnType<typeof getCheckoutByBooking>> = null
   let charges: Awaited<ReturnType<typeof getChargesByCheckout>> = []
   let payments: Awaited<ReturnType<typeof getPaymentsByCheckout>> = []
   try {
-    [categories, items, checkout] = await Promise.all([
-      listChargeCategories(),
-      listChargeItems(),
-      getCheckoutByBooking(booking.id),
-    ])
+    checkout = await getCheckoutByBooking(booking.id)
     if (checkout) {
       [charges, payments] = await Promise.all([
         getChargesByCheckout(checkout.id),
@@ -63,10 +56,16 @@ export default async function CheckoutDetailPage({ params }: PageProps) {
     migrationError = err instanceof Error ? err.message : String(err)
   }
 
+  const bookingTotal  = Number(booking.total)
   const advance       = Number(booking.advance_paid)
   const chargesTotal  = calcChargesTotal(charges)
   const paymentsTotal = calcPaymentsTotal(payments)
-  const netDue        = calcNetDue(chargesTotal, advance, paymentsTotal)
+  const netDue        = calcNetDue({
+    bookingTotal,
+    chargesTotal,
+    advance,
+    paymentsTotal,
+  })
 
   const isLocked = checkout?.status === 'finalized' || checkout?.status === 'voided'
 
@@ -117,7 +116,13 @@ export default async function CheckoutDetailPage({ params }: PageProps) {
                   </p>
                 </div>
               </div>
-              <div className="mt-3 grid grid-cols-3 gap-3 border-t border-gray-100 pt-3 text-sm">
+              <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3 border-t border-gray-100 pt-3 text-sm">
+                <div>
+                  <p className="text-[10px] uppercase font-semibold text-gray-500">Package</p>
+                  <p className="text-gray-900 truncate" title={booking.package_snapshot?.name ?? ''}>
+                    {booking.package_snapshot?.name ?? '—'}
+                  </p>
+                </div>
                 <div>
                   <p className="text-[10px] uppercase font-semibold text-gray-500">Booking Total</p>
                   <p className="font-mono tabular-nums text-gray-900">{formatBDT(booking.total)}</p>
@@ -128,9 +133,63 @@ export default async function CheckoutDetailPage({ params }: PageProps) {
                 </div>
                 <div>
                   <p className="text-[10px] uppercase font-semibold text-gray-500">Booking Status</p>
-                  <p className="text-gray-700">{booking.status}</p>
+                  <p className="text-gray-700 capitalize">{booking.status.replace('_', ' ')}</p>
                 </div>
               </div>
+
+              {/* Rooms */}
+              {booking.rooms && booking.rooms.length > 0 && (
+                <div className="mt-3 border-t border-gray-100 pt-3">
+                  <p className="text-[10px] uppercase font-semibold text-gray-500 mb-1.5">Rooms</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {booking.rooms.map((r) => (
+                      <div key={r.id} className="rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-xs">
+                        <div className="flex items-baseline justify-between">
+                          <span className="font-medium text-gray-900 capitalize">
+                            {r.room_type.replace('_', ' ')}
+                            {r.unit_price === 0 && (
+                              <span className="ml-1.5 inline-flex items-center rounded-full bg-emerald-100 text-emerald-700 px-1.5 py-0.5 text-[9px] font-semibold uppercase">comp</span>
+                            )}
+                          </span>
+                          <span className="font-mono tabular-nums text-gray-700">
+                            {r.qty} × {formatBDT(Number(r.unit_price))}
+                          </span>
+                        </div>
+                        {r.room_numbers && r.room_numbers.length > 0 && (
+                          <p className="text-[10px] text-gray-500 mt-0.5">
+                            Room {r.room_numbers.join(', ')}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Line items breakdown (per-night, drivers, kids, extras, etc.) */}
+              {booking.line_items && booking.line_items.length > 0 && (
+                <details className="mt-3 border-t border-gray-100 pt-3">
+                  <summary className="text-[10px] uppercase font-semibold text-gray-500 cursor-pointer hover:text-gray-700">
+                    Pricing breakdown ({booking.line_items.length} items)
+                  </summary>
+                  <table className="mt-2 w-full text-xs">
+                    <tbody className="divide-y divide-gray-100">
+                      {booking.line_items.map((li, i) => (
+                        <tr key={i}>
+                          <td className="py-1 text-gray-700">{li.label}</td>
+                          <td className="py-1 text-right font-mono text-gray-500 tabular-nums whitespace-nowrap">
+                            {li.qty} × {formatBDT(Number(li.unit_price))}
+                            {li.nights ? ` × ${li.nights}n` : ''}
+                          </td>
+                          <td className="py-1 pl-3 text-right font-mono tabular-nums font-semibold text-gray-900 whitespace-nowrap">
+                            {formatBDT(Number(li.subtotal))}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </details>
+              )}
             </div>
 
             {/* Charges */}
@@ -141,8 +200,6 @@ export default async function CheckoutDetailPage({ params }: PageProps) {
                   canWrite={canWrite}
                   checkoutStatus={checkout?.status ?? null}
                   charges={charges}
-                  categories={categories}
-                  items={items}
                 />
               </div>
             )}
@@ -164,6 +221,7 @@ export default async function CheckoutDetailPage({ params }: PageProps) {
           {/* RIGHT — Sticky bill summary + actions */}
           <div className="space-y-4 lg:sticky lg:top-4 lg:self-start">
             <CheckoutSummary
+              bookingTotal={bookingTotal}
               advance={advance}
               chargesTotal={chargesTotal}
               paymentsTotal={paymentsTotal}
@@ -178,7 +236,7 @@ export default async function CheckoutDetailPage({ params }: PageProps) {
                   charges,
                   payments,
                 }}
-                totals={{ advance, chargesTotal, paymentsTotal, netDue }}
+                totals={{ bookingTotal, advance, chargesTotal, paymentsTotal, netDue }}
                 isAdmin={isAdmin}
                 canWrite={canWrite}
               />

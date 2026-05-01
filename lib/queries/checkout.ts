@@ -178,20 +178,32 @@ export async function listCheckoutCandidates(opts: {
     }
   }
 
-  const rows: CheckoutListRow[] = (bookings ?? []).map((b: any) => ({
-    booking_id:     b.id,
-    booking_number: b.booking_number,
-    customer_name:  b.customer_name,
-    customer_phone: b.customer_phone,
-    visit_date:     b.visit_date,
-    check_out_date: b.check_out_date,
-    package_type:   b.package_type,
-    total:          Number(b.total ?? 0),
-    advance_paid:   Number(b.advance_paid ?? 0),
-    remaining:      Number(b.remaining ?? 0),
-    booking_status: b.status,
-    checkout:       checkoutsByBooking.get(b.id) ?? null,
-  }))
+  const rows: CheckoutListRow[] = (bookings ?? []).map((b: any) => {
+    const c = checkoutsByBooking.get(b.id) ?? null
+    // Override DB-generated net_due with the corrected formula that includes booking.total.
+    // For drafts, advance_amount may not be snapshotted yet → use the live advance_paid.
+    if (c) {
+      const bookingTotal = Number(b.total ?? 0)
+      const advance = c.status === 'finalized' ? c.advance_amount : Number(b.advance_paid ?? 0)
+      c.net_due = Math.round(
+        (bookingTotal + c.charges_total - advance - c.payments_total) * 100,
+      ) / 100
+    }
+    return {
+      booking_id:     b.id,
+      booking_number: b.booking_number,
+      customer_name:  b.customer_name,
+      customer_phone: b.customer_phone,
+      visit_date:     b.visit_date,
+      check_out_date: b.check_out_date,
+      package_type:   b.package_type,
+      total:          Number(b.total ?? 0),
+      advance_paid:   Number(b.advance_paid ?? 0),
+      remaining:      Number(b.remaining ?? 0),
+      booking_status: b.status,
+      checkout:       c,
+    }
+  })
 
   function effectiveCheckOutDate(r: CheckoutListRow): string {
     return r.check_out_date ?? r.visit_date   // daylong → visit_date IS check-out

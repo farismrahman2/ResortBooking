@@ -140,7 +140,7 @@ export async function finalizeCheckout(
 
     const { data: booking } = await db
       .from('bookings')
-      .select('id, status, advance_paid')
+      .select('id, status, advance_paid, total')
       .eq('id', checkout.booking_id)
       .single()
     if (!booking) return { success: false, error: 'Booking not found' }
@@ -150,10 +150,14 @@ export async function finalizeCheckout(
     const { data: payments } = await db
       .from('checkout_payments').select('amount').eq('checkout_id', checkoutId)
 
+    const bookingTotal  = Number(booking.total ?? 0)
     const advance       = Number(booking.advance_paid ?? 0)
     const chargesTotal  = calcChargesTotal((charges ?? []) as any[])
     const paymentsTotal = calcPaymentsTotal((payments ?? []) as any[])
-    const netDue        = Math.round((chargesTotal - advance - paymentsTotal) * 100) / 100
+    // Net due = (booking total + extra charges) − (advance + at-checkout payments)
+    const netDue        = Math.round(
+      (bookingTotal + chargesTotal - advance - paymentsTotal) * 100,
+    ) / 100
 
     const { error: updErr } = await db
       .from('checkouts')

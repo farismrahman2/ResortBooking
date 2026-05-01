@@ -11,8 +11,6 @@ import { removeCharge } from '@/lib/actions/checkout-charges'
 import { formatBDT } from '@/lib/formatters/currency'
 import { calcChargesTotal } from '@/lib/checkout/totals'
 import type {
-  ChargeCategoryRow,
-  ChargeItemWithCategory,
   CheckoutChargeWithRefs,
   CheckoutStatus,
 } from '@/lib/supabase/types'
@@ -22,12 +20,10 @@ interface Props {
   canWrite:     boolean
   checkoutStatus: CheckoutStatus | null   // null = no checkout yet
   charges:      CheckoutChargeWithRefs[]
-  categories:   ChargeCategoryRow[]
-  items:        ChargeItemWithCategory[]
 }
 
 export function BookingChargesTab({
-  bookingId, canWrite, checkoutStatus, charges, categories, items,
+  bookingId, canWrite, checkoutStatus, charges,
 }: Props) {
   const router  = useRouter()
   const [pending, startTransition] = useTransition()
@@ -152,8 +148,6 @@ export function BookingChargesTab({
         open={open}
         onClose={() => setOpen(false)}
         bookingId={bookingId}
-        categories={categories}
-        items={items}
       />
     </div>
   )

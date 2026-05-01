@@ -12,7 +12,6 @@ import { getSettings, getHolidayDateStrings, getRoomInventory } from '@/lib/quer
 import { WhatsAppLink } from '@/components/ui/WhatsAppLink'
 import { getBookedRoomNumbers } from '@/lib/queries/availability'
 import { getCheckoutByBooking, getChargesByCheckout } from '@/lib/queries/checkout'
-import { listChargeCategories, listChargeItems } from '@/lib/queries/charge-catalog'
 import { hasPermission } from '@/lib/auth/permissions'
 import { createClient } from '@/lib/supabase/server'
 import { formatDate, formatDateRange } from '@/lib/formatters/dates'
@@ -57,18 +56,10 @@ export default async function BookingDetailPage({ params }: PageProps) {
   ])
   const showCharges = canSeeCheckout && (booking.status === 'confirmed' || booking.status === 'checked_out')
   let charges: Awaited<ReturnType<typeof getChargesByCheckout>> = []
-  let categories: Awaited<ReturnType<typeof listChargeCategories>> = []
-  let chargeItems: Awaited<ReturnType<typeof listChargeItems>> = []
   let checkoutStatus: Awaited<ReturnType<typeof getCheckoutByBooking>> extends infer T ? (T extends { status: infer S } ? S : null) : null = null
   if (showCharges) {
     try {
-      const [co, cats, items] = await Promise.all([
-        getCheckoutByBooking(booking.id),
-        listChargeCategories(),
-        listChargeItems(),
-      ])
-      categories = cats
-      chargeItems = items
+      const co = await getCheckoutByBooking(booking.id)
       if (co) {
         checkoutStatus = co.status as any
         charges = await getChargesByCheckout(co.id)
@@ -336,8 +327,6 @@ export default async function BookingDetailPage({ params }: PageProps) {
                   canWrite={canWriteCheckout}
                   checkoutStatus={checkoutStatus}
                   charges={charges}
-                  categories={categories}
-                  items={chargeItems}
                 />
               </Card>
             )}

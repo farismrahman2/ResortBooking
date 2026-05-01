@@ -190,12 +190,15 @@ export function Invoice({
     ? `${fmtDate(booking.visit_date)} → ${fmtDate(booking.check_out_date)}  (${booking.nights ?? 0} night${booking.nights === 1 ? '' : 's'})`
     : `${fmtDate(booking.visit_date)} (Daylong)`
 
-  const advance     = Number(checkout.advance_amount)
-  const charges     = Number(checkout.charges_total)
-  const payments    = Number(checkout.payments_total)
-  const subtotalDue = charges - advance
-  const balance     = charges - advance - payments
-  const isRefund    = balance < 0
+  const bookingTotal = Number(booking.total ?? 0)
+  const advance      = Number(checkout.advance_amount)
+  const charges      = Number(checkout.charges_total)
+  const payments     = Number(checkout.payments_total)
+  // Total bill = booking total + extras at checkout
+  const totalBill    = bookingTotal + charges
+  const subtotalDue  = totalBill - advance
+  const balance      = subtotalDue - payments
+  const isRefund     = balance < 0
 
   // Payments grouped by method
   const paymentsByMethod = new Map<string, number>()
@@ -278,11 +281,22 @@ export function Invoice({
         {/* Totals */}
         <View style={styles.totalsBlock}>
           <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>Total Charges</Text>
-            <Text style={styles.totalValue}>{bdt(charges)}</Text>
+            <Text style={styles.totalLabel}>Booking Total</Text>
+            <Text style={styles.totalValue}>{bdt(bookingTotal)}</Text>
+          </View>
+          {charges > 0 && (
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>Extra Charges (during stay)</Text>
+              <Text style={styles.totalValue}>+ {bdt(charges)}</Text>
+            </View>
+          )}
+          <View style={styles.totalDivider} />
+          <View style={styles.totalRow}>
+            <Text style={[styles.totalLabel, { fontWeight: 'bold' }]}>Total Bill</Text>
+            <Text style={[styles.totalValue, { fontWeight: 'bold' }]}>{bdt(totalBill)}</Text>
           </View>
           <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>Advance Paid (booking)</Text>
+            <Text style={styles.totalLabel}>Advance Paid</Text>
             <Text style={styles.totalValue}>− {bdt(advance)}</Text>
           </View>
           <View style={styles.totalDivider} />
@@ -306,7 +320,7 @@ export function Invoice({
             </>
           )}
           <View style={[styles.bigTotalRow, isRefund ? styles.refundRow : {}]}>
-            <Text>{isRefund ? 'Refund Due' : 'Balance'}</Text>
+            <Text>{isRefund ? 'Refund Due' : balance === 0 ? 'Settled' : 'Remaining Due'}</Text>
             <Text>{bdt(Math.abs(balance))}</Text>
           </View>
         </View>

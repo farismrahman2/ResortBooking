@@ -18,10 +18,11 @@ interface Props {
   checkout: CheckoutWithFull
   /** Live computed totals (in case checkout is still draft) */
   totals: {
+    bookingTotal:  number
     advance:       number
     chargesTotal:  number
     paymentsTotal: number
-    netDue:        number     // > 0 = guest owes, < 0 = refund
+    netDue:        number     // > 0 = guest owes (Remaining), < 0 = refund
   }
   isAdmin: boolean
   canWrite: boolean
@@ -130,11 +131,16 @@ export function FinalizeAndVoid({ checkout, totals, isAdmin, canWrite }: Props) 
             and snapshot the totals. Partial settlement is allowed — outstanding balance stays visible.
           </p>
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-1 text-sm">
-            <Row label="Charges"  value={formatBDT(totals.chargesTotal)} />
+            <Row label="Booking Total" value={formatBDT(totals.bookingTotal)} />
+            {totals.chargesTotal > 0 && (
+              <Row label="Extra Charges" value={`+ ${formatBDT(totals.chargesTotal)}`} />
+            )}
             <Row label="Advance"  value={`− ${formatBDT(totals.advance)}`} />
-            <Row label="Payments" value={`− ${formatBDT(totals.paymentsTotal)}`} />
+            {totals.paymentsTotal > 0 && (
+              <Row label="Payments" value={`− ${formatBDT(totals.paymentsTotal)}`} />
+            )}
             <Row
-              label={isRefund ? 'Refund Due' : 'Balance'}
+              label={isRefund ? 'Refund Due' : 'Remaining Due'}
               value={formatBDT(Math.abs(totals.netDue))}
               bold
               className={isRefund ? 'text-teal-700' : 'text-violet-700'}

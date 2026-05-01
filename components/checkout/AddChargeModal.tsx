@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition, useMemo } from 'react'
+import { useState, useTransition, useMemo, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/Input'
 import { NumberInput } from '@/components/ui/NumberInput'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
-import { AlertCircle } from 'lucide-react'
+import { AlertCircle, Loader2 } from 'lucide-react'
 import { addCharge } from '@/lib/actions/checkout-charges'
 import { formatBDT } from '@/lib/formatters/currency'
 import { CHARGE_CATEGORY_BADGE } from '@/components/checkout/labels'
@@ -22,17 +22,41 @@ interface Props {
   open:       boolean
   onClose:    () => void
   bookingId:  string
-  categories: ChargeCategoryRow[]
-  items:      ChargeItemWithCategory[]
 }
 
 type TabKey = 'catalog' | 'free'
 
-export function AddChargeModal({ open, onClose, bookingId, categories, items }: Props) {
+export function AddChargeModal({ open, onClose, bookingId }: Props) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [tab, setTab] = useState<TabKey>('catalog')
   const [error, setError] = useState<string | null>(null)
+
+  // Catalog — fetched on demand so the parent page doesn't pay the cost on every render
+  const [categories, setCategories] = useState<ChargeCategoryRow[]>([])
+  const [items, setItems]           = useState<ChargeItemWithCategory[]>([])
+  const [catalogLoaded, setCatalogLoaded] = useState(false)
+  const [catalogLoading, setCatalogLoading] = useState(false)
+
+  useEffect(() => {
+    if (!open || catalogLoaded || catalogLoading) return
+    let cancelled = false
+    setCatalogLoading(true)
+    fetch('/api/checkout/catalog')
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`Failed to load catalog (${r.status})`)
+        return r.json() as Promise<{ categories: ChargeCategoryRow[]; items: ChargeItemWithCategory[] }>
+      })
+      .then((data) => {
+        if (cancelled) return
+        setCategories(data.categories)
+        setItems(data.items)
+        setCatalogLoaded(true)
+      })
+      .catch((err) => { if (!cancelled) setError(String(err)) })
+      .finally(() => { if (!cancelled) setCatalogLoading(false) })
+    return () => { cancelled = true }
+  }, [open, catalogLoaded, catalogLoading])
 
   // Catalog tab state
   const [search, setSearch] = useState('')
@@ -40,12 +64,19 @@ export function AddChargeModal({ open, onClose, bookingId, categories, items }: 
   const [catalogQty, setCatalogQty]     = useState<number>(1)
   const [catalogPrice, setCatalogPrice] = useState<number>(0)
 
-  // Free-form state
-  const [freeCat, setFreeCat]   = useState<string>(categories[0]?.id ?? '')
+  // Free-form state — defaults to first category once loaded
+  const [freeCat, setFreeCat]   = useState<string>('')
   const [freeDesc, setFreeDesc] = useState<string>('')
   const [freeQty, setFreeQty]   = useState<number>(1)
   const [freePrice, setFreePrice] = useState<number>(0)
   const [freeNotes, setFreeNotes] = useState<string>('')
+
+  // When catalog finishes loading and user hasn't picked a category, default to the first
+  useEffect(() => {
+    if (catalogLoaded && !freeCat && categories.length > 0) {
+      setFreeCat(categories[0].id)
+    }
+  }, [catalogLoaded, freeCat, categories])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -146,7 +177,15 @@ export function AddChargeModal({ open, onClose, bookingId, categories, items }: 
               placeholder="Search the menu…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              disabled={catalogLoading}
             />
+            {catalogLoading && (
+              <div className="flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-gray-50 p-4 text-xs text-gray-500">
+                <Loader2 size={14} className="animate-spin" />
+                Loading menu…
+              </div>
+            )}
+            {!catalogLoading && (
             <div className="max-h-72 overflow-y-auto space-y-3 rounded-lg border border-gray-200 p-2">
               {Array.from(filteredByCategory.entries()).map(([catId, list]) => {
                 const cat = categories.find((c) => c.id === catId)
@@ -188,6 +227,7 @@ export function AddChargeModal({ open, onClose, bookingId, categories, items }: 
                 </p>
               )}
             </div>
+            )}
 
             {chosen && (
               <div className="rounded-lg border border-violet-200 bg-violet-50/40 p-3 space-y-2">
