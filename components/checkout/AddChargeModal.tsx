@@ -323,7 +323,23 @@ export function AddChargeModal({ open, onClose, bookingId, snapshot, nights }: P
           </div>
         )}
 
-        {tab === 'upsale' && snapshot && (
+        {tab === 'upsale' && snapshot && catalogLoading && categories.length === 0 && (
+          <div className="flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-gray-50 p-4 text-xs text-gray-500">
+            <Loader2 size={14} className="animate-spin" />
+            Loading…
+          </div>
+        )}
+
+        {tab === 'upsale' && snapshot && !catalogLoading && categories.length === 0 && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+            Charge categories not found. The <strong>room_upsale</strong> and <strong>extra_guest</strong>{' '}
+            categories ship with migration{' '}
+            <code className="font-mono bg-amber-100 px-1 rounded">checkout-module/002</code>. Run it in Supabase
+            and refresh.
+          </div>
+        )}
+
+        {tab === 'upsale' && snapshot && categories.length > 0 && (
           <div className="space-y-3">
             <div>
               <label className="text-[10px] uppercase tracking-wider font-semibold text-gray-600 mb-1 block">
@@ -420,16 +436,29 @@ export function AddChargeModal({ open, onClose, bookingId, snapshot, nights }: P
 
         {tab === 'free' && (
           <div className="space-y-3">
-            <Select
-              label="Category"
-              required
-              value={freeCat}
-              onChange={(e) => setFreeCat(e.target.value)}
-            >
-              {categories.filter((c) => c.is_active).map((c) => (
-                <option key={c.id} value={c.id}>{c.display_name}</option>
-              ))}
-            </Select>
+            {catalogLoading && categories.length === 0 ? (
+              <div className="flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-gray-50 p-4 text-xs text-gray-500">
+                <Loader2 size={14} className="animate-spin" />
+                Loading categories…
+              </div>
+            ) : categories.length === 0 ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                No charge categories found. An admin needs to create at least one in{' '}
+                <strong>Settings → Charge Catalog</strong> first. (If you just ran the SQL migration, refresh the page.)
+              </div>
+            ) : (
+              <Select
+                label="Category"
+                required
+                value={freeCat}
+                onChange={(e) => setFreeCat(e.target.value)}
+              >
+                <option value="">— Select a category —</option>
+                {categories.filter((c) => c.is_active).map((c) => (
+                  <option key={c.id} value={c.id}>{c.display_name}</option>
+                ))}
+              </Select>
+            )}
             <Input
               label="Description"
               required
