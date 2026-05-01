@@ -54,15 +54,38 @@ The codebase branches on `package_type` everywhere — date inputs, calculation 
 ### Enums
 ```ts
 type PackageType   = 'daylong' | 'night'
-type BookingStatus = 'draft' | 'sent' | 'confirmed' | 'cancelled'
+type BookingStatus = 'draft' | 'sent' | 'confirmed' | 'cancelled' | 'checked_out'
 type HistoryEvent  = 'created' | 'edited' | 'status_changed' | 'converted_to_booking'
 type RoomType      = 'cottage' | 'eco_deluxe' | 'deluxe' | 'premium_deluxe'
                    | 'premium' | 'super_premium' | 'tree_house'
+
+// HR module
+type Department          = 'management'|'frontdesk'|'housekeeping'|'kitchen'|'f_and_b'
+                         | 'security'|'maintenance'|'gardener'|'accounts'|'other'
+type EmploymentStatus    = 'active' | 'on_leave' | 'terminated' | 'resigned'
+type AttendanceStatus    = 'present'|'absent'|'paid_leave'|'unpaid_leave'
+                         | 'weekly_off'|'holiday'|'half_day'
+type SalaryAdjustmentType = 'fine'|'bonus'|'eid_bonus'|'advance'
+                          | 'loan_repayment'|'other_addition'|'other_deduction'
+type LoanStatus          = 'active' | 'closed' | 'written_off'
+type PayrollRunStatus    = 'draft' | 'finalized'
+
+// Auth & Roles
+type RoleSlug        = 'admin' | 'manager' | 'front_desk' | 'accountant'
+type ModuleSlug      = 'bookings' | 'checkout' | 'expenses' | 'hr' | 'reports' | 'settings' | 'availability'
+type PermissionLevel = 'none' | 'read' | 'write'
+
+// Checkout
+type CheckoutStatus        = 'draft' | 'finalized' | 'voided'
+type CheckoutPaymentMethod = 'cash'|'bkash'|'nagad'|'rocket'|'card'|'bank_transfer'|'other'
+type AdminAlertEvent       = 'discount_applied'|'guest_reduced'|'checkout_voided'
+                           | 'refund_recorded'|'booking_cancelled'|'user_deactivated'
 ```
 
 > **Important:**
 > - `history_event` is a Postgres ENUM. Adding new values requires a migration (`ALTER TYPE … ADD VALUE`). We've avoided that by reusing `'edited'` with a descriptive `payload.action` field (e.g. `payload.action = 'dates_changed' | 'rooms_swapped'`).
-> - `history_log.entity_type` is **NOT** an enum — it's a TEXT column guarded by a CHECK constraint. To allow a new value (e.g. `'expense'`), drop and recreate the CHECK constraint with the new value included. See `migrations/expense-module/000_extend_entity_type_enum.sql` for the canonical pattern.
+> - `history_log.entity_type` is **NOT** an enum — it's a TEXT column guarded by a CHECK constraint. Currently allows: `quote | booking | expense | employee | payroll_run | loan | user | role | checkout | charge_item`. To allow a new value, drop and recreate the CHECK constraint with the new value included. See `migrations/expense-module/000_extend_entity_type_enum.sql` for the canonical pattern.
+> - `bookings.status` was extended to allow `checked_out` in `migrations/checkout-module/000_create_checkout_tables.sql`. The migration handles both the CHECK and ENUM cases via a DO-block.
 
 ### Tables
 
@@ -77,7 +100,7 @@ type RoomType      = 'cottage' | 'eco_deluxe' | 'deluxe' | 'premium_deluxe'
 | **quote_rooms** | `id`, `quote_id`, `room_type`, `qty`, `unit_price`, `room_numbers[]` | One row per (quote, room_type, charge_mode). **Two rows of the same room_type can coexist** — one paid (`unit_price > 0`) and one complimentary (`unit_price === 0`). |
 | **bookings** | Mirror of `quotes` minus `quote_number → booking_number` and adds optional `quote_id` link. Same generated columns. | `package_snapshot` is **frozen** at booking creation; subsequent edits to the originating package don't affect the booking. |
 | **booking_rooms** | `id`, `booking_id`, `room_type`, `qty`, `unit_price`, `room_numbers[]` | Same multi-row-per-type semantics as `quote_rooms`. The `id` is now the canonical row identifier used by the `swapRoomAssignment` server action. |
-| **history_log** | `id`, `entity_type` ('quote'\|'booking'\|'expense'), `entity_id` (uuid), `event` (HistoryEvent), `actor`, `payload` (JSONB), `created_at` | Audit trail. INSERTs only. May not exist on a fresh Supabase project — `migrations/expense-module/000_extend_entity_type_enum.sql` `CREATE TABLE IF NOT EXISTS` it. |
+| **history_log** | `id`, `entity_type` (10 values — see Enums), `entity_id` (uuid), `event` (HistoryEvent), `actor`, `payload` (JSONB), `created_at` | Audit trail. INSERTs only. May not exist on a fresh Supabase project — `migrations/expense-module/000_extend_entity_type_enum.sql` `CREATE TABLE IF NOT EXISTS` it. |
 
 ### Expense module tables (Phase 1–3)
 
@@ -89,6 +112,54 @@ type RoomType      = 'cottage' | 'eco_deluxe' | 'deluxe' | 'premium_deluxe'
 | **expense_attachments** | `id`, `expense_id`, `storage_path`, `file_name`, `mime_type` (CHECK to image/pdf), `size_bytes` (CHECK ≤ 10485760), `uploaded_by` | Receipt metadata. ON DELETE CASCADE from `expenses`. Storage object is removed by the `removeReceipt` server action — FK CASCADE alone won't delete the binary. |
 | **expense_budgets** | `id`, `category_id` (NULL = "overall"), `period_type` ('monthly'\|'yearly'), `period_start`, `amount`, `notes` | Two partial unique indexes enforce one budget per (category, period_type, period_start) — one for `category_id IS NULL`, one for `category_id IS NOT NULL`. |
 | **recurring_expense_templates** | `id`, `name`, `category_id`, `default_payee_id`, `default_amount` (NULL = manual), `default_description`, `default_payment_method`, `day_of_month` (1–28), `is_active`, `last_generated_for` (date) | `last_generated_for` is the idempotency key for `generateMonthlyDrafts` — templates are only fired for a month when `last_generated_for IS NULL OR < period_start`. |
+
+### HR module tables (`migrations/hr-module/`)
+
+| Table | Key columns | Notes |
+|---|---|---|
+| **employees** | `id`, `employee_code` (unique, e.g. `GCR-001`), `full_name`, `designation`, `department`, contact info, `joining_date`, `employment_status`, `is_live_in`, `expense_payee_id` (FK → `expense_payees`), `notes` | Auto-creates an `expense_payees` row on insert (the integration spine — payroll auto-writes salary `expenses` against it). Termination via separate `terminateEmployee` action — never delete. |
+| **salary_structures** | `id`, `employee_id`, `effective_from`, `effective_to` (NULL = current), `basic`, `house_rent`, `medical`, `transport`, `mobile`, `other_allowance`, `gross` (gen) | Effective-dated history. `setSalaryStructure` always closes the current row before inserting a new one — historical rows are never edited in place. |
+| **leave_types** | `id`, `name`, `slug` (unique), `default_annual_balance`, `is_paid`, `display_order`, `is_active` | Seeded with annual / sick / casual / unpaid. Editable via `/hr/leaves/types`. Slug locks once used. |
+| **leave_balances** | `id`, `employee_id`, `leave_type_id`, `year`, `opening_balance`, `accrued`, `used`, `available` (gen) | One row per (employee, leave_type, year). `initializeLeaveBalances(year)` action seeds these. `markAttendance` auto-syncs `used` when a status flips to/from `paid_leave`. |
+| **attendance** | `id`, `employee_id`, `date`, `status` (AttendanceStatus), `leave_type_id` (required when paid/unpaid leave), `marked_by`, `marked_at` | UNIQUE (employee_id, date). Re-marking the same date upserts. |
+| **salary_adjustments** | `id`, `employee_id`, `applies_to_month` (YYYY-MM-01), `type` (SalaryAdjustmentType), `amount`, `description`, `loan_id` (FK), `payroll_run_line_id` (back-ref) | Once a row's `payroll_run_line_id` is non-null (i.e. picked up by a finalized run), it's read-only. `loan_repayment` rows are auto-generated by the payroll engine — never user-entered. |
+| **loans** | `id`, `employee_id`, `principal`, `monthly_installment`, `amount_repaid`, `outstanding` (gen), `taken_on`, `repayment_starts`, `status` (LoanStatus), `notes` | Outstanding is a generated column. Auto-closed by `finalizePayrollRun` when `outstanding ≤ 0`. |
+| **service_charge_payouts** | `id`, `employee_id`, `applies_to_month`, `amount`, `notes` | UNIQUE (employee_id, applies_to_month). Manual entry per staff per month at `/hr/service-charge`. Picked up by the payroll engine. |
+| **payroll_runs** | `id`, `period` (UNIQUE, YYYY-MM-01), `status` (PayrollRunStatus), `generated_at`, `finalized_at`, `total_gross`, `total_net` | One row per month. Status flips to `finalized` only on/after the 1st of the next month (operator-triggered). |
+| **payroll_run_lines** | `id`, `payroll_run_id`, `employee_id`, full salary snapshot, attendance counts, `unpaid_deduction`, `bonuses`/`fines`/`loan_deduction`/etc, `service_charge`, `net_pay`, `expense_id` (FK → `expenses`), `payment_method`, `paid_at` | UNIQUE (payroll_run_id, employee_id). On finalize, the matching `expenses` row is created in the `salary` category against the staff's `expense_payee_id`. |
+
+### Auth & Roles tables (`migrations/auth-roles-module/`)
+
+| Table | Key columns | Notes |
+|---|---|---|
+| **roles** | `id`, `slug` (CHECK enum: 4 RoleSlug values), `display_name`, `description`, `is_system`, `display_order` | 4 system roles, seeded. **Cannot be deleted, cannot be renamed** in v1 — only their permissions are editable. |
+| **modules** | `id`, `slug` (7 ModuleSlug values), `display_name`, `description`, `display_order` | 7 modules: bookings, checkout, expenses, hr, reports, settings, availability. Seeded once. |
+| **role_permissions** | `id`, `role_id`, `module_id`, `level` (none/read/write), `updated_by` | UNIQUE (role_id, module_id). Default matrix seeded. Edited via `/settings/roles/[slug]`. |
+| **user_profiles** | `user_id` (PK, FK → `auth.users` ON DELETE CASCADE), `full_name`, `email`, `role_id`, `is_active`, `phone`, `created_by`, `last_login_at` | One per system user. Backfill block in migration 000 auto-creates an admin profile for any pre-existing `auth.users` row, so the first-time install doesn't lock the operator out. |
+| **admin_alerts** | `id`, `event_type` (AdminAlertEvent), `entity_type`, `entity_id`, `summary`, `payload` (JSONB), `acknowledged_at`, `acknowledged_by`, `created_by` | Surfaces flagged events for admin review at `/settings/audit-log`. Inserted via `flagAlert` (best-effort, non-blocking). Unread count drives the Settings sidebar badge. |
+
+### Checkout module tables (`migrations/checkout-module/`)
+
+| Table | Key columns | Notes |
+|---|---|---|
+| **charge_categories** | `id`, `slug` (unique), `display_name`, `display_order`, `is_active` | Seeded with food / beverage / damage / service / misc / room_upsale / extra_guest. Items grouped under these. |
+| **charge_items** | `id`, `category_id`, `name`, `default_price`, `description`, `is_active`, `display_order` | The "menu" — restaurant items, towel-damage rates, etc. Managed at `/settings/charge-catalog`. |
+| **checkouts** | `id`, `booking_id` (UNIQUE), `status` (CheckoutStatus), `advance_amount`, `charges_total`, `payments_total`, `net_due` (gen), `refund_amount`, `refund_expense_id` (FK), `discount_amount`, `discount_pct`, `discount_reason`, `actual_adults`, `actual_children`, `guest_reduction_reason`, `finalized_at`, `voided_at`, `void_reason` | One per booking. Lazily created on first charge via `getOrCreateDraftCheckout`. Generated `net_due` is the simple `(charges − advance − payments)` form; the **correct** net-due (incl. booking total + discount) is computed in TS via `lib/checkout/totals.ts::calcNetDue` because the booking total isn't part of the snapshot. |
+| **checkout_charges** | `id`, `checkout_id`, `category_id`, `charge_item_id` (NULL for free-form), `description` (snapshot), `quantity`, `unit_price`, `amount` (gen), `notes`, `added_by` | Each line item. `room_upsale` and `extra_guest` charges price from the booking's `package_snapshot.room_prices` / `extra_person`. Multiplied by remaining nights for night packages. |
+| **checkout_payments** | `id`, `checkout_id`, `amount`, `method` (CheckoutPaymentMethod), `reference`, `paid_at`, `recorded_by` | Multi-row, supports split-tender (cash + bKash, etc.). |
+
+### Net-due math (the formula that matters)
+
+```
+total_due  = booking.total + sum(checkout_charges) − checkout.discount_amount
+balance    = total_due − booking.advance_paid − sum(checkout_payments)
+
+balance > 0 → "Remaining Due"  (guest owes — most common)
+balance = 0 → "Settled"
+balance < 0 → "Refund Due"     (resort owes — refund tracked as expense)
+```
+
+The DB-generated `checkouts.net_due` column does NOT include `booking.total` (it's a lightweight col, kept for backwards compat). Always use `calcNetDue` in `lib/checkout/totals.ts` for the user-facing number.
 
 ### Database functions
 - `get_availability_range(p_from, p_to)` — RPC returning `{ check_date, check_room_type, qty_booked }[]` for fast calendar rendering.
@@ -157,8 +228,34 @@ app/
       budgets/BudgetTabs.tsx
       recurring/page.tsx     # /expenses/recurring — template CRUD + draft generation
       drafts/page.tsx        # /expenses/drafts — confirm/discard auto-generated drafts
-    settings/page.tsx
-    layout.tsx              # Auth check → fetches user, renders LayoutShell
+    hr/                      # HR module (sky accent)
+      page.tsx               # /hr — dashboard tiles + headcount
+      employees/
+        page.tsx              # list + filter + show-terminated toggle
+        EmployeesClient.tsx   # filter bar
+        new/page.tsx
+        [id]/page.tsx         # tabbed detail (Profile / Salary / Attendance / Leaves / Loans / Adjustments / Payroll)
+        [id]/edit/page.tsx
+        [id]/EmployeeDetailTabs.tsx
+      attendance/page.tsx, attendance/AttendanceClient.tsx
+      leaves/page.tsx, leaves/InitializeYearButton.tsx
+      leaves/types/page.tsx   # admin: edit leave_types
+      loans/page.tsx
+      service-charge/page.tsx, service-charge/MonthBar.tsx
+      payroll/page.tsx, payroll/PayrollClient.tsx
+    checkout/                # Guest checkout module (violet accent)
+      page.tsx               # /checkout — list (Today / Drafts / Finalized / All)
+      CheckoutListClient.tsx
+      [bookingId]/page.tsx   # focused checkout flow
+    settings/                # Settings hub (slate accent)
+      page.tsx               # 4 hub tiles + General + Holidays
+      users/page.tsx, users/UsersClient.tsx, users/new/page.tsx, users/[id]/page.tsx
+      roles/page.tsx, roles/[slug]/page.tsx
+      charge-catalog/page.tsx
+      duplicate-bookings/page.tsx     # Find + cancel duplicate bookings
+      audit-log/page.tsx              # admin_alerts surface — discount/void/refund/etc.
+    layout.tsx              # Auth check → fetches user + permissions + unread-alert count
+  403/page.tsx              # "Access denied" page (redirected by middleware)
   api/                      # Public API routes (no auth check; middleware handles it)
     availability/route.ts
     booked-room-numbers/route.ts
@@ -168,12 +265,11 @@ app/
     revenue/route.ts         # used by RevenueWidget
     room-noon-notice/route.ts
     expenses/
-      monthly-summary/route.ts        # GET — Excel pivot for /expenses/report
-      pl/route.ts                     # GET — Profit & Loss for analytics page
-      category-breakdown/route.ts     # GET
-      daily-trend/route.ts            # GET
-      csv-export/route.ts             # GET — streams an RFC-4180 CSV download
-      [id]/attachments/route.ts       # GET — signed URLs for one expense's receipts
+      monthly-summary/route.ts, pl/route.ts, category-breakdown/route.ts,
+      daily-trend/route.ts, csv-export/route.ts, [id]/attachments/route.ts
+    checkout/
+      catalog/route.ts        # GET — lazy-load charge_categories + charge_items for Add-Charge modal
+      [id]/invoice/route.ts   # GET — streams the PDF invoice (@react-pdf/renderer)
   auth/signout/route.ts
   login/page.tsx, login/LoginForm.tsx, login/actions.ts, login/diagnose/page.tsx
   layout.tsx                # Root layout
@@ -210,12 +306,34 @@ components/
     ReceiptUploader.tsx                # Drag-drop browser uploader (used on /expenses/[id]/edit)
     RecurringTemplatesList.tsx         # Templates table + Generate-Drafts button
     labels.ts                          # PAYMENT_METHOD_LABELS, PAYEE_TYPE_LABELS, CATEGORY_GROUP_BADGE etc.
+  hr/                                  # HR module (sky accent)
+    EmployeeForm.tsx, EmployeeTable.tsx, SalaryStructureForm.tsx
+    AttendanceGrid.tsx, LeaveBalanceTable.tsx, LeaveTypeManager.tsx
+    LoansTable.tsx, LoanForm.tsx
+    AdjustmentForm.tsx, AdjustmentsList.tsx
+    ServiceChargeForm.tsx, PayrollPreviewTable.tsx
+    TerminateEmployeeButton.tsx, MigrationErrorBanner.tsx, labels.ts
+  checkout/                            # Guest-checkout module (violet accent)
+    BookingChargesTab.tsx              # Mounted on /bookings/[id] AND /checkout/[bookingId]
+    AddChargeModal.tsx                 # 3 tabs: Catalog (lazy-loaded) / Room+Guest upsale / Free-form
+    ChargeCatalogClient.tsx            # /settings/charge-catalog admin
+    CheckoutSummary.tsx                # Sticky bill summary card
+    PaymentForm.tsx                    # Add-payment row, supports split-tender
+    FinalizeAndVoid.tsx                # Action panel: Finalize / Refund / Void / PDF
+    DiscountButton.tsx, DiscountModal.tsx
+    GuestCountAdjustButton.tsx         # Audit-only — pure record, no billing change
+    MigrationErrorBanner.tsx, labels.ts
+  analytics/AnalyticsClient.tsx, UpsalesPanel.tsx   # Upsales section appended to /analytics
   layout/LayoutShell.tsx, Sidebar.tsx, Topbar.tsx
   packages/PackageForm.tsx, PackageTable.tsx, RoomPriceEditor.tsx, TextBlockEditor.tsx
   print/PrintLayout.tsx
   quotes/CopyButton.tsx, GuestInputs.tsx, PackageSelector.tsx, PricingBreakdown.tsx,
          QuoteActions.tsx, QuoteForm.tsx, QuoteTable.tsx, RoomSelector.tsx, WhatsAppOutput.tsx
+         DuplicateConfirmModal.tsx     # Soft-warn modal on quote/booking duplicate detection
   settings/HolidayManager.tsx, SettingsForm.tsx
+    UserForm.tsx, UsersTable.tsx, UserDetailActions.tsx
+    PermissionGrid.tsx, RoleCard.tsx
+    DuplicateBookingsTable.tsx, AuditLogClient.tsx
   ui/Badge.tsx, Button.tsx, Card.tsx, DateRangePicker.tsx, Input.tsx, Modal.tsx,
      NumberInput.tsx, Select.tsx, Tabs.tsx, Textarea.tsx, WhatsAppLink.tsx
 
@@ -227,15 +345,33 @@ lib/
                             # cancelQuote, deleteQuote
     packages.ts             # createPackage, updatePackage, deletePackage, togglePackageActive
     settings.ts             # updateSettings, addHoliday, removeHoliday
-    expenses.ts             # createExpense, updateExpense, deleteExpense,
-                            # createDailyExpenses, createCategory/updateCategory/toggleCategoryActive,
-                            # createPayee/updatePayee/togglePayeeActive,
-                            # attachReceipt, removeReceipt,
-                            # upsertBudget, deleteBudget,
-                            # createRecurringTemplate, updateRecurringTemplate,
-                            # toggleRecurringTemplateActive, deleteRecurringTemplate,
-                            # generateMonthlyDrafts, confirmDraftExpense, discardDraftExpense
-    types.ts                # ActionResult, ActionData
+    expenses.ts             # All expense CRUD + drafts/budgets/recurring (see file)
+    employees.ts            # createEmployee (auto-creates expense_payees row), updateEmployee,
+                            # terminateEmployee, reactivateEmployee, setSalaryStructure
+    attendance.ts           # markAttendance (with leave-balance sync), bulkMarkAttendance
+    leaves.ts               # initializeLeaveBalances(year), createLeaveType, updateLeaveType,
+                            # toggleLeaveTypeActive, adjustLeaveBalance
+    loans.ts                # createLoan, closeLoan, writeOffLoan
+    salary-adjustments.ts   # createAdjustment, deleteAdjustment
+    service-charge.ts       # upsertServiceCharge, deleteServiceCharge
+    payroll.ts              # previewPayrollRun (read-only), saveDraftPayrollRun,
+                            # finalizePayrollRun (snapshots + writes salary expenses + closes loans)
+    users.ts                # createUser (uses service-role admin client), updateUser,
+                            # resetPassword, deactivateUser, reactivateUser, changeRole.
+                            # Last-active-admin guard prevents self-lockout.
+    roles.ts                # updateRolePermissions (with admin-settings lock)
+    charge-catalog.ts       # CRUD for charge_categories + charge_items
+    checkout-charges.ts     # getOrCreateDraftCheckout, addCharge, updateCharge, removeCharge
+    checkout.ts             # addPayment, removePayment, finalizeCheckout, voidCheckout (admin-only),
+                            # recordRefund (auto-writes Guest Refund expense),
+                            # applyDiscount + clearDiscount, adjustActualGuestCount,
+                            # acknowledgeAlert
+    types.ts                # ActionResult, ActionData (with optional `duplicate` payload)
+  auth/
+    permissions.ts          # getCurrentUserContext (cached), hasPermission, requirePermission,
+                            # checkPermission, isAdmin
+    alerts.ts               # flagAlert (best-effort admin_alerts insert), getUnreadAlertCount
+  checkout/totals.ts        # calcChargesTotal, calcPaymentsTotal, calcNetDue (the canonical formula)
   config/rooms.ts           # ROOM_NUMBERS map + nextDay + dateRangesOverlap helpers
   engine/                   # Pure functions (no DB calls)
     availability.ts         # checkRoomAvailability(inventory, occupied, packageType?)
@@ -243,56 +379,81 @@ lib/
     meals.ts                # Daily meal counts for kitchen reports
     package-resolver.ts     # resolvePackage(date, type, packages)
     snapshot.ts             # buildPackageSnapshot, snapshotToRates
+    payroll.ts              # computePayrollLine — per-employee net pay computation
   formatters/
     currency.ts             # formatBDT, formatBDTSigned, parseBDT
-    dates.ts                # formatDate ('Saturday, 11 Apr 2026'), formatDateRange,
-                            # formatDateShort, toISODate, isFriday, isHoliday,
-                            # getDayType, computeNights
+    dates.ts                # formatDate, formatDateRange, formatDateShort, toISODate,
+                            # isFriday, isHoliday, getDayType, computeNights
     phone.ts                # WhatsApp phone formatting
-    whatsapp.ts             # formatWhatsApp(WhatsAppParams) — quote + booking confirmation text
+    whatsapp.ts             # formatWhatsApp(WhatsAppParams)
+  pdf/
+    invoice.tsx             # @react-pdf/renderer Document — A4 invoice w/ logo, discount, totals
   queries/                  # DB read functions (server-only)
-    analytics.ts            # Booking-side: getTotalsSummary, getDailyRevenue,
-                            # getPackageTypeBreakdown, getRoomTypeUtilization
-    availability.ts         # checkAvailabilityConflict, getRoomAvailability,
-                            # getAvailabilityRange, getBookedRoomNumbers
-    bookings.ts             # getBookings, getBookingById, getUpcomingBookings,
-                            # getBookingStats, getRevenueStats
+    analytics.ts            # Booking-side analytics (getTotalsSummary, getDailyRevenue, etc.)
+    availability.ts         # checkAvailabilityConflict, getRoomAvailability, getBookedRoomNumbers
+    bookings.ts             # getBookings, getBookingById, getUpcomingBookings, getBookingStats
     daily-report.ts         # Per-date kitchen / housekeeping breakdown
-    expenses.ts             # getExpenses, getExpenseById, getActive/All Categories+Payees,
-                            # getExpensesThisMonthSummary, getExpenseTotalsSummary,
-                            # getDailyExpenseTrend, getCategoryBreakdown, getPayeeBreakdown,
-                            # getMonthlyExpenseSummary, getProfitAndLoss,
-                            # getExpenseAttachments, getSignedAttachmentUrl,
-                            # getBudgets, getBudgetVsActual,
-                            # getRecurringTemplates, getRecurringTemplateById,
-                            # getTemplatesPendingForMonth, getDrafts
+    expenses.ts             # All expense reads (see file — many)
+    duplicate-bookings.ts   # findDuplicateBookings (used at create time as soft-warn) +
+                            # findAllDuplicateGroups (Settings audit page)
+    employees.ts            # getEmployees, getEmployeeById, getCurrentSalary, getSalaryHistory,
+                            # getEmployeeStats, suggestEmployeeCode
+    attendance.ts           # getAttendanceForDate, getAttendanceMapForDate,
+                            # getAttendanceForMonth, summariseAttendanceForMonth, getActiveEmployeesForGrid
+    leaves.ts               # getActiveLeaveTypes, getAllLeaveTypes, getLeaveBalancesForYear,
+                            # getEmployeeLeaveBalances
+    loans.ts                # getLoans, getActiveLoansForEmployee
+    salary-adjustments.ts   # getAdjustmentsForEmployee, getAdjustmentsForMonth + sum helpers
+    service-charge.ts       # getServiceChargesForMonth, getServiceChargeForEmployeeMonth
+    payroll.ts              # getPayrollRuns, getPayrollRunByPeriod, getPayrollLinesForEmployee
+    users.ts                # listUsers, getUserById, countActiveAdmins
+    roles.ts                # listRoles, listModules, getRoleWithPermissions, getRoleHeadcounts
+    charge-catalog.ts       # listChargeCategories, listChargeItems, getChargeItemById
+    checkout.ts             # getCheckoutByBooking, getChargesByCheckout, getPaymentsByCheckout,
+                            # getCheckoutFull, listCheckoutCandidates (for /checkout list)
+    upsales.ts              # getUpsalesSummary — aggregates checkout_charges for /analytics
+    admin-alerts.ts         # listAdminAlerts (filtered by event_type / unread)
     packages.ts             # getPackages, getPackageById, getActivePackages
     quotes.ts               # getQuotes, getQuoteById, getRecentQuotes, getQuoteStatusCounts
-    settings.ts             # getSettings, getHolidayDates, getHolidayDateStrings,
-                            # getRoomInventory
+    settings.ts             # getSettings, getHolidayDates, getHolidayDateStrings, getRoomInventory
   sidebar-context.tsx       # Mobile drawer open/close context
   supabase/
     client.ts               # Browser-side Supabase client
     middleware.ts           # createMiddlewareClient — used in middleware.ts
-    server.ts               # createClient() — for server components / actions
+    server.ts               # createClient() + createServiceClient() (admin-key, server-only)
     types.ts                # ALL TS types (single source of truth, no separate db.ts)
   utils.ts                  # cn (tailwind-merge), generateQuoteNumber, generateBookingNumber
   validators/
     booking.ts, package.ts, quote.ts   # Zod schemas matching the form inputs
     expense.ts                          # Expense, daily-bulk, category, payee, budget, template
+    employees.ts                        # employeeFormSchema, salaryStructureFormSchema, terminationSchema
+    hr.ts                               # markAttendance / loanForm / adjustmentForm / serviceCharge / leaveType
+    users.ts, roles.ts                  # User mgmt + role permission editor schemas
+    checkout.ts                         # addCharge, addPayment, voidCheckout, applyDiscount,
+                                        # adjustGuestCount, recordRefund, chargeItem, chargeCategory
 
-middleware.ts               # Route guard: refreshes session, redirects unauth → /login,
-                            # returns 401 JSON for /api/* unauth, redirects auth users away
-                            # from /login to /. Allows /login/* and /auth/* through.
+middleware.ts               # Route guard: session refresh, unauth → /login (or 401 JSON for /api/*).
+                            # Module-level read check after auth: maps URL prefix → ModuleSlug,
+                            # redirects to /403?from=<module> if user lacks read.
+                            # Deactivated users get force-signed-out on next request.
 
 migrations/
-  expense-module/           # SQL files to paste into Supabase SQL Editor in order:
-    000_extend_entity_type_enum.sql      # Creates history_log if missing + entity_type CHECK
-    001_expense_schema.sql               # 6 tables, indexes, triggers, RLS, GRANTs
-    002_seed_categories_and_payees.sql   # 14 categories + 5 payees + 3 recurring templates
-    003_expense_pivot_rpc.sql            # get_expense_daily_pivot RPC
-    004_storage_bucket.sql               # RLS for the expense-receipts Storage bucket
-    README.md                            # Order + Storage bucket creation steps
+  expense-module/           # SQL — paste into Supabase SQL Editor in order:
+    000_extend_entity_type_enum.sql, 001_expense_schema.sql,
+    002_seed_categories_and_payees.sql, 003_expense_pivot_rpc.sql, 004_storage_bucket.sql
+  hr-module/
+    000_create_hr_tables.sql             # 10 tables, seed leave_types, history_log CHECK extension
+  auth-roles-module/
+    000_create_roles_and_permissions.sql # roles + modules + role_permissions + user_profiles +
+                                         # backfill existing auth.users → admin
+    001_add_availability_module.sql      # Carve `availability` module out of `bookings`,
+                                         # demote front_desk's bookings permission to 'none'
+  checkout-module/
+    000_create_checkout_tables.sql       # charge_categories + items + checkouts + charges + payments,
+                                         # also extends bookings.status to allow 'checked_out'
+    001_add_discount_and_alerts.sql      # checkout discount fields + admin_alerts table
+    002_add_extras_categories_and_guest_actual.sql  # room_upsale + extra_guest categories,
+                                                    # actual_adults/children fields on checkouts
 ```
 
 ---
@@ -513,17 +674,23 @@ SUPABASE_SERVICE_ROLE_KEY=...                       # server actions use the use
 - Calendar view (month grid), per-day occupancy bar per room type. Uses `get_availability_range` RPC for speed.
 
 ### 8.6 Settings (`/settings`)
-- KV settings (payment instructions, contact numbers, WhatsApp footer text).
-- Holiday date manager.
+Hub with 4 tiles + General + Holidays cards. Permission-gated by `settings:read`.
+
+| Sub-route | Purpose |
+|---|---|
+| `/settings` | Hub — 4 tiles (Users, Roles, Charge Catalog, Duplicate Bookings) + General KV settings + Holiday manager |
+| `/settings/users` + `/new` + `/[id]` | User mgmt — admin creates accounts via service-role `auth.admin.createUser`, shows temp password ONCE on success. Per-user actions: edit profile, change role, reset password, deactivate / reactivate. Last-active-admin guard. Self-deactivate guard. |
+| `/settings/roles` + `/[slug]` | 4 role cards with headcount + permission-chip strip. Slug page hosts the `<PermissionGrid>` (rows = modules, cols = none/read/write radios). Diff-confirm modal before save. Admin's `settings` cell locked at `write`. |
+| `/settings/charge-catalog` | Restaurant menu / damage rates / misc charges. Items grouped by category; inline add + toggle-active. |
+| `/settings/duplicate-bookings` | Audit page — finds groups of bookings with the same `(phone, visit_date, package_type)`. Per-row Cancel button. |
+| `/settings/audit-log` | `admin_alerts` surface — discount applied / guest reduced / void / refund / cancellation / deactivation. Filters by event type. Acknowledge button per row; unread count drives the Settings sidebar badge. |
 
 ### 8.7 Analytics (`/analytics`)
 - Server component with URL state (`?from=&to=`), default = current month.
-- Client (`AnalyticsClient.tsx`): `DateRangePicker` with presets (This month / Last month / This quarter / This year), 4 KPI cards, 3 chart sections:
-  - **Daily revenue trend** — `recharts BarChart` (total / collected / outstanding stacked bars).
-  - **Package type breakdown** — donut + comparison table (Daylong vs Night).
-  - **Room type utilization** — horizontal bar chart + detail table (qty, room-nights, comp count, paid revenue, utilization %).
+- Client (`AnalyticsClient.tsx`): `DateRangePicker` with presets (This month / Last month / This quarter / This year), 4 KPI cards, 3 chart sections (daily-revenue / package-breakdown / room-utilization).
 - Excludes cancelled bookings. Attributes revenue to `visit_date` (not `created_at`).
-- "Print / Save as PDF" button uses browser native printing (`@media print` styles strip the picker and break sections cleanly).
+- **Upsales section appended** (`<UpsalesPanel>`): aggregates `checkout_charges` over the same date range — total, by-category, top 10 items, by-staff. Best-effort — silently hidden if checkout module isn't migrated.
+- "Print / Save as PDF" button uses browser native printing.
 
 ### 8.8 Expenses (`/expenses` — full module)
 
@@ -552,6 +719,59 @@ API:
 | `GET /api/expenses/daily-trend?from=&to=` | Bar chart data |
 | `GET /api/expenses/csv-export?from=&to=&...` | Streams CSV download |
 | `GET /api/expenses/[id]/attachments` | Signed URLs for the receipts viewer modal |
+
+### 8.9 HR (`/hr` — full module, sky accent)
+
+Mirrors the expense module's structure quality. Permission-gated by `hr:read`.
+
+| Sub-route | Purpose |
+|---|---|
+| `/hr` | Dashboard — headcount stats + tile grid linking to all HR sub-modules |
+| `/hr/employees` | Filterable list (search / department / show-terminated). Status badges. Strikethrough for terminated. |
+| `/hr/employees/new` | Create form — auto-generates next `GCR-NNN` code. **Auto-creates a matching `expense_payees` row** linked via `expense_payee_id` (the integration spine for payroll → expenses). |
+| `/hr/employees/[id]` | Tabbed detail — Profile / Salary / Attendance / Leaves / Loans / Adjustments / Payroll. Salary tab uses `<SalaryStructureForm>` which always closes the current effective-dated row before opening a new one. Termination button on the header (admin action). |
+| `/hr/attendance` | Daily grid. One row per active employee, status-button cluster (Present / Absent / Paid Leave / Unpaid Leave / Weekly Off / Holiday / Half Day). "Mark all Present" bulk action. Re-marking the same date upserts. |
+| `/hr/leaves` | Per-year balance pivot table. **Initialize Year** button seeds rows for every (active employee × active leave_type). |
+| `/hr/leaves/types` | Admin: edit `leave_types` rules (default annual balance, paid flag, display order, active toggle). Slug locks once used. |
+| `/hr/loans` | Multi-month loan ledger. Status lifecycle: active → closed (auto on full repay) / written_off (admin action). |
+| `/hr/service-charge` | Per-staff per-month service-charge entry (manual). Picked up by payroll as an addition. |
+| `/hr/payroll` | Monthly preview + finalize. Preview is read-only (live recompute). Finalize gated to "1st of next month onward". On finalize: snapshots the pay structure into `payroll_run_lines`, generates `loan_repayment` adjustments, increments + auto-closes loans, writes one `expenses` row per staff in the `salary` category against `employees.expense_payee_id`. |
+
+**Payroll engine** (`lib/engine/payroll.ts::computePayrollLine`) — pure function. Formula:
+```
+unpaid_deduction = round( basic ÷ days_in_month × (days_unpaid_leave + days_absent + days_half_day × 0.5) )
+net_pay = gross + bonuses + service_charge − unpaid_deduction − fines − advance − loan_deduction − other_deductions
+```
+
+### 8.10 Auth & Roles (foundation, slate accent)
+
+Foundational module that gates every other one. See **Section 7** for auth flow.
+
+- **`lib/auth/permissions.ts`** is the single source of truth. `getCurrentUserContext` is `cache()`-wrapped (one DB roundtrip per request even if called from multiple components). `requirePermission` redirects to `/403?from=<module>`. `checkPermission` returns `ActionResult` for server-action use.
+- **Middleware** does a per-request module-read check: maps URL prefix → ModuleSlug, redirects to `/403` if denied. Deactivated users get force-signed-out.
+- **Sidebar** permission-gates each nav link. Settings link gets a small dot badge when `admin_alerts` has unreads.
+- **Service-role client** (`lib/supabase/server.ts::createServiceClient`) is used ONLY by user-management actions (`auth.admin.createUser`, `updateUserById` for password reset / ban). Never imported in client components.
+- **`lib/auth/alerts.ts::flagAlert`** is the canonical helper for inserting `admin_alerts` rows. Best-effort — non-blocking on the user-facing operation, mirrors the `logHistory` pattern.
+
+### 8.11 Checkout (`/checkout` — full module, violet accent)
+
+| Sub-route | Purpose |
+|---|---|
+| `/checkout` | List — filters: Today / Drafts / Finalized / All. Pulls confirmed + checked-out bookings from the last 30 days, joined to their checkout row. |
+| `/checkout/[bookingId]` | Focused workflow — guest header (incl. rooms, line items, package), Charges card (`<BookingChargesTab>`), Payments card, sticky `<CheckoutSummary>` on the right showing live net-due (Remaining / Refund / Settled). Side actions: Apply Discount / Adjust Guest Count / Finalize / Record Refund / Void (admin only) / Invoice PDF. |
+| `/api/checkout/catalog` | GET — lazy-loaded by `<AddChargeModal>` so the detail page doesn't pay the catalog query cost on every render. |
+| `/api/checkout/[id]/invoice` | GET — streams the PDF invoice via `@react-pdf/renderer`. Renders logo (best-effort: `public/logo.png`), discount line, totals block, signature lines. |
+
+**Add Charge modal** has 3 tabs:
+1. **From Catalog** — search + click + override price. Items pulled from `charge_items`.
+2. **Room / Extra Guest** — pulls per-room-type prices from the booking's frozen `package_snapshot.room_prices` and per-extra-guest from `extra_person`. Multiplied by remaining nights for night packages. Saves as `room_upsale` / `extra_guest` charges.
+3. **Free-form** — category + description + qty + price for one-offs.
+
+**Charges + payments lock** when checkout becomes `finalized` or `voided`. Voiding is admin-only and reverts `bookings.status` to `confirmed`.
+
+**Refund flow** — when `net_due < 0` after finalize, the action panel surfaces a "Record Refund Payout" button. `recordRefund` creates an `expenses` row in the `Guest Refund` category (auto-creating the category if it doesn't exist) and saves `refund_expense_id` back onto the checkout. Recording money movement is manual.
+
+**Discount + guest reduction**: both flag an `admin_alerts` row (`event_type = 'discount_applied'` / `'guest_reduced'`) for review. Discount affects net-due; guest reduction is pure audit (no billing impact).
 
 ---
 
@@ -629,7 +849,15 @@ These are the most recent additions — useful context if planning extends them:
 10. **Quick-add for custom categories/payees** (`0425e39`): `<QuickAddCategoryModal>` and `<QuickAddPayeeModal>` next to dropdowns in `ExpenseForm` and `DailyExpenseGrid`.
 11. **Inline expense edit/delete** (`d1d148b`): `<ExpenseRowActions>` adds pencil + trash to every list row.
 12. **Receipt upload during new entry + viewable from list** (`282b771`): pending-receipts queue on `/expenses/new`, `<AttachmentsViewerButton>` modal on the list table.
-13. **Mobile responsive pass** (`6c7cd53` — current HEAD): DailyExpenseGrid stacks below md, DateRangePicker 1-month on mobile, admin tables get inner `overflow-x-auto`, ExpenseFilters take full width on mobile.
+13. **Mobile responsive pass** (`6c7cd53`): DailyExpenseGrid stacks below md, DateRangePicker 1-month on mobile, admin tables get inner `overflow-x-auto`, ExpenseFilters take full width on mobile.
+14. **HR module** (4 phases): full employee lifecycle, salary structures (effective-dated), attendance grid with leave-balance auto-sync, leave types admin, multi-month loans, salary adjustments (fines / bonuses / advances), per-staff service charge, monthly payroll preview + finalize that writes one expense per staff. **Auto-creates `expense_payees` row on employee insert** — the integration spine. Sidebar HR entry, sky accent.
+15. **Auth & Roles** (Phase 1+2): `roles`, `modules`, `role_permissions`, `user_profiles` tables. 4 system roles (admin / manager / front_desk / accountant), 7 modules. `lib/auth/permissions.ts` cached helpers. Middleware enforces module-level read at the URL layer. `/settings/users` admin (with one-time temp-password reveal), `/settings/roles/[slug]` permission grid editor with admin-settings-write lock + last-active-admin guard. `/403` page. Sidebar permission-gates every link. Backfill block in migration auto-promotes pre-existing `auth.users` rows to admin.
+16. **Front Desk scope tightening**: `availability` module carved out of `bookings`. `front_desk` role demoted: `availability:read + checkout:write`, all else `none`. Sidebar shows only Checkout + Availability for them. Booking detail unreachable; they use `/checkout/[bookingId]` for everything.
+17. **Duplicate-booking detection**: `findDuplicateBookings` in `createQuote` and `convertQuoteToBooking`. Soft-warn — actions return `{ success: false, duplicate: { existing: [...] } }` and the form shows `<DuplicateConfirmModal>` with "Create anyway" override. `/settings/duplicate-bookings` audit page lists groups + per-row Cancel.
+18. **Checkout module** (Phase 1–4 + multiple iterations): `charge_categories` + `charge_items` (catalog admin at `/settings/charge-catalog`), `checkouts` + `checkout_charges` + `checkout_payments`. Full flow at `/checkout/[bookingId]` — Add Charge modal with 3 tabs (Catalog / Room+Guest upsale / Free-form), Payments form (split-tender), Discount modal, Adjust Guest Count modal, Finalize / Refund / Void / Invoice PDF. PDF rendered via `@react-pdf/renderer` with logo + discount line + math fix that includes `booking.total`.
+19. **Net-due math fix**: `lib/checkout/totals.ts::calcNetDue` now correctly treats the advance as paid against the **whole stay** (`booking.total + extra charges − discount − advance − payments`). Earlier behavior incorrectly showed "Refund Due" when guests had advance > extras.
+20. **Audit log** (`admin_alerts` table + `/settings/audit-log` + Settings sidebar badge): every discount, guest reduction, void, refund, deactivation flagged via `flagAlert`. Filters by event type. Acknowledge button per row.
+21. **Lazy catalog**: `GET /api/checkout/catalog` loaded on first Add-Charge open instead of server-side per render — measurable speedup on the checkout detail page.
 
 ---
 
@@ -673,6 +901,10 @@ When extending the system, here are the touchpoints to consider:
 | Audit logging | Insert into `history_log` with `event: 'edited'` and a meaningful `payload.action` discriminator. Wrap in try/catch — never let logging block the user op. |
 | File uploads | Browser uploads to Supabase Storage; server action records metadata; render via signed URLs from `createSignedUrl`. See `lib/queries/expenses.ts::getSignedAttachmentUrl` and `components/expenses/ReceiptUploader.tsx` for the canonical pattern. |
 | Mobile layout | Stack at `< sm` (use `space-y-2` + `md:grid md:grid-cols-N`); wrap tables in `overflow-x-auto` with a `min-w-[Npx]` floor on the table itself. |
+| New permission slug | Add to `ModuleSlug` union in `lib/supabase/types.ts`, `ALL_MODULES` in `lib/auth/permissions.ts`, INSERT into `modules` via migration, seed `role_permissions` for each role. Add the URL prefix → ModuleSlug mapping in `middleware.ts`. Permission-gate the page with `await requirePermission('<slug>', 'read')`. Tag the sidebar nav item with `module: '<slug>'`. |
+| New protected page | `await requirePermission('<module>', 'read'\|'write')` at the top of the server component. Mutating server actions also call it (or `checkPermission` if you want to return `ActionResult` instead of redirecting). |
+| New flagged event | Add to `AdminAlertEvent` union in `lib/supabase/types.ts`, extend the `admin_alerts.event_type` CHECK in a migration, call `flagAlert({...})` from your action. Add filter chip + label/badge map in `components/settings/AuditLogClient.tsx`. |
+| New PDF | Use `@react-pdf/renderer` server-side. Stream from an `app/api/.../route.ts` via `renderToBuffer`. Read auxiliary assets (logo, fonts) with `fs.readFileSync` at request time. |
 
 ---
 
@@ -694,6 +926,19 @@ When extending the system, here are the touchpoints to consider:
 - **Each recurring template fires exactly once per month** via `last_generated_for`. Re-running `generateMonthlyDrafts(month)` after templates already generated is a safe no-op.
 - **Storage uploads are a two-step transaction** (Storage upload + DB metadata insert). If the second step fails, the upload action removes the Storage object — otherwise you get orphan blobs.
 - **Quick-add for categories/payees** uses local component state to optimistically show the new entry; `router.refresh()` runs in the background to keep the server in sync. Don't replace local state from the refresh — it would jump-cut the user.
+- **The DB-generated `checkouts.net_due` column is wrong by design.** It computes `charges_total − advance_amount − payments_total` and ignores `booking.total`. Always use `lib/checkout/totals.ts::calcNetDue` for the user-facing number — that one includes booking total + discount.
+- **Creating an employee implicitly creates an `expense_payees` row.** The `expense_payee_id` link is the integration spine — payroll's auto-written salary expenses flow through it. If the payee insert fails, the action rolls back the auth.users row.
+- **Salary structures are append-only.** `setSalaryStructure` always closes the current row (`effective_to = new effective_from − 1 day`) before inserting the new one. Never edit a historical structure in place.
+- **`history_log.entity_type` now allows 10 values**: `quote | booking | expense | employee | payroll_run | loan | user | role | checkout | charge_item`. Any new entity type requires another DROP/ADD CHECK migration.
+- **`bookings.status` was extended to `checked_out`** by `migrations/checkout-module/000_create_checkout_tables.sql`. The migration handles both CHECK and ENUM cases via a DO-block, so it works regardless of how the original schema was created.
+- **`createServiceClient` is server-only** and uses `SUPABASE_SERVICE_ROLE_KEY`. It's used by `lib/actions/users.ts` for `auth.admin.*` operations. Never import it from a client component — leaks the service role into the browser bundle.
+- **Permission checks are cached per request** via `cache()` on `getCurrentUserContext`. Calling `hasPermission` or `requirePermission` from N components costs one DB roundtrip total, not N.
+- **Middleware enforces module-level read** even before the page renders. A direct nav to `/bookings/123` by a `front_desk` user redirects to `/403` without ever invoking the page component. If you add a new route, add the prefix → ModuleSlug mapping to `middleware.ts::MODULE_PREFIX`.
+- **Sidebar badges and unread alerts** flow through `app/(agent)/layout.tsx` — it server-fetches `getUnreadAlertCount()` once per request and passes it down to `<Sidebar>`. Don't re-fetch from client components.
+- **Discount on checkout uses both `discount_amount` and `discount_pct`.** Percent is converted to fixed at apply time and saved on both columns; the percent is only kept for display. The math always uses `discount_amount`.
+- **Guest reduction (`actual_adults`/`actual_children` on checkouts) is audit-only.** It does NOT change the bill. To refund the guest for fewer attendees, the operator applies a manual discount.
+- **`flagAlert` is best-effort, like `logHistory`** — never let an alert insert failure block the user-facing operation. Mirror this pattern when adding new alert types.
+- **The PDF invoice loads `public/logo.png` at request time** via `fs.readFileSync`. If missing, falls back to text-only header. Drop a PNG/JPEG in `public/` to brand it.
 
 ---
 
@@ -717,11 +962,22 @@ When extending the system, here are the touchpoints to consider:
   "react-to-print": "^2.15.1",
   "clsx": "^2.1.0",
   "tailwind-merge": "^2.2.2",
-  "recharts": "^2.13.0"
+  "recharts": "^2.13.0",
+  "@react-pdf/renderer": "^4.5.1"
 }
 ```
 
 Node 18+, deployed on Vercel.
+
+### Required env vars (cumulative)
+
+```
+NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...    # or legacy eyJ... JWT
+SUPABASE_SERVICE_ROLE_KEY=sb_secret_...             # used by lib/supabase/server.ts::createServiceClient
+                                                    # for auth.admin.createUser / updateUserById /
+                                                    # ban-duration. Server-only — never shipped to browser.
+```
 
 ---
 
