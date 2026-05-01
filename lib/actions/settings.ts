@@ -1,6 +1,6 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, revalidateTag } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import type { ActionResult } from './types'
 
@@ -14,6 +14,8 @@ export async function upsertSetting(key: string, value: string): Promise<ActionR
 
     if (error) return { success: false, error: error.message }
 
+    revalidateTag('settings')
+    revalidateTag('holiday-dates')
     revalidatePath('/settings')
     return { success: true }
   } catch (err) {
@@ -34,6 +36,8 @@ export async function upsertSettings(
 
     if (error) return { success: false, error: error.message }
 
+    revalidateTag('settings')
+    revalidateTag('holiday-dates')
     revalidatePath('/settings')
     return { success: true }
   } catch (err) {
@@ -51,6 +55,8 @@ export async function addHolidayDate(date: string, label: string): Promise<Actio
 
     if (error) return { success: false, error: error.message }
 
+    revalidateTag('settings')
+    revalidateTag('holiday-dates')
     revalidatePath('/settings')
     return { success: true }
   } catch (err) {
@@ -69,6 +75,8 @@ export async function deleteHolidayDate(id: string): Promise<ActionResult> {
 
     if (error) return { success: false, error: error.message }
 
+    revalidateTag('settings')
+    revalidateTag('holiday-dates')
     revalidatePath('/settings')
     return { success: true }
   } catch (err) {

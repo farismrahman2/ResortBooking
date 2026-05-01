@@ -1,6 +1,6 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, revalidateTag } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import {
   chargeCategoryFormSchema,
@@ -47,6 +47,7 @@ export async function createChargeCategory(input: unknown): Promise<ActionData<{
       .select('id')
       .single()
     if (error || !data) return { success: false, error: error?.message ?? 'Insert failed' }
+    revalidateTag('charge-catalog')
     revalidatePath('/settings/charge-catalog')
     return { success: true, data: { id: data.id } }
   } catch (err) {
@@ -71,6 +72,7 @@ export async function updateChargeCategory(id: string, input: unknown): Promise<
       })
       .eq('id', id)
     if (error) return { success: false, error: error.message }
+    revalidateTag('charge-catalog')
     revalidatePath('/settings/charge-catalog')
     return { success: true }
   } catch (err) {
@@ -91,6 +93,7 @@ export async function toggleChargeCategoryActive(id: string): Promise<ActionResu
       .update({ is_active: !cur.is_active })
       .eq('id', id)
     if (error) return { success: false, error: error.message }
+    revalidateTag('charge-catalog')
     revalidatePath('/settings/charge-catalog')
     return { success: true }
   } catch (err) {
@@ -121,6 +124,7 @@ export async function createChargeItem(input: unknown): Promise<ActionData<{ id:
       .single()
     if (error || !data) return { success: false, error: error?.message ?? 'Insert failed' }
     await logHistory(data.id, 'created', 'charge_item_created', { name: parsed.name })
+    revalidateTag('charge-catalog')
     revalidatePath('/settings/charge-catalog')
     return { success: true, data: { id: data.id } }
   } catch (err) {
@@ -148,6 +152,7 @@ export async function updateChargeItem(id: string, input: unknown): Promise<Acti
       .eq('id', id)
     if (error) return { success: false, error: error.message }
     await logHistory(id, 'edited', 'charge_item_edited', { name: parsed.name })
+    revalidateTag('charge-catalog')
     revalidatePath('/settings/charge-catalog')
     return { success: true }
   } catch (err) {
@@ -169,6 +174,7 @@ export async function toggleChargeItemActive(id: string): Promise<ActionResult> 
       .eq('id', id)
     if (error) return { success: false, error: error.message }
     await logHistory(id, 'edited', 'charge_item_toggled', { is_active: !cur.is_active })
+    revalidateTag('charge-catalog')
     revalidatePath('/settings/charge-catalog')
     return { success: true }
   } catch (err) {

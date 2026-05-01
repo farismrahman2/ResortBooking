@@ -1,6 +1,6 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, revalidateTag } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { leaveTypeFormSchema } from '@/lib/validators/hr'
 import type { ActionResult, ActionData } from './types'
@@ -103,6 +103,7 @@ export async function createLeaveType(input: unknown): Promise<ActionData<{ id: 
       .select('id')
       .single()
     if (error || !data) return { success: false, error: error?.message ?? 'Insert failed' }
+    revalidateTag('leave-types')
     revalidatePath('/hr/leaves')
     revalidatePath('/hr/leaves/types')
     return { success: true, data: { id: data.id } }
@@ -130,6 +131,7 @@ export async function updateLeaveType(id: string, input: unknown): Promise<Actio
       })
       .eq('id', id)
     if (error) return { success: false, error: error.message }
+    revalidateTag('leave-types')
     revalidatePath('/hr/leaves')
     revalidatePath('/hr/leaves/types')
     return { success: true }
@@ -150,6 +152,7 @@ export async function toggleLeaveTypeActive(id: string): Promise<ActionResult> {
       .update({ is_active: !cur.is_active })
       .eq('id', id)
     if (error) return { success: false, error: error.message }
+    revalidateTag('leave-types')
     revalidatePath('/hr/leaves')
     revalidatePath('/hr/leaves/types')
     return { success: true }

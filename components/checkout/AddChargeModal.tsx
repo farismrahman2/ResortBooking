@@ -49,19 +49,23 @@ export function AddChargeModal({ open, onClose, bookingId, snapshot, nights, ext
   const [catalogLoaded, setCatalogLoaded] = useState(false)
   const [catalogLoading, setCatalogLoading] = useState(false)
 
+  // We only re-run when `open` flips. catalogLoaded/catalogLoading are NOT
+  // in the deps — including them caused the cleanup to fire when their own
+  // state updates re-rendered the component, which set `cancelled = true`
+  // before the fetch resolved → loader stuck forever.
   useEffect(() => {
-    if (!open || catalogLoaded || catalogLoading) return
+    if (!open) return
+    if (catalogLoaded) return   // already have data; don't refetch
+    if (catalogLoading) return  // a previous run is still in flight
+
     let cancelled = false
     const controller = new AbortController()
-    // Hard 12s timeout — if the route hangs (e.g. Supabase cold start, network),
-    // we'd rather surface the failure than spin forever.
     const timeoutId = setTimeout(() => controller.abort(), 12_000)
 
     setCatalogLoading(true)
     fetch('/api/checkout/catalog', { signal: controller.signal, cache: 'no-store' })
       .then(async (r) => {
         if (!r.ok) {
-          // Try to surface the server's error message
           let msg = `Failed to load catalog (${r.status})`
           try {
             const body = await r.json()
@@ -90,8 +94,14 @@ export function AddChargeModal({ open, onClose, bookingId, snapshot, nights, ext
         clearTimeout(timeoutId)
         if (!cancelled) setCatalogLoading(false)
       })
-    return () => { cancelled = true; clearTimeout(timeoutId); controller.abort() }
-  }, [open, catalogLoaded, catalogLoading])
+
+    return () => {
+      cancelled = true
+      clearTimeout(timeoutId)
+      controller.abort()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   // Catalog tab state
   const [search, setSearch] = useState('')

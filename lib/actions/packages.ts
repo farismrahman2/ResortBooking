@@ -1,6 +1,6 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, revalidateTag } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { PackageFormSchema, type PackageFormInput } from '@/lib/validators/package'
 import type { ActionResult, ActionData } from './types'
@@ -43,6 +43,7 @@ export async function createPackage(
       if (priceError) return { success: false, error: priceError.message }
     }
 
+    revalidateTag('packages')
     revalidatePath('/packages')
     return { success: true, data: { packageId: pkg.id } }
   } catch (err: any) {
@@ -89,6 +90,7 @@ export async function updatePackage(
       if (priceError) return { success: false, error: priceError.message }
     }
 
+    revalidateTag('packages')
     revalidatePath('/packages')
     revalidatePath(`/packages/${id}`)
     return { success: true }
@@ -113,6 +115,7 @@ export async function togglePackageActive(
 
     if (error) return { success: false, error: error.message }
 
+    revalidateTag('packages')
     revalidatePath('/packages')
     return { success: true }
   } catch (err) {
@@ -147,6 +150,7 @@ export async function duplicatePackage(id: string): Promise<ActionData<{ package
       )
     }
 
+    revalidateTag('packages')
     revalidatePath('/packages')
     return { success: true, data: { packageId: copy.id } }
   } catch (err) {

@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { cachedRef } from '@/lib/cache'
 import type {
   RoleRow,
   ModuleRow,
@@ -6,17 +7,18 @@ import type {
   RoleWithPermissions,
 } from '@/lib/supabase/types'
 
-export async function listRoles(): Promise<RoleRow[]> {
-  const supabase = createClient()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db = supabase as any
-  const { data, error } = await db
-    .from('roles')
-    .select('*')
-    .order('display_order', { ascending: true })
-  if (error) throw new Error(`listRoles: ${error.message}`)
-  return (data ?? []) as RoleRow[]
-}
+// Roles + modules essentially never change after install — long cache.
+export const listRoles = cachedRef<RoleRow[]>(
+  'roles',
+  async (db) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (db as any)
+      .from('roles').select('*').order('display_order', { ascending: true })
+    if (error) throw new Error(`listRoles: ${error.message}`)
+    return (data ?? []) as RoleRow[]
+  },
+  { tags: ['roles'], revalidate: 3600 },
+)
 
 export async function getRoleBySlug(slug: RoleSlug): Promise<RoleRow | null> {
   const supabase = createClient()
@@ -26,17 +28,17 @@ export async function getRoleBySlug(slug: RoleSlug): Promise<RoleRow | null> {
   return (data ?? null) as RoleRow | null
 }
 
-export async function listModules(): Promise<ModuleRow[]> {
-  const supabase = createClient()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db = supabase as any
-  const { data, error } = await db
-    .from('modules')
-    .select('*')
-    .order('display_order', { ascending: true })
-  if (error) throw new Error(`listModules: ${error.message}`)
-  return (data ?? []) as ModuleRow[]
-}
+export const listModules = cachedRef<ModuleRow[]>(
+  'modules',
+  async (db) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (db as any)
+      .from('modules').select('*').order('display_order', { ascending: true })
+    if (error) throw new Error(`listModules: ${error.message}`)
+    return (data ?? []) as ModuleRow[]
+  },
+  { tags: ['modules'], revalidate: 3600 },
+)
 
 export async function getRoleWithPermissions(slug: RoleSlug): Promise<RoleWithPermissions | null> {
   const supabase = createClient()

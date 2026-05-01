@@ -1,36 +1,41 @@
 import { createClient } from '@/lib/supabase/server'
+import { cachedRef } from '@/lib/cache'
 import type { LeaveTypeRow, LeaveBalanceRow } from '@/lib/supabase/types'
 
-export async function getAllLeaveTypes(): Promise<LeaveTypeRow[]> {
-  const supabase = createClient()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db = supabase as any
-  const { data, error } = await db
-    .from('leave_types')
-    .select('*')
-    .order('display_order', { ascending: true })
-  if (error) throw new Error(`getAllLeaveTypes: ${error.message}`)
-  return (data ?? []).map((r: any) => ({
-    ...r,
-    default_annual_balance: Number(r.default_annual_balance ?? 0),
-  }))
-}
+export const getAllLeaveTypes = cachedRef<LeaveTypeRow[]>(
+  'leave-types-all',
+  async (db) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (db as any)
+      .from('leave_types')
+      .select('*')
+      .order('display_order', { ascending: true })
+    if (error) throw new Error(`getAllLeaveTypes: ${error.message}`)
+    return ((data ?? []) as any[]).map((r: any) => ({
+      ...r,
+      default_annual_balance: Number(r.default_annual_balance ?? 0),
+    })) as LeaveTypeRow[]
+  },
+  { tags: ['leave-types'], revalidate: 600 },
+)
 
-export async function getActiveLeaveTypes(): Promise<LeaveTypeRow[]> {
-  const supabase = createClient()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db = supabase as any
-  const { data, error } = await db
-    .from('leave_types')
-    .select('*')
-    .eq('is_active', true)
-    .order('display_order', { ascending: true })
-  if (error) throw new Error(`getActiveLeaveTypes: ${error.message}`)
-  return (data ?? []).map((r: any) => ({
-    ...r,
-    default_annual_balance: Number(r.default_annual_balance ?? 0),
-  }))
-}
+export const getActiveLeaveTypes = cachedRef<LeaveTypeRow[]>(
+  'leave-types-active',
+  async (db) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (db as any)
+      .from('leave_types')
+      .select('*')
+      .eq('is_active', true)
+      .order('display_order', { ascending: true })
+    if (error) throw new Error(`getActiveLeaveTypes: ${error.message}`)
+    return ((data ?? []) as any[]).map((r: any) => ({
+      ...r,
+      default_annual_balance: Number(r.default_annual_balance ?? 0),
+    })) as LeaveTypeRow[]
+  },
+  { tags: ['leave-types'], revalidate: 600 },
+)
 
 export interface LeaveBalanceWithRefs extends LeaveBalanceRow {
   leave_type: Pick<LeaveTypeRow, 'id' | 'name' | 'slug' | 'is_paid'>
