@@ -5,6 +5,7 @@ import type {
   SalaryStructureRow,
   EmploymentStatus,
   Department,
+  SalesEmployee,
 } from '@/lib/supabase/types'
 
 /**
@@ -180,3 +181,22 @@ export function netSalaryGuess(s: SalaryStructureRow | null): number {
 }
 
 export function _coerceEmployeeRow(r: any): EmployeeRow { return r as EmployeeRow }
+
+/**
+ * Sales-eligible active employees, lightweight projection for the
+ * QuoteForm dropdown and per-rep attribution rollups.
+ */
+export async function listSalesEmployees(): Promise<SalesEmployee[]> {
+  const supabase = createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any
+  const { data, error } = await db
+    .from('employees')
+    .select('id, employee_code, full_name, sales_team')
+    .eq('is_sales', true)
+    .in('employment_status', ['active', 'on_leave'])
+    .order('full_name', { ascending: true })
+    .limit(200)
+  if (error) throw new Error(`listSalesEmployees: ${error.message}`)
+  return (data ?? []) as SalesEmployee[]
+}

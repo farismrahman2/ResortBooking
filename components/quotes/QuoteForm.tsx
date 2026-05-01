@@ -12,6 +12,7 @@ import { getDayType } from '@/lib/formatters/dates'
 import { Input } from '@/components/ui/Input'
 import { NumberInput } from '@/components/ui/NumberInput'
 import { Textarea } from '@/components/ui/Textarea'
+import { Select } from '@/components/ui/Select'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { WhatsAppLink } from '@/components/ui/WhatsAppLink'
@@ -23,12 +24,15 @@ import { DuplicateConfirmModal } from '@/components/quotes/DuplicateConfirmModal
 import { ROOM_NUMBERS } from '@/lib/config/rooms'
 import type { PackageWithPrices, RoomInventoryRow, SettingsMap, ExtraItem, RoomType } from '@/lib/supabase/types'
 import type { DuplicateMatch } from '@/lib/queries/duplicate-bookings'
+import type { SalesEmployee } from '@/lib/supabase/types'
 
 interface QuoteFormProps {
   packages: PackageWithPrices[]
   rooms: RoomInventoryRow[]
   holidayDates: string[]
   settings: SettingsMap
+  /** Active employees with is_sales=true. Empty array hides the dropdown. */
+  salesEmployees?: SalesEmployee[]
   // Edit mode — when provided, form pre-fills and calls updateQuote
   quoteId?: string
   initialValues?: Partial<CreateQuoteInput>
@@ -41,7 +45,7 @@ const DAY_LABELS = {
   weekday: { label: 'Weekday Rate', variant: 'default' as const },
 }
 
-export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, initialValues, initialExtraItems }: QuoteFormProps) {
+export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmployees, quoteId, initialValues, initialExtraItems }: QuoteFormProps) {
   const router = useRouter()
   const isEditMode = !!quoteId
   const [submitting,         setSubmitting]         = useState(false)
@@ -98,6 +102,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
       advance_required:    0,
       advance_paid:        0,
       extra_items:         [],
+      sales_employee_id:   null,
       // Spread initialValues last; rooms always overridden to paid-only list
       ...{ ...initialValues, rooms: paidInitialRooms },
     },
@@ -385,6 +390,32 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
               )}
             </div>
           </div>
+
+          {/* Sales rep — only renders if any sales-eligible employees exist */}
+          {salesEmployees && salesEmployees.length > 0 && (
+            <Controller
+              name="sales_employee_id"
+              control={control}
+              render={({ field }) => (
+                <Select
+                  label="Sales Rep (optional)"
+                  value={field.value ?? ''}
+                  onChange={(e) => field.onChange(e.target.value || null)}
+                  hint="Tag the staff member who referred this customer for sales attribution."
+                >
+                  <option value="">— No rep assigned —</option>
+                  {salesEmployees.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.full_name}
+                      {s.sales_team ? ` · ${s.sales_team}` : ''}
+                      {' '}
+                      ({s.employee_code})
+                    </option>
+                  ))}
+                </Select>
+              )}
+            />
+          )}
         </FormSection>
 
         {/* SECTION: Package */}

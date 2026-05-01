@@ -34,6 +34,9 @@ export const employeeFormSchema = z.object({
   joining_date:    isoDate,
   is_live_in:      z.coerce.boolean().default(false),
   meal_allowance_in_kind: z.coerce.boolean().default(false),
+  // Sales attribution
+  is_sales:        z.coerce.boolean().default(false),
+  sales_team:      z.string().trim().max(60).nullable().optional().or(z.literal('')),
   notes:           z.string().trim().max(2000).nullable().optional().or(z.literal('')),
 })
 export type EmployeeFormInput = z.infer<typeof employeeFormSchema>

@@ -110,6 +110,8 @@ export interface QuoteRow {
   remaining:           number     // generated
   status: BookingStatus
   converted_to_booking_id: string | null
+  /** Sales rep who referred this customer (FK → employees.id), nullable. */
+  sales_employee_id: string | null
   package_snapshot: PackageSnapshot
   line_items: LineItem[]
   extra_items: ExtraItem[]
@@ -152,6 +154,8 @@ export interface BookingRow {
   due_advance:        number
   remaining:          number
   status: BookingStatus
+  /** Sales rep who referred this customer (FK → employees.id), nullable. */
+  sales_employee_id: string | null
   package_snapshot: PackageSnapshot
   line_items: LineItem[]
   extra_items: ExtraItem[]
@@ -328,6 +332,10 @@ export interface EmployeeRow {
   is_live_in: boolean
   meal_allowance_in_kind: boolean
   expense_payee_id: string | null
+  /** Sales attribution: when true, this employee can be picked as the rep on a booking. */
+  is_sales: boolean
+  /** Free-form team grouping label, used by /hr/sales reports. */
+  sales_team: string | null
   notes: string | null
   created_at: string
   updated_at: string
@@ -470,6 +478,11 @@ export interface PayrollRunLineRow {
 export interface EmployeeWithCurrentSalary extends EmployeeRow {
   current_salary: SalaryStructureRow | null
 }
+
+/** Lightweight projection used by the Sales Rep dropdown + attribution rollups. */
+export type SalesEmployee = Pick<EmployeeRow,
+  'id' | 'employee_code' | 'full_name' | 'sales_team'>
+
 
 // ─── Auth & Roles ────────────────────────────────────────────────────────────
 

@@ -7,7 +7,9 @@ import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
 import { BookingActions } from '@/components/bookings/BookingActions'
 import { BookingWhatsAppOutput } from '@/components/bookings/BookingWhatsAppOutput'
 import { BookingChargesTab } from '@/components/checkout/BookingChargesTab'
+import { SalesRepEditor } from '@/components/bookings/SalesRepEditor'
 import { getBookingById } from '@/lib/queries/bookings'
+import { listSalesEmployees } from '@/lib/queries/employees'
 import { getSettings, getHolidayDateStrings, getRoomInventory } from '@/lib/queries/settings'
 import { WhatsAppLink } from '@/components/ui/WhatsAppLink'
 import { getBookedRoomNumbers } from '@/lib/queries/availability'
@@ -50,9 +52,10 @@ export default async function BookingDetailPage({ params }: PageProps) {
   if (!booking) notFound()
 
   // Charges section (best-effort: ignore errors so unmigrated installs still load)
-  const [canSeeCheckout, canWriteCheckout] = await Promise.all([
+  const [canSeeCheckout, canWriteCheckout, canEditBooking] = await Promise.all([
     hasPermission('checkout', 'read'),
     hasPermission('checkout', 'write'),
+    hasPermission('bookings', 'write'),
   ])
   const showCharges = canSeeCheckout && (booking.status === 'confirmed' || booking.status === 'checked_out')
   let charges: Awaited<ReturnType<typeof getChargesByCheckout>> = []
@@ -68,6 +71,17 @@ export default async function BookingDetailPage({ params }: PageProps) {
       // unmigrated — skip silently
     }
   }
+
+  // Sales rep — best-effort lookup. Skip silently if HR migration 001 not yet applied.
+  let salesEmployees: Awaited<ReturnType<typeof listSalesEmployees>> = []
+  let currentRep: Awaited<ReturnType<typeof listSalesEmployees>>[number] | null = null
+  try {
+    salesEmployees = await listSalesEmployees()
+    if ((booking as any).sales_employee_id) {
+      currentRep = salesEmployees.find((e) => e.id === (booking as any).sales_employee_id)
+        ?? null
+    }
+  } catch { /* HR module not migrated yet */ }
 
   // Check if any selected rooms have a night stay checking out on the visit date
   let roomAvailableAfterNoon = false
@@ -344,6 +358,16 @@ export default async function BookingDetailPage({ params }: PageProps) {
 
           {/* RIGHT column */}
           <div className="space-y-5">
+            {/* Sales rep */}
+            {salesEmployees.length > 0 && (
+              <SalesRepEditor
+                bookingId={booking.id}
+                current={currentRep}
+                options={salesEmployees}
+                canEdit={canEditBooking}
+              />
+            )}
+
             {/* WhatsApp output */}
             <Card>
               <BookingWhatsAppOutput booking={booking} settings={settings} roomAvailableAfterNoon={roomAvailableAfterNoon} />

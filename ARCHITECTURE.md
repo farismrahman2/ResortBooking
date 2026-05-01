@@ -96,9 +96,9 @@ type AdminAlertEvent       = 'discount_applied'|'guest_reduced'|'checkout_voided
 | **package_room_prices** | `id`, `package_id`, `room_type`, `price` | Per-package, per-room-type pricing. |
 | **settings** | `key`, `value` (text-only KV). Common keys: `payment_instructions`, `contact_numbers`, `whatsapp_footer_text`. |
 | **holiday_dates** | `id`, `date` (ISO), `label` | Used by calculator to apply holiday rate. |
-| **quotes** | `id`, `quote_number`, customer info, `package_type`, `visit_date`, `check_out_date` (nullable for daylong), `nights` (generated), guests, pricing (`subtotal`/`discount`/`discount_pct`/`service_charge_pct`/`total` (gen)/`advance_required`/`advance_paid`/`due_advance` (gen)/`remaining` (gen)), `status` (BookingStatus), `converted_to_booking_id`, `package_snapshot` (JSONB), `line_items[]` (JSONB), `extra_items[]` (JSONB) | `total`, `due_advance`, `remaining`, `nights` are DB-generated columns. |
+| **quotes** | `id`, `quote_number`, customer info, `package_type`, `visit_date`, `check_out_date` (nullable for daylong), `nights` (generated), guests, pricing (`subtotal`/`discount`/`discount_pct`/`service_charge_pct`/`total` (gen)/`advance_required`/`advance_paid`/`due_advance` (gen)/`remaining` (gen)), `status` (BookingStatus), `converted_to_booking_id`, `sales_employee_id` (FK → `employees`, nullable), `package_snapshot` (JSONB), `line_items[]` (JSONB), `extra_items[]` (JSONB) | `total`, `due_advance`, `remaining`, `nights` are DB-generated columns. `sales_employee_id` tags which sales rep referred this customer; copied onto the booking on conversion. |
 | **quote_rooms** | `id`, `quote_id`, `room_type`, `qty`, `unit_price`, `room_numbers[]` | One row per (quote, room_type, charge_mode). **Two rows of the same room_type can coexist** — one paid (`unit_price > 0`) and one complimentary (`unit_price === 0`). |
-| **bookings** | Mirror of `quotes` minus `quote_number → booking_number` and adds optional `quote_id` link. Same generated columns. | `package_snapshot` is **frozen** at booking creation; subsequent edits to the originating package don't affect the booking. |
+| **bookings** | Mirror of `quotes` minus `quote_number → booking_number` and adds optional `quote_id` link. Same generated columns. Also has `sales_employee_id` for attribution. | `package_snapshot` is **frozen** at booking creation; subsequent edits to the originating package don't affect the booking. `sales_employee_id` is copied from `quotes` on conversion and re-assignable via `setBookingSalesRep` (admin/manager). |
 | **booking_rooms** | `id`, `booking_id`, `room_type`, `qty`, `unit_price`, `room_numbers[]` | Same multi-row-per-type semantics as `quote_rooms`. The `id` is now the canonical row identifier used by the `swapRoomAssignment` server action. |
 | **history_log** | `id`, `entity_type` (10 values — see Enums), `entity_id` (uuid), `event` (HistoryEvent), `actor`, `payload` (JSONB), `created_at` | Audit trail. INSERTs only. May not exist on a fresh Supabase project — `migrations/expense-module/000_extend_entity_type_enum.sql` `CREATE TABLE IF NOT EXISTS` it. |
 
@@ -117,7 +117,7 @@ type AdminAlertEvent       = 'discount_applied'|'guest_reduced'|'checkout_voided
 
 | Table | Key columns | Notes |
 |---|---|---|
-| **employees** | `id`, `employee_code` (unique, e.g. `GCR-001`), `full_name`, `designation`, `department`, contact info, `joining_date`, `employment_status`, `is_live_in`, `expense_payee_id` (FK → `expense_payees`), `notes` | Auto-creates an `expense_payees` row on insert (the integration spine — payroll auto-writes salary `expenses` against it). Termination via separate `terminateEmployee` action — never delete. |
+| **employees** | `id`, `employee_code` (unique, e.g. `GCR-001`), `full_name`, `designation`, `department`, contact info, `joining_date`, `employment_status`, `is_live_in`, `is_sales`, `sales_team`, `expense_payee_id` (FK → `expense_payees`), `notes` | Auto-creates an `expense_payees` row on insert (the integration spine — payroll auto-writes salary `expenses` against it). Termination via separate `terminateEmployee` action — never delete. `is_sales=true` lets the employee be picked as a booking's sales rep; `sales_team` groups them in `/hr/sales` reports. |
 | **salary_structures** | `id`, `employee_id`, `effective_from`, `effective_to` (NULL = current), `basic`, `house_rent`, `medical`, `transport`, `mobile`, `other_allowance`, `gross` (gen) | Effective-dated history. `setSalaryStructure` always closes the current row before inserting a new one — historical rows are never edited in place. |
 | **leave_types** | `id`, `name`, `slug` (unique), `default_annual_balance`, `is_paid`, `display_order`, `is_active` | Seeded with annual / sick / casual / unpaid. Editable via `/hr/leaves/types`. Slug locks once used. |
 | **leave_balances** | `id`, `employee_id`, `leave_type_id`, `year`, `opening_balance`, `accrued`, `used`, `available` (gen) | One row per (employee, leave_type, year). `initializeLeaveBalances(year)` action seeds these. `markAttendance` auto-syncs `used` when a status flips to/from `paid_leave`. |
@@ -736,6 +736,7 @@ Mirrors the expense module's structure quality. Permission-gated by `hr:read`.
 | `/hr/loans` | Multi-month loan ledger. Status lifecycle: active → closed (auto on full repay) / written_off (admin action). |
 | `/hr/service-charge` | Per-staff per-month service-charge entry (manual). Picked up by payroll as an addition. |
 | `/hr/payroll` | Monthly preview + finalize. Preview is read-only (live recompute). Finalize gated to "1st of next month onward". On finalize: snapshots the pay structure into `payroll_run_lines`, generates `loan_repayment` adjustments, increments + auto-closes loans, writes one `expenses` row per staff in the `salary` category against `employees.expense_payee_id`. |
+| `/hr/sales` | Sales performance leaderboard. Date-range filter; KPIs (total attributed revenue / top rep / top team); per-rep table + per-team rollup. Aggregates `bookings` filtered to `confirmed`/`checked_out` joined to `employees.sales_employee_id`. |
 
 **Payroll engine** (`lib/engine/payroll.ts::computePayrollLine`) — pure function. Formula:
 ```
@@ -858,6 +859,7 @@ These are the most recent additions — useful context if planning extends them:
 19. **Net-due math fix**: `lib/checkout/totals.ts::calcNetDue` now correctly treats the advance as paid against the **whole stay** (`booking.total + extra charges − discount − advance − payments`). Earlier behavior incorrectly showed "Refund Due" when guests had advance > extras.
 20. **Audit log** (`admin_alerts` table + `/settings/audit-log` + Settings sidebar badge): every discount, guest reduction, void, refund, deactivation flagged via `flagAlert`. Filters by event type. Acknowledge button per row.
 21. **Lazy catalog**: `GET /api/checkout/catalog` loaded on first Add-Charge open instead of server-side per render — measurable speedup on the checkout detail page.
+22. **Sales rep attribution + team revenue**: `employees` gets `is_sales` + `sales_team`, `quotes` + `bookings` get `sales_employee_id`. QuoteForm has a Sales Rep dropdown; rep is copied from quote → booking on conversion; admin can re-assign via `<SalesRepEditor>` on the booking detail. New `/hr/sales` page with KPIs + per-rep leaderboard + per-team rollup, filtered by date range. Cancelled bookings excluded from revenue (counted separately). Migration: `migrations/hr-module/001_add_sales_attribution.sql`.
 
 ---
 
@@ -939,6 +941,7 @@ When extending the system, here are the touchpoints to consider:
 - **Guest reduction (`actual_adults`/`actual_children` on checkouts) is audit-only.** It does NOT change the bill. To refund the guest for fewer attendees, the operator applies a manual discount.
 - **`flagAlert` is best-effort, like `logHistory`** — never let an alert insert failure block the user-facing operation. Mirror this pattern when adding new alert types.
 - **The PDF invoice loads `public/logo.png` at request time** via `fs.readFileSync`. If missing, falls back to text-only header. Drop a PNG/JPEG in `public/` to brand it.
+- **`bookings.sales_employee_id` is NULL on legacy bookings** — anything created before migration `hr-module/001_add_sales_attribution.sql` was applied. `/hr/sales` shows the unattributed revenue total at the bottom for context. Admin can backfill by editing each booking's sales rep on the booking detail page.
 
 ---
 

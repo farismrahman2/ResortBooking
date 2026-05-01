@@ -123,6 +123,8 @@ export async function createEmployee(input: unknown): Promise<ActionData<{ id: s
       employment_status:    'active',
       is_live_in:           parsed.is_live_in,
       meal_allowance_in_kind: parsed.meal_allowance_in_kind,
+      is_sales:             parsed.is_sales,
+      sales_team:           parsed.sales_team ?? null,
       expense_payee_id:     payeeRow.id,
       notes:                parsed.notes ?? null,
     })
@@ -183,6 +185,8 @@ export async function updateEmployee(id: string, input: unknown): Promise<Action
       joining_date:         parsed.joining_date,
       is_live_in:           parsed.is_live_in,
       meal_allowance_in_kind: parsed.meal_allowance_in_kind,
+      is_sales:             parsed.is_sales,
+      sales_team:           parsed.sales_team ?? null,
       notes:                parsed.notes ?? null,
     })
 

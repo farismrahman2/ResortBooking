@@ -60,6 +60,8 @@ export function EmployeeForm({ existing, suggestedCode }: EmployeeFormProps) {
           joining_date:     existing.joining_date,
           is_live_in:       existing.is_live_in,
           meal_allowance_in_kind: existing.meal_allowance_in_kind,
+          is_sales:         existing.is_sales,
+          sales_team:       existing.sales_team ?? '',
           notes:            existing.notes ?? '',
         }
       : {
@@ -82,6 +84,8 @@ export function EmployeeForm({ existing, suggestedCode }: EmployeeFormProps) {
           joining_date:     toISODate(new Date()),
           is_live_in:       false,
           meal_allowance_in_kind: false,
+          is_sales:         false,
+          sales_team:       '',
           notes:            '',
         },
   })
@@ -263,6 +267,24 @@ export function EmployeeForm({ existing, suggestedCode }: EmployeeFormProps) {
           rows={3}
           placeholder="Any internal notes about this employee…"
           {...register('notes')}
+        />
+      </Section>
+
+      {/* Sales / Reservations */}
+      <Section title="Sales / Reservations">
+        <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+          <input
+            type="checkbox"
+            className="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500"
+            {...register('is_sales')}
+          />
+          This employee can be assigned as a sales rep on bookings
+        </label>
+        <Input
+          label="Sales team (optional)"
+          placeholder="e.g. Corporate, Walk-in, Team A"
+          hint="Free-form label used for grouping in /hr/sales reports."
+          {...register('sales_team')}
         />
       </Section>
 

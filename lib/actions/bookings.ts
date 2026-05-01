@@ -83,6 +83,7 @@ export async function convertQuoteToBooking(
         advance_required:    quote.advance_required,
         advance_paid:        quote.advance_paid,
         status:              'confirmed',
+        sales_employee_id:   quote.sales_employee_id ?? null,
         package_snapshot: quote.package_snapshot,
         line_items:       quote.line_items,
         extra_items:      quote.extra_items ?? [],
@@ -836,5 +837,60 @@ export async function swapRoomAssignment(
     return { success: false, error: 'Invalid swap mode' }
   } catch (err) {
     return { success: false, error: String(err) }
+  }
+}
+
+// ─── Sales attribution: re-assign rep on a booking ──────────────────────────
+
+export async function setBookingSalesRep(
+  bookingId: string,
+  employeeId: string | null,
+): Promise<ActionResult> {
+  try {
+    const { requirePermission, getCurrentUserContext } = await import('@/lib/auth/permissions')
+    await requirePermission('bookings', 'write')
+    const ctx = await getCurrentUserContext()
+    const supabase = createClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = supabase as any
+
+    // Validate the employee is a sales-eligible HR record
+    if (employeeId) {
+      const { data: emp } = await db
+        .from('employees')
+        .select('id, is_sales, employment_status')
+        .eq('id', employeeId)
+        .maybeSingle()
+      if (!emp)              return { success: false, error: 'Employee not found' }
+      if (!emp.is_sales)     return { success: false, error: 'Employee is not flagged as a sales rep.' }
+    }
+
+    const { data: prev } = await db
+      .from('bookings').select('sales_employee_id').eq('id', bookingId).maybeSingle()
+
+    const { error } = await db
+      .from('bookings')
+      .update({ sales_employee_id: employeeId })
+      .eq('id', bookingId)
+    if (error) return { success: false, error: error.message }
+
+    await db.from('history_log').insert({
+      entity_type: 'booking',
+      entity_id:   bookingId,
+      event:       'edited',
+      actor:       'system',
+      payload: {
+        action: 'sales_rep_changed',
+        from:   prev?.sales_employee_id ?? null,
+        to:     employeeId,
+        by:     ctx?.user_id ?? null,
+      },
+    }).catch((e: any) => console.warn(`[history_log] non-fatal: ${e?.message ?? e}`))
+
+    revalidatePath(`/bookings/${bookingId}`)
+    revalidatePath('/hr/sales')
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
   }
 }

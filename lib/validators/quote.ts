@@ -47,6 +47,9 @@ const BaseQuoteSchema = z.object({
 
   // Extra custom items
   extra_items: z.array(ExtraItemSchema).default([]),
+
+  // Sales attribution — optional FK to employees(id) where is_sales = true
+  sales_employee_id: z.string().uuid().nullable().optional(),
 })
 
 export const CreateQuoteSchema = BaseQuoteSchema
