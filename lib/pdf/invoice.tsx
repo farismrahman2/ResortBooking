@@ -316,7 +316,6 @@ export function Invoice({
             <View style={styles.totalRow}>
               <Text style={[styles.totalLabel, { color: '#047857' }]}>
                 Discount{discountPct > 0 ? ` (${discountPct}%)` : ''}
-                {checkout.discount_reason ? ` — ${checkout.discount_reason}` : ''}
               </Text>
               <Text style={[styles.totalValue, { color: '#047857' }]}>− {bdt(discount)}</Text>
             </View>

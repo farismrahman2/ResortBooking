@@ -64,7 +64,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
 
   // Pull resort identity from settings (with sensible fallbacks)
   const resortName    = (settings as any).resort_name    ?? 'Garden Centre Resort'
-  const resortAddress = (settings as any).resort_address ?? 'Sreemangal, Bangladesh'
+  const resortAddress = (settings as any).resort_address ?? 'Kaliganj, Gazipur, Bangladesh'
   const resortPhone   = (settings as any).contact_numbers ?? ''
   const resortEmail   = (settings as any).contact_email   ?? undefined
   const tagline       = (settings as any).invoice_tagline ?? undefined
