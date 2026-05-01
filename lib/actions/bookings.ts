@@ -56,6 +56,46 @@ export async function convertQuoteToBooking(
       .select('*')
       .eq('quote_id', quoteId)
 
+    // Re-check capacity and physical room numbers at conversion time. The
+    // initial availability check ran when the quote was created — but other
+    // bookings may have claimed the same rooms in the meantime.
+    const requestedRoomQtys = ((quoteRooms ?? []) as any[]).map((r) => ({
+      room_type: r.room_type as string,
+      qty:       Number(r.qty ?? 0),
+    }))
+    const capacityErr = await checkAvailabilityConflict(
+      quote.visit_date,
+      quote.check_out_date,
+      requestedRoomQtys,
+      undefined,
+      quoteId,
+    )
+    if (capacityErr) {
+      return { success: false, error: `Cannot convert: ${capacityErr}` }
+    }
+
+    // Specific room numbers — guard against the same physical rooms being
+    // claimed by another booking that confirmed first.
+    const taken = new Set(
+      await getBookedRoomNumbers(quote.visit_date, quote.check_out_date),
+    )
+    const conflictingNumbers: string[] = []
+    for (const r of (quoteRooms ?? []) as any[]) {
+      for (const num of (r.room_numbers ?? [])) {
+        if (taken.has(num)) conflictingNumbers.push(num)
+      }
+    }
+    if (conflictingNumbers.length > 0) {
+      const unique = Array.from(new Set(conflictingNumbers))
+      return {
+        success: false,
+        error:
+          `Room number${unique.length > 1 ? 's' : ''} already booked by another booking: ` +
+          `${unique.join(', ')}. Edit the quote to pick different rooms, or cancel the ` +
+          `conflicting booking first.`,
+      }
+    }
+
     // Generate booking number
     const booking_number = await generateBookingNumber(supabase as any)
 
