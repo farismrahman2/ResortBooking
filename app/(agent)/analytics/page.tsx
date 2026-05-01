@@ -1,6 +1,14 @@
+import dynamic_ from 'next/dynamic'
 import { Topbar } from '@/components/layout/Topbar'
-import { AnalyticsClient } from '@/components/analytics/AnalyticsClient'
 import { UpsalesPanel } from '@/components/analytics/UpsalesPanel'
+
+// Defer recharts to a route-specific async chunk so it never ships on
+// non-analytics pages. ssr:false isn't allowed from a server component in
+// Next 14 — leaving SSR on is fine since the component is already 'use client'.
+const AnalyticsClient = dynamic_(
+  () => import('@/components/analytics/AnalyticsClient').then(m => m.AnalyticsClient),
+  { loading: () => <div className="p-8 text-sm text-slate-500">Loading charts…</div> },
+)
 import {
   getTotalsSummary,
   getDailyRevenue,

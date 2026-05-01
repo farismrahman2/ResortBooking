@@ -1,6 +1,13 @@
+import dynamic_ from 'next/dynamic'
 import { Topbar } from '@/components/layout/Topbar'
-import { ExpenseAnalyticsClient } from '@/components/expenses/ExpenseAnalyticsClient'
 import { MigrationErrorBanner } from '@/components/expenses/MigrationErrorBanner'
+
+// Defer recharts to a route-specific async chunk so it never ships on
+// non-analytics pages.
+const ExpenseAnalyticsClient = dynamic_(
+  () => import('@/components/expenses/ExpenseAnalyticsClient').then(m => m.ExpenseAnalyticsClient),
+  { loading: () => <div className="p-8 text-sm text-slate-500">Loading charts…</div> },
+)
 import {
   getExpenseTotalsSummary,
   getDailyExpenseTrend,
