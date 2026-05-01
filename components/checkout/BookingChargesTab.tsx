@@ -24,10 +24,13 @@ interface Props {
   /** Used by the "Room / Extra Guest" upsale tab — pricing comes from the booking. */
   snapshot?:    PackageSnapshot | null
   nights?:      number | null
+  /** Per-guest price for the "Extra Guest" upsale. For daylong = the adult
+   *  rate from the booking's line_items. For night = snapshot.extra_person. */
+  extraGuestRate?: number | null
 }
 
 export function BookingChargesTab({
-  bookingId, canWrite, checkoutStatus, charges, snapshot, nights,
+  bookingId, canWrite, checkoutStatus, charges, snapshot, nights, extraGuestRate,
 }: Props) {
   const router  = useRouter()
   const [pending, startTransition] = useTransition()
@@ -154,6 +157,7 @@ export function BookingChargesTab({
         bookingId={bookingId}
         snapshot={snapshot ?? null}
         nights={nights ?? null}
+        extraGuestRate={extraGuestRate ?? null}
       />
     </div>
   )

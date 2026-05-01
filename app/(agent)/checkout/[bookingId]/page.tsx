@@ -18,6 +18,7 @@ import {
   getPaymentsByCheckout,
 } from '@/lib/queries/checkout'
 import { calcChargesTotal, calcPaymentsTotal, calcNetDue } from '@/lib/checkout/totals'
+import { getExtraGuestUnitPrice } from '@/lib/checkout/extras-pricing'
 import {
   requirePermission,
   hasPermission,
@@ -206,6 +207,7 @@ export default async function CheckoutDetailPage({ params }: PageProps) {
                   charges={charges}
                   snapshot={booking.package_snapshot}
                   nights={booking.nights}
+                  extraGuestRate={getExtraGuestUnitPrice(booking)}
                 />
               </div>
             )}

@@ -8,6 +8,7 @@ import { BookingActions } from '@/components/bookings/BookingActions'
 import { BookingWhatsAppOutput } from '@/components/bookings/BookingWhatsAppOutput'
 import { BookingChargesTab } from '@/components/checkout/BookingChargesTab'
 import { SalesRepEditor } from '@/components/bookings/SalesRepEditor'
+import { getExtraGuestUnitPrice } from '@/lib/checkout/extras-pricing'
 import { getBookingById } from '@/lib/queries/bookings'
 import { listSalesEmployees } from '@/lib/queries/employees'
 import { getSettings, getHolidayDateStrings, getRoomInventory } from '@/lib/queries/settings'
@@ -343,6 +344,7 @@ export default async function BookingDetailPage({ params }: PageProps) {
                   charges={charges}
                   snapshot={booking.package_snapshot}
                   nights={booking.nights}
+                  extraGuestRate={getExtraGuestUnitPrice(booking)}
                 />
               </Card>
             )}

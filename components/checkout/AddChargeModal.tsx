@@ -29,12 +29,15 @@ interface Props {
   snapshot?:  PackageSnapshot | null
   /** For night packages, multiplies room/extra-guest prices by remaining nights. */
   nights?:    number | null
+  /** Per-guest unit price for the "Extra Guest" upsale (server-computed).
+   *  Daylong → adult rate from line_items. Night → snapshot.extra_person. */
+  extraGuestRate?: number | null
 }
 
 type TabKey = 'catalog' | 'free' | 'upsale'
 type UpsaleKind = 'room' | 'guest'
 
-export function AddChargeModal({ open, onClose, bookingId, snapshot, nights }: Props) {
+export function AddChargeModal({ open, onClose, bookingId, snapshot, nights, extraGuestRate }: Props) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [tab, setTab] = useState<TabKey>('catalog')
@@ -49,21 +52,45 @@ export function AddChargeModal({ open, onClose, bookingId, snapshot, nights }: P
   useEffect(() => {
     if (!open || catalogLoaded || catalogLoading) return
     let cancelled = false
+    const controller = new AbortController()
+    // Hard 12s timeout — if the route hangs (e.g. Supabase cold start, network),
+    // we'd rather surface the failure than spin forever.
+    const timeoutId = setTimeout(() => controller.abort(), 12_000)
+
     setCatalogLoading(true)
-    fetch('/api/checkout/catalog')
+    fetch('/api/checkout/catalog', { signal: controller.signal, cache: 'no-store' })
       .then(async (r) => {
-        if (!r.ok) throw new Error(`Failed to load catalog (${r.status})`)
+        if (!r.ok) {
+          // Try to surface the server's error message
+          let msg = `Failed to load catalog (${r.status})`
+          try {
+            const body = await r.json()
+            if (body?.error) msg = `${msg}: ${body.error}`
+          } catch { /* not JSON */ }
+          throw new Error(msg)
+        }
         return r.json() as Promise<{ categories: ChargeCategoryRow[]; items: ChargeItemWithCategory[] }>
       })
       .then((data) => {
         if (cancelled) return
-        setCategories(data.categories)
-        setItems(data.items)
+        setCategories(data.categories ?? [])
+        setItems(data.items ?? [])
         setCatalogLoaded(true)
       })
-      .catch((err) => { if (!cancelled) setError(String(err)) })
-      .finally(() => { if (!cancelled) setCatalogLoading(false) })
-    return () => { cancelled = true }
+      .catch((err: unknown) => {
+        if (cancelled) return
+        const e = err as { name?: string; message?: string }
+        if (e?.name === 'AbortError') {
+          setError('Catalog request timed out. Refresh and try again — the server may be slow or the API route is misconfigured.')
+        } else {
+          setError(e?.message ?? String(err))
+        }
+      })
+      .finally(() => {
+        clearTimeout(timeoutId)
+        if (!cancelled) setCatalogLoading(false)
+      })
+    return () => { cancelled = true; clearTimeout(timeoutId); controller.abort() }
   }, [open, catalogLoaded, catalogLoading])
 
   // Catalog tab state
@@ -105,8 +132,8 @@ export function AddChargeModal({ open, onClose, bookingId, snapshot, nights }: P
         setUpsalePrice(price)
       }
     } else if (upsaleKind === 'guest') {
-      const extraPersonPrice = Number(snapshot?.extra_person ?? 0)
-      setUpsalePrice(extraPersonPrice)
+      // Server-computed: daylong → adult rate from line_items, night → snapshot.extra_person
+      setUpsalePrice(Number(extraGuestRate ?? snapshot?.extra_person ?? 0))
     }
   }, [upsaleKind, snapshotRoomEntries, snapshot, upsaleRoomType])
 
@@ -405,7 +432,7 @@ export function AddChargeModal({ open, onClose, bookingId, snapshot, nights }: P
 
             {upsaleKind === 'guest' && (
               <div className="rounded-lg border border-violet-200 bg-violet-50/40 p-3 text-xs text-violet-800">
-                Per-guest price from the booking&apos;s package: <strong>{formatBDT(Number(snapshot.extra_person ?? 0))}</strong>
+                Per-guest price from the booking&apos;s package: <strong>{formatBDT(Number(extraGuestRate ?? snapshot.extra_person ?? 0))}</strong>
                 {snapshot.type === 'night' && ' (per night)'}
               </div>
             )}
