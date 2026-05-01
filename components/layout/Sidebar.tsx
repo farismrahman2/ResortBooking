@@ -31,7 +31,7 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { href: '/',             label: 'Dashboard',    icon: LayoutDashboard },
+  { href: '/',             label: 'Dashboard',    icon: LayoutDashboard, module: 'bookings' },
   { href: '/quotes',       label: 'Quotes',       icon: FileText,       module: 'bookings' },
   { href: '/bookings',     label: 'Bookings',     icon: CalendarCheck,  module: 'bookings' },
   { href: '/checkout',     label: 'Checkout',     icon: Receipt,        module: 'checkout' },
