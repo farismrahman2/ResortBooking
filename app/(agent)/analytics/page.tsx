@@ -1,11 +1,13 @@
 import { Topbar } from '@/components/layout/Topbar'
 import { AnalyticsClient } from '@/components/analytics/AnalyticsClient'
+import { UpsalesPanel } from '@/components/analytics/UpsalesPanel'
 import {
   getTotalsSummary,
   getDailyRevenue,
   getPackageTypeBreakdown,
   getRoomTypeUtilization,
 } from '@/lib/queries/analytics'
+import { getUpsalesSummary, type UpsalesSummary } from '@/lib/queries/upsales'
 import { toISODate } from '@/lib/formatters/dates'
 
 export const dynamic = 'force-dynamic'
@@ -29,10 +31,18 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
     getRoomTypeUtilization(from, to),
   ])
 
+  // Best-effort — if checkouts table doesn't exist yet, skip the panel.
+  let upsales: UpsalesSummary | null = null
+  try {
+    upsales = await getUpsalesSummary({ from, to })
+  } catch {
+    upsales = null
+  }
+
   return (
     <div className="flex h-full flex-col">
       <Topbar title="Analytics" subtitle="Revenue, packages, and room utilization" />
-      <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 print:overflow-visible print:p-0">
+      <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 print:overflow-visible print:p-0 space-y-6">
         <AnalyticsClient
           from={from}
           to={to}
@@ -41,6 +51,7 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
           packages={packages}
           rooms={rooms}
         />
+        {upsales && <UpsalesPanel data={upsales} />}
       </div>
     </div>
   )

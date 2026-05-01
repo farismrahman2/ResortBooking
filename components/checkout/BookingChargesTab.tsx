@@ -13,6 +13,7 @@ import { calcChargesTotal } from '@/lib/checkout/totals'
 import type {
   CheckoutChargeWithRefs,
   CheckoutStatus,
+  PackageSnapshot,
 } from '@/lib/supabase/types'
 
 interface Props {
@@ -20,10 +21,13 @@ interface Props {
   canWrite:     boolean
   checkoutStatus: CheckoutStatus | null   // null = no checkout yet
   charges:      CheckoutChargeWithRefs[]
+  /** Used by the "Room / Extra Guest" upsale tab — pricing comes from the booking. */
+  snapshot?:    PackageSnapshot | null
+  nights?:      number | null
 }
 
 export function BookingChargesTab({
-  bookingId, canWrite, checkoutStatus, charges,
+  bookingId, canWrite, checkoutStatus, charges, snapshot, nights,
 }: Props) {
   const router  = useRouter()
   const [pending, startTransition] = useTransition()
@@ -148,6 +152,8 @@ export function BookingChargesTab({
         open={open}
         onClose={() => setOpen(false)}
         bookingId={bookingId}
+        snapshot={snapshot ?? null}
+        nights={nights ?? null}
       />
     </div>
   )

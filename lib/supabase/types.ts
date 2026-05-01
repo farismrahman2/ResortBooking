@@ -575,6 +575,12 @@ export interface CheckoutRow {
   discount_reason: string | null
   discount_applied_by: string | null
   discount_applied_at: string | null
+  // Actual guest count audit (Phase C). NULL = "as booked".
+  actual_adults: number | null
+  actual_children: number | null
+  guest_reduction_reason: string | null
+  guest_reduction_recorded_by: string | null
+  guest_reduction_recorded_at: string | null
   created_at: string
   updated_at: string
 }

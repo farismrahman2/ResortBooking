@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/Input'
 import { NumberInput } from '@/components/ui/NumberInput'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
-import { AlertCircle, Loader2 } from 'lucide-react'
+import { AlertCircle, Loader2, BedDouble, UserPlus } from 'lucide-react'
 import { addCharge } from '@/lib/actions/checkout-charges'
 import { formatBDT } from '@/lib/formatters/currency'
 import { CHARGE_CATEGORY_BADGE } from '@/components/checkout/labels'
@@ -16,17 +16,25 @@ import { cn } from '@/lib/utils'
 import type {
   ChargeCategoryRow,
   ChargeItemWithCategory,
+  PackageSnapshot,
+  RoomType,
 } from '@/lib/supabase/types'
 
 interface Props {
   open:       boolean
   onClose:    () => void
   bookingId:  string
+  /** When provided, enables a "Room / Extra Guest" upsale tab using the
+   *  booking's frozen package pricing. */
+  snapshot?:  PackageSnapshot | null
+  /** For night packages, multiplies room/extra-guest prices by remaining nights. */
+  nights?:    number | null
 }
 
-type TabKey = 'catalog' | 'free'
+type TabKey = 'catalog' | 'free' | 'upsale'
+type UpsaleKind = 'room' | 'guest'
 
-export function AddChargeModal({ open, onClose, bookingId }: Props) {
+export function AddChargeModal({ open, onClose, bookingId, snapshot, nights }: Props) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [tab, setTab] = useState<TabKey>('catalog')
@@ -70,6 +78,43 @@ export function AddChargeModal({ open, onClose, bookingId }: Props) {
   const [freeQty, setFreeQty]   = useState<number>(1)
   const [freePrice, setFreePrice] = useState<number>(0)
   const [freeNotes, setFreeNotes] = useState<string>('')
+
+  // Upsale tab — extra room or extra guest after the booking was made
+  const [upsaleKind, setUpsaleKind] = useState<UpsaleKind>('room')
+  const [upsaleRoomType, setUpsaleRoomType] = useState<RoomType | ''>('')
+  const [upsaleQty, setUpsaleQty]     = useState<number>(1)
+  const [upsalePrice, setUpsalePrice] = useState<number>(0)
+
+  // Available room types from the booking's frozen snapshot
+  const snapshotRoomEntries = useMemo<Array<[RoomType, number]>>(() => {
+    if (!snapshot?.room_prices) return []
+    return Object.entries(snapshot.room_prices)
+      .filter(([, p]) => Number(p) > 0)
+      .map(([rt, p]) => [rt as RoomType, Number(p)])
+  }, [snapshot])
+
+  // Multiplier: night packages charge per night
+  const upsaleMultiplier = snapshot?.type === 'night' && nights && nights > 0 ? nights : 1
+
+  // Default the room selection + price when the upsale tab is opened or kind/room changes
+  useEffect(() => {
+    if (upsaleKind === 'room') {
+      if (!upsaleRoomType && snapshotRoomEntries.length > 0) {
+        const [rt, price] = snapshotRoomEntries[0]
+        setUpsaleRoomType(rt)
+        setUpsalePrice(price)
+      }
+    } else if (upsaleKind === 'guest') {
+      const extraPersonPrice = Number(snapshot?.extra_person ?? 0)
+      setUpsalePrice(extraPersonPrice)
+    }
+  }, [upsaleKind, snapshotRoomEntries, snapshot, upsaleRoomType])
+
+  function pickRoomType(rt: RoomType) {
+    setUpsaleRoomType(rt)
+    const entry = snapshotRoomEntries.find(([t]) => t === rt)
+    if (entry) setUpsalePrice(entry[1])
+  }
 
   // When catalog finishes loading and user hasn't picked a category, default to the first
   useEffect(() => {
@@ -138,6 +183,35 @@ export function AddChargeModal({ open, onClose, bookingId }: Props) {
         onClose()
         router.refresh()
       })
+    } else if (tab === 'upsale') {
+      // Find the matching seeded category by slug
+      const slug = upsaleKind === 'room' ? 'room_upsale' : 'extra_guest'
+      const category = categories.find((c) => c.slug === slug)
+      if (!category) {
+        setError(`Category "${slug}" not found. Run migration 002 in Supabase first.`)
+        return
+      }
+      let description: string
+      if (upsaleKind === 'room') {
+        if (!upsaleRoomType) { setError('Pick a room type'); return }
+        description = `${upsaleRoomType.replace('_', ' ')} room (upsale)${upsaleMultiplier > 1 ? ` × ${upsaleMultiplier} nights` : ''}`
+      } else {
+        description = `Extra guest${upsaleMultiplier > 1 ? ` × ${upsaleMultiplier} nights` : ''}`
+      }
+      const finalUnitPrice = upsalePrice * upsaleMultiplier
+      startTransition(async () => {
+        const r = await addCharge({
+          booking_id:  bookingId,
+          category_id: category.id,
+          description,
+          quantity:    upsaleQty,
+          unit_price:  finalUnitPrice,
+        })
+        if (!r.success) { setError(r.error); return }
+        reset()
+        onClose()
+        router.refresh()
+      })
     } else {
       if (!freeCat) { setError('Pick a category'); return }
       if (!freeDesc.trim()) { setError('Description is required'); return }
@@ -166,6 +240,11 @@ export function AddChargeModal({ open, onClose, bookingId }: Props) {
           <TabButton active={tab === 'catalog'} onClick={() => { setTab('catalog'); setError(null) }}>
             From Catalog
           </TabButton>
+          {snapshot && (
+            <TabButton active={tab === 'upsale'} onClick={() => { setTab('upsale'); setError(null) }}>
+              Room / Extra Guest
+            </TabButton>
+          )}
           <TabButton active={tab === 'free'} onClick={() => { setTab('free'); setError(null) }}>
             Free-form
           </TabButton>
@@ -241,6 +320,101 @@ export function AddChargeModal({ open, onClose, bookingId }: Props) {
                 </p>
               </div>
             )}
+          </div>
+        )}
+
+        {tab === 'upsale' && snapshot && (
+          <div className="space-y-3">
+            <div>
+              <label className="text-[10px] uppercase tracking-wider font-semibold text-gray-600 mb-1 block">
+                What did the guest add?
+              </label>
+              <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setUpsaleKind('room')}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors',
+                    upsaleKind === 'room' ? 'bg-violet-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50',
+                  )}
+                >
+                  <BedDouble size={14} /> Extra Room
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUpsaleKind('guest')}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors',
+                    upsaleKind === 'guest' ? 'bg-violet-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50',
+                  )}
+                >
+                  <UserPlus size={14} /> Extra Guest
+                </button>
+              </div>
+            </div>
+
+            {upsaleKind === 'room' && (
+              <>
+                {snapshotRoomEntries.length === 0 ? (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                    The booking&apos;s package has no room prices defined. Use Free-form instead.
+                  </div>
+                ) : (
+                  <div>
+                    <label className="text-[10px] uppercase tracking-wider font-semibold text-gray-600 mb-1 block">
+                      Room type (price from booking&apos;s package)
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-48 overflow-y-auto">
+                      {snapshotRoomEntries.map(([rt, price]) => (
+                        <button
+                          key={rt}
+                          type="button"
+                          onClick={() => pickRoomType(rt)}
+                          className={cn(
+                            'flex items-center justify-between rounded-md border px-2.5 py-1.5 text-sm transition-colors',
+                            upsaleRoomType === rt
+                              ? 'border-violet-400 bg-violet-50'
+                              : 'border-gray-200 hover:border-violet-300 hover:bg-violet-50/40',
+                          )}
+                        >
+                          <span className="text-gray-900 capitalize">{rt.replace('_', ' ')}</span>
+                          <span className="font-mono tabular-nums text-gray-600">{formatBDT(price)}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {upsaleKind === 'guest' && (
+              <div className="rounded-lg border border-violet-200 bg-violet-50/40 p-3 text-xs text-violet-800">
+                Per-guest price from the booking&apos;s package: <strong>{formatBDT(Number(snapshot.extra_person ?? 0))}</strong>
+                {snapshot.type === 'night' && ' (per night)'}
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <NumberInput
+                label={upsaleKind === 'room' ? 'Number of rooms' : 'Number of extra guests'}
+                value={upsaleQty}
+                onChange={setUpsaleQty}
+              />
+              <NumberInput
+                label={`Unit price${upsaleMultiplier > 1 ? ` (per ${upsaleKind === 'room' ? 'room' : 'guest'}, per night)` : ''}`}
+                prefix="৳"
+                value={upsalePrice}
+                onChange={setUpsalePrice}
+              />
+            </div>
+
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-2.5 text-xs text-gray-700 font-mono tabular-nums">
+              {upsaleQty} × {formatBDT(upsalePrice)}
+              {upsaleMultiplier > 1 && ` × ${upsaleMultiplier} nights`} ={' '}
+              <span className="font-bold text-violet-700">
+                {formatBDT(upsaleQty * upsalePrice * upsaleMultiplier)}
+              </span>
+            </div>
           </div>
         )}
 

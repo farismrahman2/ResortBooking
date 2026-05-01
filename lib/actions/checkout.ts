@@ -7,6 +7,7 @@ import {
   recordRefundSchema,
   voidCheckoutSchema,
   applyDiscountSchema,
+  adjustGuestCountSchema,
 } from '@/lib/validators/checkout'
 import { requirePermission, getCurrentUserContext, isAdmin } from '@/lib/auth/permissions'
 import { flagAlert } from '@/lib/auth/alerts'
@@ -515,6 +516,83 @@ export async function acknowledgeAlert(alertId: string): Promise<ActionResult> {
     if (error) return { success: false, error: error.message }
     revalidatePath('/settings/audit-log')
     revalidatePath('/settings')
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+// ─── Actual guest count (audit-only) ─────────────────────────────────────────
+
+export async function adjustActualGuestCount(
+  checkoutId: string,
+  input: unknown,
+): Promise<ActionResult> {
+  try {
+    await requirePermission('checkout', 'write')
+    const parsed = adjustGuestCountSchema.parse(input)
+    const ctx = await getCurrentUserContext()
+    const supabase = createClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = supabase as any
+
+    const { data: checkout } = await db
+      .from('checkouts')
+      .select(`
+        id, status, booking_id,
+        booking:bookings!inner (id, adults, children_paid, children_free, customer_name, booking_number)
+      `)
+      .eq('id', checkoutId)
+      .maybeSingle()
+    if (!checkout) return { success: false, error: 'Checkout not found' }
+    if (checkout.status !== 'draft') {
+      return { success: false, error: `Cannot adjust — checkout is ${checkout.status}.` }
+    }
+
+    const { error } = await db
+      .from('checkouts')
+      .update({
+        actual_adults:               parsed.actual_adults,
+        actual_children:             parsed.actual_children,
+        guest_reduction_reason:      parsed.reason,
+        guest_reduction_recorded_by: ctx?.user_id ?? null,
+        guest_reduction_recorded_at: new Date().toISOString(),
+      })
+      .eq('id', checkoutId)
+    if (error) return { success: false, error: error.message }
+
+    const bookedAdults   = Number(checkout.booking.adults ?? 0)
+    const bookedChildren = Number(checkout.booking.children_paid ?? 0) + Number(checkout.booking.children_free ?? 0)
+    const summary = `Guest count adjusted — ${checkout.booking.customer_name} (${checkout.booking.booking_number})`
+      + `: ${bookedAdults}A/${bookedChildren}C → ${parsed.actual_adults}A/${parsed.actual_children}C. Reason: ${parsed.reason}`
+
+    await logHistory(checkoutId, 'edited', 'actual_guest_count_adjusted', {
+      booking_id:      checkout.booking_id,
+      actual_adults:   parsed.actual_adults,
+      actual_children: parsed.actual_children,
+      booked_adults:   bookedAdults,
+      booked_children: bookedChildren,
+      reason:          parsed.reason,
+    })
+
+    await flagAlert({
+      event_type:  'guest_reduced',
+      entity_type: 'checkout',
+      entity_id:   checkoutId,
+      summary,
+      payload: {
+        booking_id:      checkout.booking_id,
+        actual_adults:   parsed.actual_adults,
+        actual_children: parsed.actual_children,
+        booked_adults:   bookedAdults,
+        booked_children: bookedChildren,
+        reason:          parsed.reason,
+      },
+      created_by: ctx?.user_id ?? null,
+    })
+
+    revalidatePath(`/checkout/${checkout.booking_id}`)
+    revalidatePath('/settings/audit-log')
     return { success: true }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }

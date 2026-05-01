@@ -8,6 +8,7 @@ import { CheckoutSummary } from '@/components/checkout/CheckoutSummary'
 import { PaymentForm } from '@/components/checkout/PaymentForm'
 import { FinalizeAndVoid } from '@/components/checkout/FinalizeAndVoid'
 import { DiscountButton } from '@/components/checkout/DiscountButton'
+import { GuestCountAdjustButton } from '@/components/checkout/GuestCountAdjustButton'
 import { BookingChargesTab } from '@/components/checkout/BookingChargesTab'
 import { CHECKOUT_STATUS_BADGE, CHECKOUT_STATUS_LABELS } from '@/components/checkout/labels'
 import { getBookingById } from '@/lib/queries/bookings'
@@ -203,6 +204,8 @@ export default async function CheckoutDetailPage({ params }: PageProps) {
                   canWrite={canWrite}
                   checkoutStatus={checkout?.status ?? null}
                   charges={charges}
+                  snapshot={booking.package_snapshot}
+                  nights={booking.nights}
                 />
               </div>
             )}
@@ -240,6 +243,20 @@ export default async function CheckoutDetailPage({ params }: PageProps) {
                   amount: discountAmount,
                   pct:    Number(checkout.discount_pct ?? 0),
                   reason: checkout.discount_reason,
+                }}
+                disabled={isLocked}
+              />
+            )}
+
+            {checkout && canWrite && (
+              <GuestCountAdjustButton
+                checkoutId={checkout.id}
+                bookedAdults={booking.adults}
+                bookedChildren={booking.children_paid + booking.children_free}
+                current={{
+                  adults:   checkout.actual_adults,
+                  children: checkout.actual_children,
+                  reason:   checkout.guest_reduction_reason,
                 }}
                 disabled={isLocked}
               />

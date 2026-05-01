@@ -327,6 +327,8 @@ export default async function BookingDetailPage({ params }: PageProps) {
                   canWrite={canWriteCheckout}
                   checkoutStatus={checkoutStatus}
                   charges={charges}
+                  snapshot={booking.package_snapshot}
+                  nights={booking.nights}
                 />
               </Card>
             )}

@@ -66,6 +66,14 @@ export const voidCheckoutSchema = z.object({
 })
 export type VoidCheckoutInput = z.infer<typeof voidCheckoutSchema>
 
+// ── Actual guest count (audit-only) ─────────────────────────────────────────
+export const adjustGuestCountSchema = z.object({
+  actual_adults:   z.coerce.number().int().min(0).max(999),
+  actual_children: z.coerce.number().int().min(0).max(999),
+  reason:          z.string().trim().min(2, 'Reason is required').max(500),
+})
+export type AdjustGuestCountInput = z.infer<typeof adjustGuestCountSchema>
+
 // ── Discount ────────────────────────────────────────────────────────────────
 export const applyDiscountSchema = z.object({
   /** 'fixed' uses the amount as-is; 'percent' multiplies subtotal. */
