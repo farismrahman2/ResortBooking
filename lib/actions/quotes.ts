@@ -8,16 +8,41 @@ import { buildPackageSnapshot } from '@/lib/engine/snapshot'
 import { generateQuoteNumber } from '@/lib/utils'
 import { getHolidayDateStrings } from '@/lib/queries/settings'
 import { checkAvailabilityConflict } from '@/lib/queries/availability'
+import { findDuplicateBookings } from '@/lib/queries/duplicate-bookings'
 import type { ActionResult, ActionData } from './types'
 import type { BookingStatus, RoomType } from '@/lib/supabase/types'
 
-/** Create a new quote with full calculation and snapshot */
+/** Create a new quote with full calculation and snapshot.
+ *
+ * If a non-cancelled quote/booking already exists for the same
+ * (customer_phone, visit_date, package_type), the call returns
+ * `success: false` with a `duplicate.existing` payload UNLESS
+ * `allowDuplicate=true`. Front-end shows a confirmation modal and
+ * re-submits with the override.
+ */
 export async function createQuote(
   input: CreateQuoteInput,
+  allowDuplicate: boolean = false,
 ): Promise<ActionData<{ quoteId: string; quoteNumber: string }>> {
   try {
     const validated = CreateQuoteSchema.parse(input)
     const supabase  = createClient()
+
+    // Soft duplicate check (skip if user already overrode)
+    if (!allowDuplicate) {
+      const dupes = await findDuplicateBookings({
+        phone:        validated.customer_phone,
+        visit_date:   validated.visit_date,
+        package_type: validated.package_type,
+      })
+      if (dupes.length > 0) {
+        return {
+          success: false,
+          error:   `An existing ${dupes[0].kind} (${dupes[0].number}) was found for this guest on the same date. Please confirm before creating another.`,
+          duplicate: { existing: dupes },
+        }
+      }
+    }
 
     // Fetch package + room prices for snapshot
     const { data: pkg } = await supabase

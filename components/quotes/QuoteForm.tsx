@@ -19,8 +19,10 @@ import { PackageSelector } from '@/components/quotes/PackageSelector'
 import { RoomSelector } from '@/components/quotes/RoomSelector'
 import { GuestInputs, type GuestValues } from '@/components/quotes/GuestInputs'
 import { PricingBreakdown } from '@/components/quotes/PricingBreakdown'
+import { DuplicateConfirmModal } from '@/components/quotes/DuplicateConfirmModal'
 import { ROOM_NUMBERS } from '@/lib/config/rooms'
 import type { PackageWithPrices, RoomInventoryRow, SettingsMap, ExtraItem, RoomType } from '@/lib/supabase/types'
+import type { DuplicateMatch } from '@/lib/queries/duplicate-bookings'
 
 interface QuoteFormProps {
   packages: PackageWithPrices[]
@@ -48,6 +50,9 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
   const [bookedRoomNumbers,    setBookedRoomNumbers]    = useState<string[]>([])
   const [extraItems,           setExtraItems]           = useState<ExtraItem[]>(initialExtraItems ?? [])
   const [roomAvailableAfterNoon, setRoomAvailableAfterNoon] = useState(false)
+  // Duplicate detection — when set, the modal prompts for override
+  const [duplicates,     setDuplicates]     = useState<DuplicateMatch[] | null>(null)
+  const [pendingPayload, setPendingPayload] = useState<CreateQuoteInput | null>(null)
 
   // Separate complimentary rooms (unit_price=0) from paid rooms in initialValues
   // so RoomSelector only sees paid rooms
@@ -241,9 +246,25 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
       }))
   }
 
+  async function submitCreate(payload: CreateQuoteInput, allowDuplicate: boolean) {
+    const result = await createQuote(payload, allowDuplicate)
+    if (result.success) {
+      router.push(`/quotes/${result.data.quoteId}`)
+      return { handled: true }
+    }
+    if (result.duplicate?.existing?.length) {
+      setDuplicates(result.duplicate.existing)
+      setPendingPayload(payload)
+      return { handled: true }
+    }
+    setErrorMsg(result.error)
+    return { handled: false }
+  }
+
   async function onSubmit(data: CreateQuoteInput) {
     setSubmitting(true)
     setErrorMsg(null)
+    setDuplicates(null)
     try {
       // Merge paid rooms (from react-hook-form) with complimentary rooms
       // Ensure room_numbers is always an array (RoomSelection has it optional)
@@ -260,12 +281,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
           setErrorMsg(result.error ?? 'Update failed')
         }
       } else {
-        const result = await createQuote(payload)
-        if (result.success) {
-          router.push(`/quotes/${result.data.quoteId}`)
-        } else {
-          setErrorMsg(result.error)
-        }
+        await submitCreate(payload, false)
       }
     } catch (err) {
       setErrorMsg(String(err))
@@ -321,6 +337,25 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
   const dayBadge = dayType ? DAY_LABELS[dayType] : null
 
   return (
+    <>
+    <DuplicateConfirmModal
+      open={!!duplicates && duplicates.length > 0}
+      existing={duplicates ?? []}
+      attempting="quote"
+      onCancel={() => { setDuplicates(null); setPendingPayload(null) }}
+      onConfirm={async () => {
+        if (!pendingPayload) return
+        setSubmitting(true)
+        setDuplicates(null)
+        try {
+          await submitCreate(pendingPayload, true)
+        } finally {
+          setSubmitting(false)
+          setPendingPayload(null)
+        }
+      }}
+      pending={submitting}
+    />
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col lg:flex-row gap-6 min-h-0">
       {/* ── LEFT: Form ─────────────────────────────────────────────────────────── */}
       <div className="flex-1 min-w-0 space-y-6 pb-8">
@@ -847,6 +882,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
         </div>
       </div>
     </form>
+    </>
   )
 }
 

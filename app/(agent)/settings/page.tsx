@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Users, ShieldCheck, ListChecks, Settings as SettingsIcon, Calendar, ArrowRight } from 'lucide-react'
+import { Users, ShieldCheck, ListChecks, Settings as SettingsIcon, Calendar, ArrowRight, Copy } from 'lucide-react'
 import { getSettings, getHolidayDates } from '@/lib/queries/settings'
 import { Topbar } from '@/components/layout/Topbar'
 import { SettingsForm } from '@/components/settings/SettingsForm'
@@ -40,6 +40,12 @@ export default async function SettingsPage() {
             icon={<ListChecks size={18} />}
             title="Charge Catalog"
             description="Restaurant menu and damage rates for guest checkout"
+          />
+          <HubTile
+            href="/settings/duplicate-bookings"
+            icon={<Copy size={18} />}
+            title="Duplicate Bookings"
+            description="Find bookings that share the same guest, date, and package — then cancel duplicates"
           />
         </div>
 

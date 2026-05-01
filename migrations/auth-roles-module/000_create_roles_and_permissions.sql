@@ -33,12 +33,13 @@ CREATE TABLE IF NOT EXISTS modules (
 );
 
 INSERT INTO modules (slug, display_name, description, display_order) VALUES
-  ('bookings',  'Bookings',  'Reservations, calendar, guest records', 1),
-  ('checkout',  'Checkout',  'Guest checkout, charges, payments', 2),
-  ('expenses',  'Expenses',  'Operating expenses, vendors, P&L', 3),
-  ('hr',        'HR',        'Employees, attendance, payroll', 4),
-  ('reports',   'Reports',   'Analytics and dashboards', 5),
-  ('settings',  'Settings',  'Users, roles, charge catalog, system config', 6)
+  ('bookings',     'Bookings',     'Reservations, calendar, guest records', 1),
+  ('checkout',     'Checkout',     'Guest checkout, charges, payments', 2),
+  ('expenses',     'Expenses',     'Operating expenses, vendors, P&L', 3),
+  ('hr',           'HR',           'Employees, attendance, payroll', 4),
+  ('reports',      'Reports',      'Analytics and dashboards', 5),
+  ('settings',     'Settings',     'Users, roles, charge catalog, system config', 6),
+  ('availability', 'Availability', 'Room availability calendar', 7)
 ON CONFLICT (slug) DO NOTHING;
 
 -- 3. role_permissions (level per role per module) -----------------------
@@ -59,27 +60,28 @@ SELECT r.id, m.id, 'write' FROM roles r CROSS JOIN modules m
 WHERE r.slug = 'admin'
 ON CONFLICT (role_id, module_id) DO NOTHING;
 
--- Manager: write on bookings/checkout/expenses, read on hr/reports, none on settings
+-- Manager: write on bookings/checkout/expenses, read on hr/reports/availability, none on settings
 INSERT INTO role_permissions (role_id, module_id, level)
 SELECT r.id, m.id,
   CASE m.slug
-    WHEN 'bookings' THEN 'write'
-    WHEN 'checkout' THEN 'write'
-    WHEN 'expenses' THEN 'write'
-    WHEN 'hr' THEN 'read'
-    WHEN 'reports' THEN 'read'
-    WHEN 'settings' THEN 'none'
+    WHEN 'bookings'     THEN 'write'
+    WHEN 'checkout'     THEN 'write'
+    WHEN 'expenses'     THEN 'write'
+    WHEN 'hr'           THEN 'read'
+    WHEN 'reports'      THEN 'read'
+    WHEN 'availability' THEN 'read'
+    WHEN 'settings'     THEN 'none'
   END
 FROM roles r CROSS JOIN modules m
 WHERE r.slug = 'manager'
 ON CONFLICT (role_id, module_id) DO NOTHING;
 
--- Front Desk: write on bookings/checkout, none on others
+-- Front Desk: write on checkout, read on availability, none on everything else
 INSERT INTO role_permissions (role_id, module_id, level)
 SELECT r.id, m.id,
   CASE m.slug
-    WHEN 'bookings' THEN 'write'
-    WHEN 'checkout' THEN 'write'
+    WHEN 'checkout'     THEN 'write'
+    WHEN 'availability' THEN 'read'
     ELSE 'none'
   END
 FROM roles r CROSS JOIN modules m

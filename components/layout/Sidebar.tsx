@@ -35,7 +35,7 @@ const navItems: NavItem[] = [
   { href: '/quotes',       label: 'Quotes',       icon: FileText,       module: 'bookings' },
   { href: '/bookings',     label: 'Bookings',     icon: CalendarCheck,  module: 'bookings' },
   { href: '/checkout',     label: 'Checkout',     icon: Receipt,        module: 'checkout' },
-  { href: '/availability', label: 'Availability', icon: CalendarSearch, module: 'bookings' },
+  { href: '/availability', label: 'Availability', icon: CalendarSearch, module: 'availability' },
   { href: '/analytics',    label: 'Analytics',    icon: BarChart2,      module: 'reports' },
   { href: '/expenses',     label: 'Expenses',     icon: Wallet,         module: 'expenses' },
   { href: '/hr',           label: 'HR',           icon: Users,          module: 'hr' },

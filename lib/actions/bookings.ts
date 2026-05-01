@@ -6,13 +6,19 @@ import { generateBookingNumber } from '@/lib/utils'
 import { calculateDaylong, calculateNight } from '@/lib/engine/calculator'
 import { getHolidayDateStrings } from '@/lib/queries/settings'
 import { checkAvailabilityConflict, getBookedRoomNumbers } from '@/lib/queries/availability'
+import { findDuplicateBookings } from '@/lib/queries/duplicate-bookings'
 import { ROOM_NUMBERS } from '@/lib/config/rooms'
 import type { ActionResult, ActionData } from './types'
 import type { RoomType, PackageType, PackageSnapshot } from '@/lib/supabase/types'
 
-/** Convert a confirmed quote into a booking */
+/** Convert a confirmed quote into a booking.
+ *
+ * If a non-cancelled booking already exists for the same guest+date+package,
+ * returns success: false with a `duplicate` payload unless allowDuplicate=true.
+ */
 export async function convertQuoteToBooking(
   quoteId: string,
+  allowDuplicate: boolean = false,
 ): Promise<ActionData<{ bookingId: string; bookingNumber: string }>> {
   try {
     const supabase = createClient()
@@ -27,6 +33,23 @@ export async function convertQuoteToBooking(
       .single()
 
     if (qErr || !quote) return { success: false, error: 'Quote not found' }
+
+    // Soft duplicate check — exclude the source quote itself
+    if (!allowDuplicate) {
+      const dupes = await findDuplicateBookings({
+        phone:            quote.customer_phone,
+        visit_date:       quote.visit_date,
+        package_type:     quote.package_type,
+        exclude_quote_id: quoteId,
+      })
+      if (dupes.length > 0) {
+        return {
+          success: false,
+          error:   `An existing ${dupes[0].kind} (${dupes[0].number}) was found for this guest on the same date. Please confirm before converting.`,
+          duplicate: { existing: dupes },
+        }
+      }
+    }
 
     const { data: quoteRooms } = await db
       .from('quote_rooms')

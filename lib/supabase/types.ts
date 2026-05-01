@@ -474,7 +474,7 @@ export interface EmployeeWithCurrentSalary extends EmployeeRow {
 // ─── Auth & Roles ────────────────────────────────────────────────────────────
 
 export type RoleSlug       = 'admin' | 'manager' | 'front_desk' | 'accountant'
-export type ModuleSlug     = 'bookings' | 'checkout' | 'expenses' | 'hr' | 'reports' | 'settings'
+export type ModuleSlug     = 'bookings' | 'checkout' | 'expenses' | 'hr' | 'reports' | 'settings' | 'availability'
 export type PermissionLevel = 'none' | 'read' | 'write'
 
 export interface RoleRow {

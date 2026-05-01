@@ -6,7 +6,9 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/Button'
 import { updateQuoteStatus, deleteQuote } from '@/lib/actions/quotes'
 import { convertQuoteToBooking } from '@/lib/actions/bookings'
+import { DuplicateConfirmModal } from '@/components/quotes/DuplicateConfirmModal'
 import type { QuoteRow } from '@/lib/supabase/types'
+import type { DuplicateMatch } from '@/lib/queries/duplicate-bookings'
 
 interface QuoteActionsProps {
   quote: QuoteRow
@@ -17,6 +19,7 @@ export function QuoteActions({ quote, bookingId }: QuoteActionsProps) {
   const router = useRouter()
   const [loading, setLoading] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [duplicates, setDuplicates] = useState<DuplicateMatch[] | null>(null)
 
   async function handleAction(
     action: () => Promise<{ success: boolean; error?: string }>,
@@ -38,22 +41,29 @@ export function QuoteActions({ quote, bookingId }: QuoteActionsProps) {
     }
   }
 
-  async function handleConvert() {
+  async function runConvert(allowDuplicate: boolean) {
     setLoading('convert')
     setError(null)
+    setDuplicates(null)
     try {
-      const result = await convertQuoteToBooking(quote.id)
+      const result = await convertQuoteToBooking(quote.id, allowDuplicate)
       if (result.success) {
         router.push(`/bookings/${result.data.bookingId}`)
-      } else {
-        setError(result.error)
+        return
       }
+      if (result.duplicate?.existing?.length) {
+        setDuplicates(result.duplicate.existing)
+        return
+      }
+      setError(result.error)
     } catch (err) {
       setError(String(err))
     } finally {
       setLoading(null)
     }
   }
+
+  function handleConvert() { return runConvert(false) }
 
   async function handleDelete() {
     if (!confirm('Delete this draft quote? This cannot be undone.')) return
@@ -76,6 +86,15 @@ export function QuoteActions({ quote, bookingId }: QuoteActionsProps) {
   const { status } = quote
 
   return (
+    <>
+    <DuplicateConfirmModal
+      open={!!duplicates && duplicates.length > 0}
+      existing={duplicates ?? []}
+      attempting="booking"
+      onCancel={() => setDuplicates(null)}
+      onConfirm={() => runConvert(true)}
+      pending={loading === 'convert'}
+    />
     <div className="flex flex-wrap items-center gap-2">
       {/* DRAFT → edit, mark as sent, delete */}
       {status === 'draft' && (
@@ -163,5 +182,6 @@ export function QuoteActions({ quote, bookingId }: QuoteActionsProps) {
         <span className="text-xs text-red-600 ml-1">{error}</span>
       )}
     </div>
+    </>
   )
 }

@@ -6,14 +6,17 @@ import { createMiddlewareClient } from '@/lib/supabase/middleware'
  * after auth. Order matters — most specific first (none currently overlap, so
  * the order is mostly cosmetic).
  */
-const MODULE_PREFIX: Array<{ prefix: string; module: 'bookings' | 'checkout' | 'expenses' | 'hr' | 'reports' | 'settings' }> = [
-  { prefix: '/bookings',  module: 'bookings' },
-  { prefix: '/checkout',  module: 'checkout' },
-  { prefix: '/expenses',  module: 'expenses' },
-  { prefix: '/hr',        module: 'hr'       },
-  { prefix: '/analytics', module: 'reports'  },   // existing booking analytics page
-  { prefix: '/reports',   module: 'reports'  },
-  { prefix: '/settings',  module: 'settings' },
+const MODULE_PREFIX: Array<{ prefix: string; module: 'bookings' | 'checkout' | 'expenses' | 'hr' | 'reports' | 'settings' | 'availability' }> = [
+  { prefix: '/bookings',     module: 'bookings'     },
+  { prefix: '/quotes',       module: 'bookings'     },   // quotes live under the bookings module
+  { prefix: '/packages',     module: 'bookings'     },   // packages too — operational/booking-side
+  { prefix: '/availability', module: 'availability' },
+  { prefix: '/checkout',     module: 'checkout'     },
+  { prefix: '/expenses',     module: 'expenses'     },
+  { prefix: '/hr',           module: 'hr'           },
+  { prefix: '/analytics',    module: 'reports'      },
+  { prefix: '/reports',      module: 'reports'      },
+  { prefix: '/settings',     module: 'settings'     },
 ]
 
 function moduleForPath(pathname: string): typeof MODULE_PREFIX[number]['module'] | null {
