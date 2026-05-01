@@ -81,6 +81,7 @@ export async function middleware(request: NextRequest) {
   }
 
   // Module-level read-permission check
+  // Single round-trip: nested select pulls profile + role_permissions + module slugs at once.
   if (user) {
     const mod = moduleForPath(pathname)
     if (mod) {
@@ -89,13 +90,20 @@ export async function middleware(request: NextRequest) {
         const db = supabase as any
         const { data: profile } = await db
           .from('user_profiles')
-          .select('role_id, is_active')
+          .select(`
+            role_id,
+            is_active,
+            role:roles!inner (
+              role_permissions (
+                level,
+                module:modules!inner (slug)
+              )
+            )
+          `)
           .eq('user_id', user.id)
           .maybeSingle()
 
-        // No profile yet (migration not run, or onboarding incomplete) — allow,
-        // since the only people with auth.users at this stage should be the admin
-        // who will be backfilled by the migration. Defensive fail-open.
+        // No profile yet (migration not run, or onboarding incomplete) — fail open
         if (!profile) return response
 
         if (!profile.is_active) {
@@ -103,15 +111,14 @@ export async function middleware(request: NextRequest) {
           return NextResponse.redirect(new URL('/login?deactivated=1', request.url))
         }
 
-        const { data: perm } = await db
-          .from('role_permissions')
-          .select('level, module:modules!inner (slug)')
-          .eq('role_id', profile.role_id)
-
+        // Build permission map from the embedded permissions
+        const perms = (profile.role?.role_permissions ?? []) as Array<{
+          level: string
+          module: { slug: string }
+        }>
         const permMap = new Map<string, string>()
-        for (const r of (perm ?? []) as Array<{ level: string; module: { slug: string } }>) {
-          permMap.set(r.module.slug, r.level)
-        }
+        for (const r of perms) permMap.set(r.module.slug, r.level)
+
         const lvl = permMap.get(mod) ?? 'none'
         if (lvl === 'none') {
           if (isApiRoute) {
