@@ -10,12 +10,28 @@ export interface QuoteFilters {
   offset?:       number
 }
 
-/** Fetch quotes with optional filters */
+/**
+ * Columns actually rendered by quote lists (`/quotes`, dashboard "recent").
+ * Heavy jsonb (`line_items`, `extra_items`, `package_snapshot`) is omitted —
+ * they're only needed on the detail / edit / print pages and inflate the
+ * list payload substantially. Use `getQuoteById` when you need the full row.
+ */
+const QUOTE_LIST_COLUMNS = `
+  id, quote_number, customer_name, customer_phone,
+  package_type, visit_date, check_out_date, nights,
+  adults, children_paid, children_free, drivers, extra_beds,
+  subtotal, discount, discount_pct, service_charge_pct,
+  total, advance_required, advance_paid, due_advance, remaining,
+  status, converted_to_booking_id, sales_employee_id,
+  created_at, updated_at
+`
+
+/** Fetch quotes with optional filters (list view — heavy jsonb omitted) */
 export async function getQuotes(filters: QuoteFilters = {}): Promise<QuoteRow[]> {
   const supabase = createClient()
   let query = supabase
     .from('quotes')
-    .select('*')
+    .select(QUOTE_LIST_COLUMNS)
     .order('created_at', { ascending: false })
 
   if (filters.status) query = query.eq('status', filters.status)
@@ -31,7 +47,9 @@ export async function getQuotes(filters: QuoteFilters = {}): Promise<QuoteRow[]>
 
   const { data, error } = await query
   if (error) throw new Error(`getQuotes: ${error.message}`)
-  return data ?? []
+  // Custom select returns a partial QuoteRow shape (no jsonb cols); list
+  // consumers don't read those fields, so we cast through unknown.
+  return (data ?? []) as unknown as QuoteRow[]
 }
 
 /** Fetch a single quote with its rooms */

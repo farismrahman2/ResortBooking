@@ -10,12 +10,31 @@ export interface BookingFilters {
   offset?:    number
 }
 
-/** Fetch bookings with their rooms */
+/**
+ * Columns actually rendered by booking lists (`/bookings`, dashboard
+ * "upcoming"). The big jsonb fields — `line_items`, `extra_items` — are
+ * intentionally omitted because they're only needed on the detail page and
+ * inflate the list payload significantly. `package_snapshot` is kept because
+ * the list page reads `.name` for filtering. If you need a list helper that
+ * returns the full row, add a separate function rather than widening this.
+ */
+const BOOKING_LIST_COLUMNS = `
+  id, booking_number, quote_id, customer_name, customer_phone,
+  package_type, visit_date, check_out_date, nights,
+  adults, children_paid, children_free, drivers, extra_beds,
+  subtotal, discount, discount_pct, service_charge_pct,
+  total, advance_required, advance_paid, due_advance, remaining,
+  status, sales_employee_id, package_snapshot,
+  created_at, updated_at,
+  booking_rooms(*)
+`
+
+/** Fetch bookings with their rooms (list view — line_items/extra_items omitted) */
 export async function getBookings(filters: BookingFilters = {}): Promise<BookingWithRooms[]> {
   const supabase = createClient()
   let query = supabase
     .from('bookings')
-    .select('*, booking_rooms(*)')
+    .select(BOOKING_LIST_COLUMNS)
     .order('visit_date', { ascending: true })
 
   if (filters.status) query = query.eq('status', filters.status)
