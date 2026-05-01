@@ -1,4 +1,4 @@
-import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer'
+import { Document, Page, Text, View, Image, StyleSheet } from '@react-pdf/renderer'
 import type { CheckoutWithFull } from '@/lib/supabase/types'
 
 const styles = StyleSheet.create({
@@ -153,6 +153,10 @@ interface InvoiceProps {
   resortAddress: string
   resortPhone:   string
   resortEmail?:  string
+  /** Optional small subtitle under the brand line */
+  tagline?:      string
+  /** Optional logo PNG/JPEG/data-URI. When provided, rendered 60x60 left of the brand text. */
+  logo?:         Buffer | string | null
   issuedBy:      string | null
 }
 
@@ -181,7 +185,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 }
 
 export function Invoice({
-  checkout, resortName, resortAddress, resortPhone, resortEmail, issuedBy,
+  checkout, resortName, resortAddress, resortPhone, resortEmail, tagline, logo, issuedBy,
 }: InvoiceProps) {
   const invoiceNo = checkout.id.slice(0, 8).toUpperCase()
   const issuedOn  = fmtDate(checkout.finalized_at ?? checkout.updated_at)
@@ -190,15 +194,18 @@ export function Invoice({
     ? `${fmtDate(booking.visit_date)} → ${fmtDate(booking.check_out_date)}  (${booking.nights ?? 0} night${booking.nights === 1 ? '' : 's'})`
     : `${fmtDate(booking.visit_date)} (Daylong)`
 
-  const bookingTotal = Number(booking.total ?? 0)
-  const advance      = Number(checkout.advance_amount)
-  const charges      = Number(checkout.charges_total)
-  const payments     = Number(checkout.payments_total)
-  // Total bill = booking total + extras at checkout
-  const totalBill    = bookingTotal + charges
-  const subtotalDue  = totalBill - advance
-  const balance      = subtotalDue - payments
-  const isRefund     = balance < 0
+  const bookingTotal   = Number(booking.total ?? 0)
+  const advance        = Number(checkout.advance_amount)
+  const charges        = Number(checkout.charges_total)
+  const discount       = Number(checkout.discount_amount ?? 0)
+  const discountPct    = Number(checkout.discount_pct ?? 0)
+  const payments       = Number(checkout.payments_total)
+  // Total bill = booking total + extras at checkout − discount
+  const subtotalBefore = bookingTotal + charges
+  const totalBill      = subtotalBefore - discount
+  const subtotalDue    = totalBill - advance
+  const balance        = subtotalDue - payments
+  const isRefund       = balance < 0
 
   // Payments grouped by method
   const paymentsByMethod = new Map<string, number>()
@@ -211,11 +218,26 @@ export function Invoice({
       <Page size="A4" style={styles.page}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.brand}>{resortName}</Text>
-          <Text style={styles.brandSub}>
-            {resortAddress}{'  ·  '}{resortPhone}
-            {resortEmail ? `  ·  ${resortEmail}` : ''}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            {logo && (
+              <Image
+                src={logo as any}
+                style={{ width: 56, height: 56, marginRight: 12, objectFit: 'contain' }}
+              />
+            )}
+            <View style={{ flexGrow: 1, flexShrink: 1 }}>
+              <Text style={styles.brand}>{resortName}</Text>
+              <Text style={styles.brandSub}>
+                {resortAddress}{'  ·  '}{resortPhone}
+                {resortEmail ? `  ·  ${resortEmail}` : ''}
+              </Text>
+              {tagline && (
+                <Text style={[styles.brandSub, { fontStyle: 'italic', marginTop: 2 }]}>
+                  {tagline}
+                </Text>
+              )}
+            </View>
+          </View>
         </View>
 
         {/* Invoice meta */}
@@ -288,6 +310,15 @@ export function Invoice({
             <View style={styles.totalRow}>
               <Text style={styles.totalLabel}>Extra Charges (during stay)</Text>
               <Text style={styles.totalValue}>+ {bdt(charges)}</Text>
+            </View>
+          )}
+          {discount > 0 && (
+            <View style={styles.totalRow}>
+              <Text style={[styles.totalLabel, { color: '#047857' }]}>
+                Discount{discountPct > 0 ? ` (${discountPct}%)` : ''}
+                {checkout.discount_reason ? ` — ${checkout.discount_reason}` : ''}
+              </Text>
+              <Text style={[styles.totalValue, { color: '#047857' }]}>− {bdt(discount)}</Text>
             </View>
           )}
           <View style={styles.totalDivider} />

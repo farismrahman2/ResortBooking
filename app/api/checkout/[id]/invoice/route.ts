@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server'
+import { readFile } from 'node:fs/promises'
+import path from 'node:path'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { Invoice } from '@/lib/pdf/invoice'
 import { createClient } from '@/lib/supabase/server'
@@ -9,6 +11,17 @@ import {
   getChargesByCheckout,
   getPaymentsByCheckout,
 } from '@/lib/queries/checkout'
+
+/** Best-effort filesystem logo load. Falls back to text-only header if missing. */
+async function loadLogo(): Promise<Buffer | null> {
+  for (const filename of ['logo.png', 'logo.jpg', 'logo.jpeg']) {
+    try {
+      const buf = await readFile(path.join(process.cwd(), 'public', filename))
+      return buf
+    } catch { /* try next extension */ }
+  }
+  return null
+}
 
 interface RouteParams {
   params: { id: string }
@@ -43,14 +56,18 @@ export async function GET(_req: Request, { params }: RouteParams) {
     checkout.advance_amount = Number(checkout.booking.advance_paid)
   }
 
-  const settings = await getSettings()
-  const ctx = await getCurrentUserContext()
+  const [settings, ctx, logo] = await Promise.all([
+    getSettings(),
+    getCurrentUserContext(),
+    loadLogo(),
+  ])
 
   // Pull resort identity from settings (with sensible fallbacks)
   const resortName    = (settings as any).resort_name    ?? 'Garden Centre Resort'
   const resortAddress = (settings as any).resort_address ?? 'Sreemangal, Bangladesh'
   const resortPhone   = (settings as any).contact_numbers ?? ''
   const resortEmail   = (settings as any).contact_email   ?? undefined
+  const tagline       = (settings as any).invoice_tagline ?? undefined
 
   const buffer = await renderToBuffer(
     Invoice({
@@ -59,6 +76,8 @@ export async function GET(_req: Request, { params }: RouteParams) {
       resortAddress,
       resortPhone,
       resortEmail,
+      tagline,
+      logo,
       issuedBy: ctx?.profile.full_name ?? ctx?.email ?? null,
     }),
   )
