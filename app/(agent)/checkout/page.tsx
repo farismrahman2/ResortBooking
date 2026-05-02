@@ -24,18 +24,21 @@ export default async function CheckoutListPage({ searchParams }: PageProps) {
     ? (searchParams.filter as Filter)
     : 'today'
 
-  // Front desk only sees bookings up to today + 2 days. Other roles see the
-  // full 30-day window.
+  // Front desk only sees bookings within today − 3 days through today + 2
+  // days. Other roles keep the default 30-day past window and no future cap.
   const ctx = await getCurrentUserContext()
   const isFrontDesk = ctx?.profile.role.slug === 'front_desk'
   const maxVisitDate = isFrontDesk
     ? new Date(Date.now() + 2 * 24 * 3600 * 1000).toISOString().slice(0, 10)
     : undefined
+  const minVisitDate = isFrontDesk
+    ? new Date(Date.now() - 3 * 24 * 3600 * 1000).toISOString().slice(0, 10)
+    : undefined
 
   let migrationError: string | null = null
   let rows: Awaited<ReturnType<typeof listCheckoutCandidates>> = []
   try {
-    rows = await listCheckoutCandidates({ filter, maxVisitDate })
+    rows = await listCheckoutCandidates({ filter, maxVisitDate, minVisitDate })
   } catch (err) {
     migrationError = err instanceof Error ? err.message : String(err)
   }

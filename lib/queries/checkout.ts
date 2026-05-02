@@ -150,6 +150,8 @@ export async function listCheckoutCandidates(opts: {
   filter?: 'today' | 'drafts' | 'finalized' | 'all'
   /** Cap visit_date to this ISO date (inclusive). Used to scope front_desk to a near-term window. */
   maxVisitDate?: string
+  /** Floor visit_date at this ISO date (inclusive). Used to scope front_desk to a recent window. */
+  minVisitDate?: string
 } = {}): Promise<CheckoutListRow[]> {
   const supabase = createClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -158,8 +160,11 @@ export async function listCheckoutCandidates(opts: {
   const today = new Date().toISOString().slice(0, 10)
   const thirtyDaysAgoIso = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString().slice(0, 10)
 
-  // Pull all confirmed/checked-out bookings whose stay overlaps today or recent past.
-  // We over-fetch slightly and filter in JS — list size is small (single resort).
+  // Caller-supplied minVisitDate wins over the default 30-day floor (front desk
+  // gets a tighter window). Pull all confirmed/checked-out bookings whose stay
+  // overlaps the resulting window. We over-fetch slightly and filter in JS —
+  // list size is small (single resort).
+  const fromIso = opts.minVisitDate ?? thirtyDaysAgoIso
   let query = db
     .from('bookings')
     .select(`
@@ -167,7 +172,7 @@ export async function listCheckoutCandidates(opts: {
       package_type, total, advance_paid, remaining, status
     `)
     .in('status', ['confirmed', 'checked_out'])
-    .gte('visit_date', thirtyDaysAgoIso)
+    .gte('visit_date', fromIso)
     .order('visit_date', { ascending: false })
     .limit(200)
   if (opts.maxVisitDate) query = query.lte('visit_date', opts.maxVisitDate)

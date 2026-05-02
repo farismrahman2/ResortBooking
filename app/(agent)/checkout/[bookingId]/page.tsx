@@ -46,11 +46,12 @@ export default async function CheckoutDetailPage({ params }: PageProps) {
   ])
   if (!booking) notFound()
 
-  // Front desk is scoped to bookings within today + 2 days. Block direct URL
-  // access to anything further out.
+  // Front desk is scoped to bookings within today − 3 days through today + 2
+  // days. Block direct URL access to anything outside that window.
   if (ctx?.profile.role.slug === 'front_desk') {
     const maxIso = new Date(Date.now() + 2 * 24 * 3600 * 1000).toISOString().slice(0, 10)
-    if (booking.visit_date > maxIso) {
+    const minIso = new Date(Date.now() - 3 * 24 * 3600 * 1000).toISOString().slice(0, 10)
+    if (booking.visit_date > maxIso || booking.visit_date < minIso) {
       redirect('/403?from=checkout')
     }
   }
