@@ -148,6 +148,8 @@ export interface CheckoutListRow {
 
 export async function listCheckoutCandidates(opts: {
   filter?: 'today' | 'drafts' | 'finalized' | 'all'
+  /** Cap visit_date to this ISO date (inclusive). Used to scope front_desk to a near-term window. */
+  maxVisitDate?: string
 } = {}): Promise<CheckoutListRow[]> {
   const supabase = createClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -158,7 +160,7 @@ export async function listCheckoutCandidates(opts: {
 
   // Pull all confirmed/checked-out bookings whose stay overlaps today or recent past.
   // We over-fetch slightly and filter in JS — list size is small (single resort).
-  const { data: bookings } = await db
+  let query = db
     .from('bookings')
     .select(`
       id, booking_number, customer_name, customer_phone, visit_date, check_out_date,
@@ -168,6 +170,8 @@ export async function listCheckoutCandidates(opts: {
     .gte('visit_date', thirtyDaysAgoIso)
     .order('visit_date', { ascending: false })
     .limit(200)
+  if (opts.maxVisitDate) query = query.lte('visit_date', opts.maxVisitDate)
+  const { data: bookings } = await query
 
   const ids = (bookings ?? []).map((b: any) => b.id) as string[]
   const checkoutsByBooking = new Map<string, CheckoutRow>()

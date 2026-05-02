@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { ArrowLeft, Phone } from 'lucide-react'
 import { Topbar } from '@/components/layout/Topbar'
 import { Button } from '@/components/ui/Button'
@@ -24,6 +24,7 @@ import {
   requirePermission,
   hasPermission,
   isAdmin as checkAdmin,
+  getCurrentUserContext,
 } from '@/lib/auth/permissions'
 import { formatDate, formatDateRange } from '@/lib/formatters/dates'
 import { formatBDT } from '@/lib/formatters/currency'
@@ -37,12 +38,22 @@ interface PageProps {
 export default async function CheckoutDetailPage({ params }: PageProps) {
   await requirePermission('checkout', 'read')
 
-  const [booking, canWrite, isAdmin] = await Promise.all([
+  const [booking, canWrite, isAdmin, ctx] = await Promise.all([
     getBookingById(params.bookingId),
     hasPermission('checkout', 'write'),
     checkAdmin(),
+    getCurrentUserContext(),
   ])
   if (!booking) notFound()
+
+  // Front desk is scoped to bookings within today + 2 days. Block direct URL
+  // access to anything further out.
+  if (ctx?.profile.role.slug === 'front_desk') {
+    const maxIso = new Date(Date.now() + 2 * 24 * 3600 * 1000).toISOString().slice(0, 10)
+    if (booking.visit_date > maxIso) {
+      redirect('/403?from=checkout')
+    }
+  }
 
   let migrationError: string | null = null
   let checkout: Awaited<ReturnType<typeof getCheckoutByBooking>> = null

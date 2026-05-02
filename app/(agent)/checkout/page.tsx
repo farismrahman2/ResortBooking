@@ -3,7 +3,7 @@ import { Topbar } from '@/components/layout/Topbar'
 import { MigrationErrorBanner } from '@/components/checkout/MigrationErrorBanner'
 import { CheckoutFilterBar } from './CheckoutListClient'
 import { listCheckoutCandidates } from '@/lib/queries/checkout'
-import { requirePermission } from '@/lib/auth/permissions'
+import { requirePermission, getCurrentUserContext } from '@/lib/auth/permissions'
 import { CHECKOUT_STATUS_BADGE, CHECKOUT_STATUS_LABELS } from '@/components/checkout/labels'
 import { formatBDT } from '@/lib/formatters/currency'
 import { formatDate } from '@/lib/formatters/dates'
@@ -24,10 +24,18 @@ export default async function CheckoutListPage({ searchParams }: PageProps) {
     ? (searchParams.filter as Filter)
     : 'today'
 
+  // Front desk only sees bookings up to today + 2 days. Other roles see the
+  // full 30-day window.
+  const ctx = await getCurrentUserContext()
+  const isFrontDesk = ctx?.profile.role.slug === 'front_desk'
+  const maxVisitDate = isFrontDesk
+    ? new Date(Date.now() + 2 * 24 * 3600 * 1000).toISOString().slice(0, 10)
+    : undefined
+
   let migrationError: string | null = null
   let rows: Awaited<ReturnType<typeof listCheckoutCandidates>> = []
   try {
-    rows = await listCheckoutCandidates({ filter })
+    rows = await listCheckoutCandidates({ filter, maxVisitDate })
   } catch (err) {
     migrationError = err instanceof Error ? err.message : String(err)
   }
