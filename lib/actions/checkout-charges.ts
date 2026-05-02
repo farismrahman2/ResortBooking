@@ -52,6 +52,8 @@ export async function getOrCreateDraftCheckout(
       .select('id, status')
       .single()
     if (error || !data) return { success: false, error: error?.message ?? 'Insert failed' }
+    revalidatePath(`/checkout/${bookingId}`)
+    revalidatePath(`/bookings/${bookingId}`)
     return { success: true, data: data as any }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }

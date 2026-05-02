@@ -9,6 +9,7 @@ import { PaymentForm } from '@/components/checkout/PaymentForm'
 import { FinalizeAndVoid } from '@/components/checkout/FinalizeAndVoid'
 import { DiscountButton } from '@/components/checkout/DiscountButton'
 import { GuestCountAdjustButton } from '@/components/checkout/GuestCountAdjustButton'
+import { StartCheckoutButton } from '@/components/checkout/StartCheckoutButton'
 import { BookingChargesTab } from '@/components/checkout/BookingChargesTab'
 import { CHECKOUT_STATUS_BADGE, CHECKOUT_STATUS_LABELS } from '@/components/checkout/labels'
 import { getBookingById } from '@/lib/queries/bookings'
@@ -276,9 +277,11 @@ export default async function CheckoutDetailPage({ params }: PageProps) {
                 isAdmin={isAdmin}
                 canWrite={canWrite}
               />
+            ) : canWrite ? (
+              <StartCheckoutButton bookingId={booking.id} />
             ) : (
               <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">
-                Add the first charge to start a checkout for this booking.
+                No checkout has been started for this booking yet.
               </div>
             )}
 
