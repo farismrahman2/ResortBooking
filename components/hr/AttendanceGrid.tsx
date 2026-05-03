@@ -174,7 +174,7 @@ export function AttendanceGrid({ date, employees, attendance, leaveTypes }: Prop
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button type="button" variant="outline" size="sm" onClick={markAllPresent}>
             Mark all Present
           </Button>
@@ -193,7 +193,14 @@ export function AttendanceGrid({ date, employees, attendance, leaveTypes }: Prop
             <span className="text-xs text-emerald-600">Saved at {savedAt}</span>
           )}
         </div>
-        <Button type="button" variant="primary" size="md" loading={pending} onClick={saveAll}>
+        <Button
+          type="button"
+          variant="primary"
+          size="md"
+          loading={pending}
+          onClick={saveAll}
+          className="w-full sm:w-auto"
+        >
           Save All
         </Button>
       </div>
@@ -202,7 +209,68 @@ export function AttendanceGrid({ date, employees, attendance, leaveTypes }: Prop
         <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>
       )}
 
-      <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+      {/* Mobile: stacked cards (hidden on sm and up) */}
+      <div className="space-y-2 sm:hidden">
+        {employees.map((e) => {
+          const entry = entries[e.id] ?? { status: '', leave_type_id: null }
+          const showLeaveType = entry.status === 'paid_leave' || entry.status === 'unpaid_leave'
+          return (
+            <div key={e.id} className="rounded-xl border border-gray-200 bg-white p-3 space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="font-medium text-gray-900 truncate">{e.full_name}</p>
+                  <p className="text-[11px] text-gray-500 truncate">
+                    {e.employee_code} · {e.designation} · {DEPARTMENT_LABELS[e.department]}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={!entry.status || pending}
+                  onClick={() => saveSingle(e.id)}
+                  className="shrink-0"
+                >
+                  Save
+                </Button>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {STATUSES.map((s) => {
+                  const isActive = entry.status === s
+                  return (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setStatus(e.id, s)}
+                      className={`rounded-full border px-2 py-1 text-[11px] font-semibold transition-colors ${
+                        isActive
+                          ? ATTENDANCE_STATUS_BADGE[s]
+                          : 'border-gray-200 bg-white text-gray-500 hover:border-sky-300 hover:text-sky-700'
+                      }`}
+                    >
+                      {ATTENDANCE_STATUS_LABELS[s]}
+                    </button>
+                  )
+                })}
+              </div>
+              {showLeaveType && (
+                <Select
+                  value={entry.leave_type_id ?? ''}
+                  onChange={(ev) => setLeaveType(e.id, ev.target.value)}
+                >
+                  <option value="">Select leave type…</option>
+                  {leaveTypes.map((lt) => (
+                    <option key={lt.id} value={lt.id}>{lt.name}</option>
+                  ))}
+                </Select>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Desktop / tablet: table */}
+      <div className="hidden sm:block rounded-xl border border-gray-200 bg-white overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm min-w-[720px]">
             <thead className="border-b border-gray-200 bg-gray-50">

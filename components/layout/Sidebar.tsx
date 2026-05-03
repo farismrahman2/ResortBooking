@@ -7,6 +7,7 @@ import {
   FileText,
   CalendarCheck,
   CalendarSearch,
+  ClipboardCheck,
   Package,
   BarChart2,
   Wallet,
@@ -38,8 +39,9 @@ const navItems: NavItem[] = [
   { href: '/availability', label: 'Availability', icon: CalendarSearch, module: 'availability' },
   { href: '/analytics',    label: 'Analytics',    icon: BarChart2,      module: 'reports' },
   { href: '/expenses',     label: 'Expenses',     icon: Wallet,         module: 'expenses' },
-  { href: '/hr',           label: 'HR',           icon: Users,          module: 'hr' },
-  { href: '/packages',     label: 'Packages',     icon: Package,        module: 'bookings' },
+  { href: '/hr',              label: 'HR',           icon: Users,          module: 'hr' },
+  { href: '/hr/attendance',   label: 'Attendance',   icon: ClipboardCheck, module: 'attendance' },
+  { href: '/packages',        label: 'Packages',     icon: Package,        module: 'bookings' },
   { href: '/settings',     label: 'Settings',     icon: Settings,       module: 'settings' },
 ]
 

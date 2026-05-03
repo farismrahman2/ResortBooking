@@ -7,6 +7,7 @@ import {
   getAttendanceMapForDate,
 } from '@/lib/queries/attendance'
 import { getActiveLeaveTypes } from '@/lib/queries/leaves'
+import { requirePermission } from '@/lib/auth/permissions'
 import { formatDate, toISODate } from '@/lib/formatters/dates'
 
 export const dynamic = 'force-dynamic'
@@ -16,6 +17,7 @@ interface PageProps {
 }
 
 export default async function AttendancePage({ searchParams }: PageProps) {
+  await requirePermission('attendance', 'read')
   const date = searchParams.date && /^\d{4}-\d{2}-\d{2}$/.test(searchParams.date)
     ? searchParams.date
     : toISODate(new Date())

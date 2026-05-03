@@ -6,6 +6,7 @@ import {
   markAttendanceSchema,
   bulkMarkAttendanceSchema,
 } from '@/lib/validators/hr'
+import { requirePermission } from '@/lib/auth/permissions'
 import type { ActionResult, ActionData } from './types'
 import type { AttendanceStatus } from '@/lib/supabase/types'
 
@@ -115,6 +116,7 @@ async function syncLeaveBalanceUsage(args: {
 
 export async function markAttendance(input: unknown): Promise<ActionResult> {
   try {
+    await requirePermission('attendance', 'write')
     const parsed = markAttendanceSchema.parse(input)
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -206,6 +208,7 @@ export async function bulkMarkAttendance(
   input: unknown,
 ): Promise<ActionData<{ updated: number }>> {
   try {
+    await requirePermission('attendance', 'write')
     const parsed = bulkMarkAttendanceSchema.parse(input)
     if (parsed.entries.length === 0) {
       return { success: true, data: { updated: 0 } }
