@@ -2,6 +2,7 @@
 
 import { useState, useTransition, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
+import { Copy, Check } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import {
@@ -41,6 +42,7 @@ export function AttendanceGrid({ date, employees, attendance, leaveTypes }: Prop
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [savedAt, setSavedAt] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
 
   // Local working state per employee — pre-populated from existing attendance
   const initialEntries: Record<string, LocalEntry> = useMemo(() => {
@@ -104,6 +106,51 @@ export function AttendanceGrid({ date, employees, attendance, leaveTypes }: Prop
     })
   }
 
+  function buildWhatsAppText(): string {
+    const dateLabel = new Date(date + 'T00:00:00').toLocaleDateString('en-GB', {
+      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+    })
+    const lines: string[] = [`*Attendance — ${dateLabel}*`, '']
+    let n = 1
+    for (const e of employees) {
+      const entry = entries[e.id]
+      if (!entry?.status) continue
+      const statusLabel = ATTENDANCE_STATUS_LABELS[entry.status]
+      const lt = entry.leave_type_id
+        ? leaveTypes.find((l) => l.id === entry.leave_type_id)
+        : null
+      const suffix = lt && (entry.status === 'paid_leave' || entry.status === 'unpaid_leave')
+        ? ` (${lt.name})`
+        : ''
+      lines.push(`${n}. ${e.full_name} — ${statusLabel}${suffix}`)
+      n += 1
+    }
+    return lines.join('\n')
+  }
+
+  const markedCount = useMemo(
+    () => employees.reduce((c, e) => c + (entries[e.id]?.status ? 1 : 0), 0),
+    [employees, entries],
+  )
+
+  async function copyWhatsApp() {
+    const text = buildWhatsAppText()
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      const el = document.createElement('textarea')
+      el.value = text
+      el.style.position = 'fixed'
+      el.style.opacity = '0'
+      document.body.appendChild(el)
+      el.select()
+      document.execCommand('copy')
+      document.body.removeChild(el)
+    }
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
   function saveAll() {
     setError(null)
     const filled = employees
@@ -130,6 +177,17 @@ export function AttendanceGrid({ date, employees, attendance, leaveTypes }: Prop
         <div className="flex items-center gap-2">
           <Button type="button" variant="outline" size="sm" onClick={markAllPresent}>
             Mark all Present
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={copyWhatsApp}
+            disabled={markedCount === 0}
+            className="gap-1.5"
+          >
+            {copied ? <Check size={13} /> : <Copy size={13} />}
+            {copied ? 'Copied!' : 'Copy WhatsApp'}
           </Button>
           {savedAt && !error && (
             <span className="text-xs text-emerald-600">Saved at {savedAt}</span>

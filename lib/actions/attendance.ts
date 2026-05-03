@@ -191,24 +191,94 @@ export async function markAttendance(input: unknown): Promise<ActionResult> {
   }
 }
 
+/**
+ * Save many attendance rows for a single date in (effectively) one round-trip:
+ * 1. fetch all existing rows for the date in one query (to compute prev_status
+ *    for leave-balance reconciliation)
+ * 2. upsert all rows in one query (UNIQUE on employee_id+date)
+ * 3. only run syncLeaveBalanceUsage for rows that crossed the paid_leave
+ *    boundary or changed leave type — typically 0–3 of N
+ * 4. one summary history_log entry, one revalidatePath
+ *
+ * Replaces the previous per-row loop that did ~5 round-trips × N employees.
+ */
 export async function bulkMarkAttendance(
   input: unknown,
 ): Promise<ActionData<{ updated: number }>> {
   try {
     const parsed = bulkMarkAttendanceSchema.parse(input)
-    let updated = 0
-    for (const e of parsed.entries) {
-      const r = await markAttendance({
-        employee_id:   e.employee_id,
-        date:          parsed.date,
-        status:        e.status,
-        leave_type_id: e.leave_type_id ?? null,
-        notes:         e.notes ?? null,
-      })
-      if (r.success) updated += 1
+    if (parsed.entries.length === 0) {
+      return { success: true, data: { updated: 0 } }
     }
+
+    // Validate up-front before touching the DB
+    for (const e of parsed.entries) {
+      if ((e.status === 'paid_leave' || e.status === 'unpaid_leave') && !e.leave_type_id) {
+        return { success: false, error: 'A leave type is required for paid / unpaid leave.' }
+      }
+    }
+
+    const supabase = createClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = supabase as any
+    const userId = await currentUserId()
+    const empIds = parsed.entries.map((e) => e.employee_id)
+
+    // 1. Snapshot existing rows (one query) for leave-balance reconciliation
+    const { data: existingRows } = await db
+      .from('attendance')
+      .select('id, employee_id, status, leave_type_id')
+      .eq('date', parsed.date)
+      .in('employee_id', empIds)
+    const prevByEmp = new Map<string, { status: AttendanceStatus; leave_type_id: string | null }>()
+    for (const r of (existingRows ?? []) as Array<{
+      employee_id: string; status: AttendanceStatus; leave_type_id: string | null
+    }>) {
+      prevByEmp.set(r.employee_id, { status: r.status, leave_type_id: r.leave_type_id })
+    }
+
+    // 2. Bulk upsert
+    const nowIso = new Date().toISOString()
+    const rows = parsed.entries.map((e) => ({
+      employee_id:   e.employee_id,
+      date:          parsed.date,
+      status:        e.status,
+      leave_type_id: e.leave_type_id ?? null,
+      notes:         e.notes ?? null,
+      marked_by:     userId,
+      marked_at:     nowIso,
+    }))
+    const { error: upErr } = await db
+      .from('attendance')
+      .upsert(rows, { onConflict: 'employee_id,date' })
+    if (upErr) return { success: false, error: upErr.message }
+
+    // 3. Reconcile leave balances only for rows that actually moved in/out of
+    //    paid_leave or changed leave type
+    for (const e of parsed.entries) {
+      const prev = prevByEmp.get(e.employee_id)
+      const wasPaid = prev?.status === 'paid_leave' && !!prev?.leave_type_id
+      const nowPaid = e.status === 'paid_leave' && !!e.leave_type_id
+      if (!wasPaid && !nowPaid) continue
+      if (wasPaid && nowPaid && prev?.leave_type_id === e.leave_type_id) continue
+      await syncLeaveBalanceUsage({
+        employeeId:    e.employee_id,
+        date:          parsed.date,
+        prevStatus:    prev?.status ?? null,
+        prevLeaveType: prev?.leave_type_id ?? null,
+        nextStatus:    e.status,
+        nextLeaveType: e.leave_type_id ?? null,
+      })
+    }
+
+    // 4. One audit entry for the whole batch
+    await logHistory(parsed.entries[0].employee_id, 'edited', 'attendance_bulk_marked', {
+      date:  parsed.date,
+      count: parsed.entries.length,
+    })
+
     revalidatePath('/hr/attendance')
-    return { success: true, data: { updated } }
+    return { success: true, data: { updated: parsed.entries.length } }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }
