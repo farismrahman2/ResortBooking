@@ -47,6 +47,7 @@ export default async function AttendancePage({ searchParams }: PageProps) {
           </div>
         ) : (
           <AttendanceGrid
+            key={date}
             date={date}
             employees={employees}
             attendance={attendance}
