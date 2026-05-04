@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Users, ShieldCheck, ListChecks, Settings as SettingsIcon, Calendar, ArrowRight, Copy, Bell } from 'lucide-react'
+import { Users, ShieldCheck, ListChecks, Settings as SettingsIcon, Calendar, ArrowRight, Copy, Bell, Building2 } from 'lucide-react'
 import { getSettings, getHolidayDates } from '@/lib/queries/settings'
 import { getUnreadAlertCount } from '@/lib/auth/alerts'
 import { Topbar } from '@/components/layout/Topbar'
@@ -55,6 +55,12 @@ export default async function SettingsPage() {
             title="Audit Log"
             description="Discounts, guest reductions, voids, refunds, and other flagged events"
             badge={unreadAlerts > 0 ? String(unreadAlerts) : undefined}
+          />
+          <HubTile
+            href="/settings/property"
+            icon={<Building2 size={18} />}
+            title="Property"
+            description="Total rooms (used by Reports → Operations + occupancy KPI)"
           />
         </div>
 
