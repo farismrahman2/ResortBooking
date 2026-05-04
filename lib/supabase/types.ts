@@ -689,12 +689,24 @@ export interface PackageSnapshot {
 }
 
 /** Individual line item for pricing breakdown */
+export type LineItemKind =
+  | 'room'
+  | 'adult'
+  | 'extra_person'
+  | 'child_meal'
+  | 'driver'
+  | 'extra'
+  | 'service_charge'
+
 export interface LineItem {
   label: string
   qty: number
   unit_price: number
   nights: number | null
   subtotal: number
+  /** Stable identifier for the kind of charge — preferred over label parsing.
+   *  Optional for legacy bookings whose snapshots predate this field. */
+  kind?: LineItemKind
 }
 
 /** Custom extra item added to a quote/booking */

@@ -169,6 +169,7 @@ export function calculateDaylong(inputs: DaylongInputs): CalculationResult {
       unit_price: room.unit_price,
       nights:     null,
       subtotal:   room.qty * room.unit_price,
+      kind:       'room',
     })
   }
 
@@ -180,6 +181,7 @@ export function calculateDaylong(inputs: DaylongInputs): CalculationResult {
       unit_price: adultRate,
       nights:     null,
       subtotal:   adults * adultRate,
+      kind:       'adult',
     })
   }
 
@@ -191,6 +193,7 @@ export function calculateDaylong(inputs: DaylongInputs): CalculationResult {
       unit_price: packageRates.child_meal,
       nights:     null,
       subtotal:   children_paid * packageRates.child_meal,
+      kind:       'child_meal',
     })
   }
 
@@ -202,6 +205,7 @@ export function calculateDaylong(inputs: DaylongInputs): CalculationResult {
       unit_price: packageRates.driver_price,
       nights:     null,
       subtotal:   drivers * packageRates.driver_price,
+      kind:       'driver',
     })
   }
 
@@ -214,6 +218,7 @@ export function calculateDaylong(inputs: DaylongInputs): CalculationResult {
         unit_price: item.unit_price,
         nights:     null,
         subtotal:   item.qty * item.unit_price,
+        kind:       'extra',
       })
     }
   }
@@ -230,6 +235,7 @@ export function calculateDaylong(inputs: DaylongInputs): CalculationResult {
         unit_price: charge,
         nights:     null,
         subtotal:   charge,
+        kind:       'service_charge',
       })
     }
   }
@@ -287,6 +293,7 @@ export function calculateNight(inputs: NightInputs): CalculationResult {
       unit_price: room.unit_price,
       nights,
       subtotal:   room.qty * room.unit_price * nights,
+      kind:       'room',
     })
   }
 
@@ -298,6 +305,7 @@ export function calculateNight(inputs: NightInputs): CalculationResult {
       unit_price: packageRates.extra_person,
       nights,
       subtotal:   extraPersons * packageRates.extra_person * nights,
+      kind:       'extra_person',
     })
   }
 
@@ -309,6 +317,7 @@ export function calculateNight(inputs: NightInputs): CalculationResult {
       unit_price: packageRates.child_meal,
       nights,
       subtotal:   children_paid * packageRates.child_meal * nights,
+      kind:       'child_meal',
     })
   }
 
@@ -320,6 +329,7 @@ export function calculateNight(inputs: NightInputs): CalculationResult {
       unit_price: packageRates.driver_price,
       nights,
       subtotal:   drivers * packageRates.driver_price * nights,
+      kind:       'driver',
     })
   }
 
@@ -331,6 +341,7 @@ export function calculateNight(inputs: NightInputs): CalculationResult {
       unit_price: packageRates.extra_bed,
       nights,
       subtotal:   extra_beds * packageRates.extra_bed * nights,
+      kind:       'extra',
     })
   }
 
@@ -343,6 +354,7 @@ export function calculateNight(inputs: NightInputs): CalculationResult {
         unit_price: item.unit_price,
         nights:     null,
         subtotal:   item.qty * item.unit_price,
+        kind:       'extra',
       })
     }
   }
@@ -359,6 +371,7 @@ export function calculateNight(inputs: NightInputs): CalculationResult {
         unit_price: charge,
         nights:     null,
         subtotal:   charge,
+        kind:       'service_charge',
       })
     }
   }
