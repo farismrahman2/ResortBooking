@@ -107,23 +107,48 @@ export function AttendanceGrid({ date, employees, attendance, leaveTypes }: Prop
   }
 
   function buildWhatsAppText(): string {
-    const dateLabel = new Date(date + 'T00:00:00').toLocaleDateString('en-GB', {
-      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+    const d = new Date(date + 'T00:00:00')
+    const weekday = d.toLocaleDateString('en-GB', { weekday: 'long' })
+    const dayMonthYear = d.toLocaleDateString('en-GB', {
+      day: 'numeric', month: 'long', year: 'numeric',
     })
-    const lines: string[] = [`*Attendance — ${dateLabel}*`, '']
-    let n = 1
+
+    // Group marked employees by status, preserving on-screen order within each
+    // group. Numbering is continuous across groups so the recipient can scan
+    // the highest number to see the headcount.
+    type Group = { status: AttendanceStatus; label: string; rows: Array<{ name: string; ltName: string | null }> }
+    const groups: Group[] = [
+      { status: 'present',      label: 'Present',      rows: [] },
+      { status: 'half_day',     label: 'Half Day',     rows: [] },
+      { status: 'paid_leave',   label: 'Paid Leave',   rows: [] },
+      { status: 'unpaid_leave', label: 'Unpaid Leave', rows: [] },
+      { status: 'weekly_off',   label: 'Weekly Off',   rows: [] },
+      { status: 'holiday',      label: 'Holiday',      rows: [] },
+      { status: 'absent',       label: 'Absent',       rows: [] },
+    ]
+    const byStatus = new Map(groups.map((g) => [g.status, g]))
+
     for (const e of employees) {
       const entry = entries[e.id]
       if (!entry?.status) continue
-      const statusLabel = ATTENDANCE_STATUS_LABELS[entry.status]
-      const lt = entry.leave_type_id
-        ? leaveTypes.find((l) => l.id === entry.leave_type_id)
+      const ltName = entry.leave_type_id
+        ? leaveTypes.find((l) => l.id === entry.leave_type_id)?.name ?? null
         : null
-      const suffix = lt && (entry.status === 'paid_leave' || entry.status === 'unpaid_leave')
-        ? ` (${lt.name})`
-        : ''
-      lines.push(`${n}. ${e.full_name} — ${statusLabel}${suffix}`)
-      n += 1
+      byStatus.get(entry.status)?.rows.push({ name: e.full_name, ltName })
+    }
+
+    const lines: string[] = ['Daily staff attendance', '', weekday, dayMonthYear]
+    let n = 1
+    for (const g of groups) {
+      if (g.rows.length === 0) continue
+      lines.push('', `${g.label}:`)
+      for (const row of g.rows) {
+        const suffix = row.ltName && (g.status === 'paid_leave' || g.status === 'unpaid_leave')
+          ? ` (${row.ltName})`
+          : ''
+        lines.push(`${n}. ${row.name}${suffix}`)
+        n += 1
+      }
     }
     return lines.join('\n')
   }
