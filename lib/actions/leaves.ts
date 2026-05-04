@@ -4,6 +4,7 @@ import { revalidatePath, revalidateTag } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { leaveTypeFormSchema } from '@/lib/validators/hr'
 import type { ActionResult, ActionData } from './types'
+import { requirePermission } from '@/lib/auth/permissions'
 
 async function logHistory(
   entityId: string,
@@ -38,6 +39,7 @@ async function logHistory(
 export async function initializeLeaveBalances(
   year: number,
 ): Promise<ActionData<{ created: number; skipped: number }>> {
+  await requirePermission('hr', 'write')
   try {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -92,6 +94,7 @@ export async function initializeLeaveBalances(
 // ─── Leave type admin ────────────────────────────────────────────────────────
 
 export async function createLeaveType(input: unknown): Promise<ActionData<{ id: string }>> {
+  await requirePermission('hr', 'write')
   try {
     const parsed = leaveTypeFormSchema.parse(input)
     const supabase = createClient()
@@ -113,6 +116,7 @@ export async function createLeaveType(input: unknown): Promise<ActionData<{ id: 
 }
 
 export async function updateLeaveType(id: string, input: unknown): Promise<ActionResult> {
+  await requirePermission('hr', 'write')
   try {
     const parsed = leaveTypeFormSchema.parse(input)
     const supabase = createClient()
@@ -141,6 +145,7 @@ export async function updateLeaveType(id: string, input: unknown): Promise<Actio
 }
 
 export async function toggleLeaveTypeActive(id: string): Promise<ActionResult> {
+  await requirePermission('hr', 'write')
   try {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -165,6 +170,7 @@ export async function adjustLeaveBalance(
   balanceId: string,
   patch: { opening_balance?: number; accrued?: number; used?: number },
 ): Promise<ActionResult> {
+  await requirePermission('hr', 'write')
   try {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

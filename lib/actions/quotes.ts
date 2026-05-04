@@ -9,6 +9,7 @@ import { generateQuoteNumber } from '@/lib/utils'
 import { getHolidayDateStrings } from '@/lib/queries/settings'
 import { checkAvailabilityConflict } from '@/lib/queries/availability'
 import { findDuplicateBookings } from '@/lib/queries/duplicate-bookings'
+import { requirePermission } from '@/lib/auth/permissions'
 import type { ActionResult, ActionData } from './types'
 import type { BookingStatus, RoomType } from '@/lib/supabase/types'
 
@@ -24,6 +25,7 @@ export async function createQuote(
   input: CreateQuoteInput,
   allowDuplicate: boolean = false,
 ): Promise<ActionData<{ quoteId: string; quoteNumber: string }>> {
+  await requirePermission('bookings', 'write')
   try {
     const validated = CreateQuoteSchema.parse(input)
     const supabase  = createClient()
@@ -187,6 +189,7 @@ export async function updateQuote(
   id: string,
   input: CreateQuoteInput,
 ): Promise<ActionResult> {
+  await requirePermission('bookings', 'write')
   try {
     const validated = CreateQuoteSchema.parse(input)
     const supabase  = createClient()
@@ -330,6 +333,7 @@ export async function updateQuoteStatus(
   id: string,
   status: BookingStatus,
 ): Promise<ActionResult> {
+  await requirePermission('bookings', 'write')
   try {
     const supabase = createClient()
 
@@ -368,6 +372,7 @@ export async function updateQuoteAdvance(
   advance_paid: number,
   advance_required: number,
 ): Promise<ActionResult> {
+  await requirePermission('bookings', 'write')
   try {
     const supabase = createClient()
     const { error } = await supabase
@@ -394,6 +399,7 @@ export async function updateQuoteAdvance(
 
 /** Delete a draft quote */
 export async function deleteQuote(id: string): Promise<ActionResult> {
+  await requirePermission('bookings', 'write')
   try {
     const supabase = createClient()
 

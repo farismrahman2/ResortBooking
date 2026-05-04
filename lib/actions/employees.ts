@@ -8,6 +8,7 @@ import {
   terminationSchema,
 } from '@/lib/validators/employees'
 import type { ActionResult, ActionData } from './types'
+import { requirePermission } from '@/lib/auth/permissions'
 
 /**
  * EMPLOYEE SERVER ACTIONS — Phase 2
@@ -70,6 +71,7 @@ async function nextEmployeeCode(): Promise<string> {
 // ─── Employee CRUD ───────────────────────────────────────────────────────────
 
 export async function createEmployee(input: unknown): Promise<ActionData<{ id: string }>> {
+  await requirePermission('hr', 'write')
   try {
     const parsed = employeeFormSchema.parse(input)
     const supabase = createClient()
@@ -156,6 +158,7 @@ export async function createEmployee(input: unknown): Promise<ActionData<{ id: s
 }
 
 export async function updateEmployee(id: string, input: unknown): Promise<ActionResult> {
+  await requirePermission('hr', 'write')
   try {
     const parsed = employeeFormSchema.parse(input)
     const supabase = createClient()
@@ -222,6 +225,7 @@ export async function terminateEmployee(
   id: string,
   input: unknown,
 ): Promise<ActionResult> {
+  await requirePermission('hr', 'write')
   try {
     const parsed = terminationSchema.parse(input)
     const supabase = createClient()
@@ -260,6 +264,7 @@ export async function terminateEmployee(
 }
 
 export async function reactivateEmployee(id: string): Promise<ActionResult> {
+  await requirePermission('hr', 'write')
   try {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -295,6 +300,7 @@ export async function setSalaryStructure(
   employeeId: string,
   input: unknown,
 ): Promise<ActionData<{ id: string }>> {
+  await requirePermission('hr', 'write')
   try {
     const parsed = salaryStructureFormSchema.parse(input)
     const supabase = createClient()

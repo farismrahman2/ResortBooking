@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { serviceChargeFormSchema } from '@/lib/validators/hr'
 import type { ActionResult, ActionData } from './types'
+import { requirePermission } from '@/lib/auth/permissions'
 
 async function logHistory(
   entityId: string,
@@ -41,6 +42,7 @@ async function currentUserId(): Promise<string | null> {
 export async function upsertServiceCharge(
   input: unknown,
 ): Promise<ActionData<{ id: string }>> {
+  await requirePermission('hr', 'write')
   try {
     const parsed = serviceChargeFormSchema.parse(input)
     const supabase = createClient()
@@ -98,6 +100,7 @@ export async function upsertServiceCharge(
 }
 
 export async function deleteServiceCharge(id: string): Promise<ActionResult> {
+  await requirePermission('hr', 'write')
   try {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

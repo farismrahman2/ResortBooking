@@ -3,6 +3,7 @@
 import { revalidatePath, revalidateTag } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { PackageFormSchema, type PackageFormInput } from '@/lib/validators/package'
+import { requirePermission } from '@/lib/auth/permissions'
 import type { ActionResult, ActionData } from './types'
 import type { RoomType } from '@/lib/supabase/types'
 
@@ -10,6 +11,7 @@ import type { RoomType } from '@/lib/supabase/types'
 export async function createPackage(
   input: PackageFormInput,
 ): Promise<ActionData<{ packageId: string }>> {
+  await requirePermission('bookings', 'write')
   try {
     const validated = PackageFormSchema.parse(input)
     const supabase = createClient()
@@ -56,6 +58,7 @@ export async function updatePackage(
   id: string,
   input: PackageFormInput,
 ): Promise<ActionResult> {
+  await requirePermission('bookings', 'write')
   try {
     const validated = PackageFormSchema.parse(input)
     const supabase = createClient()
@@ -104,6 +107,7 @@ export async function togglePackageActive(
   id: string,
   is_active: boolean,
 ): Promise<ActionResult> {
+  await requirePermission('bookings', 'write')
   try {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -125,6 +129,7 @@ export async function togglePackageActive(
 
 /** Duplicate a package (creates a copy with " (Copy)" suffix, inactive) */
 export async function duplicatePackage(id: string): Promise<ActionData<{ packageId: string }>> {
+  await requirePermission('bookings', 'write')
   try {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { adjustmentFormSchema } from '@/lib/validators/hr'
 import type { ActionResult, ActionData } from './types'
+import { requirePermission } from '@/lib/auth/permissions'
 
 async function logHistory(
   entityId: string,
@@ -37,6 +38,7 @@ async function currentUserId(): Promise<string | null> {
 export async function createAdjustment(
   input: unknown,
 ): Promise<ActionData<{ id: string }>> {
+  await requirePermission('hr', 'write')
   try {
     const parsed = adjustmentFormSchema.parse(input)
     const supabase = createClient()
@@ -74,6 +76,7 @@ export async function createAdjustment(
 }
 
 export async function deleteAdjustment(id: string): Promise<ActionResult> {
+  await requirePermission('hr', 'write')
   try {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

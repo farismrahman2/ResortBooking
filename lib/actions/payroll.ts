@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { computePayrollLine, type PayrollLine, type AttendanceCounts } from '@/lib/engine/payroll'
 import { summariseAttendanceForMonth } from '@/lib/queries/attendance'
 import type { ActionResult, ActionData } from './types'
+import { requirePermission } from '@/lib/auth/permissions'
 import type {
   EmployeeRow,
   LoanRow,
@@ -85,6 +86,7 @@ interface PayrollPreviewResult {
 export async function previewPayrollRun(
   periodIso: string,
 ): Promise<ActionData<PayrollPreviewResult>> {
+  await requirePermission('hr', 'write')
   try {
     const err = validatePeriod(periodIso)
     if (err) return { success: false, error: err }
@@ -258,6 +260,7 @@ export async function finalizePayrollRun(
   periodIso: string,
   paymentMethod: 'cash' | 'bkash' | 'nagad' | 'rocket' | 'bank_transfer' | 'cheque' | 'other' = 'cash',
 ): Promise<ActionData<{ run_id: string; expenses_written: number }>> {
+  await requirePermission('hr', 'write')
   try {
     const periodErr = validatePeriod(periodIso)
     if (periodErr) return { success: false, error: periodErr }
@@ -512,6 +515,7 @@ export async function finalizePayrollRun(
 export async function saveDraftPayrollRun(
   periodIso: string,
 ): Promise<ActionResult> {
+  await requirePermission('hr', 'write')
   try {
     const err = validatePeriod(periodIso)
     if (err) return { success: false, error: err }

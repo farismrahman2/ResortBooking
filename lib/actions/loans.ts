@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { loanFormSchema } from '@/lib/validators/hr'
 import type { ActionResult, ActionData } from './types'
+import { requirePermission } from '@/lib/auth/permissions'
 
 async function logHistory(
   entityId: string,
@@ -29,6 +30,7 @@ async function logHistory(
 }
 
 export async function createLoan(input: unknown): Promise<ActionData<{ id: string }>> {
+  await requirePermission('hr', 'write')
   try {
     const parsed = loanFormSchema.parse(input)
     const supabase = createClient()
@@ -65,6 +67,7 @@ export async function createLoan(input: unknown): Promise<ActionData<{ id: strin
 }
 
 export async function closeLoan(id: string): Promise<ActionResult> {
+  await requirePermission('hr', 'write')
   try {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -80,6 +83,7 @@ export async function closeLoan(id: string): Promise<ActionResult> {
 }
 
 export async function writeOffLoan(id: string): Promise<ActionResult> {
+  await requirePermission('hr', 'write')
   try {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

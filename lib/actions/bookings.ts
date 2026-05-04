@@ -8,6 +8,7 @@ import { getHolidayDateStrings } from '@/lib/queries/settings'
 import { checkAvailabilityConflict, getBookedRoomNumbers } from '@/lib/queries/availability'
 import { findDuplicateBookings } from '@/lib/queries/duplicate-bookings'
 import { ROOM_NUMBERS } from '@/lib/config/rooms'
+import { requirePermission } from '@/lib/auth/permissions'
 import type { ActionResult, ActionData } from './types'
 import type { RoomType, PackageType, PackageSnapshot } from '@/lib/supabase/types'
 
@@ -20,6 +21,7 @@ export async function convertQuoteToBooking(
   quoteId: string,
   allowDuplicate: boolean = false,
 ): Promise<ActionData<{ bookingId: string; bookingNumber: string }>> {
+  await requirePermission('bookings', 'write')
   try {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -184,6 +186,7 @@ export async function updateAdvancePaid(
   advance_paid: number,
   advance_required: number,
 ): Promise<ActionResult> {
+  await requirePermission('bookings', 'write')
   try {
     const supabase = createClient()
     const { error } = await supabase
@@ -210,6 +213,7 @@ export async function updateAdvancePaid(
 
 /** Cancel a booking */
 export async function cancelBooking(bookingId: string): Promise<ActionResult> {
+  await requirePermission('bookings', 'write')
   try {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -287,6 +291,7 @@ export async function updateBooking(
     package_snapshot: PackageSnapshot
   },
 ): Promise<ActionResult> {
+  await requirePermission('bookings', 'write')
   try {
     const supabase   = createClient()
     const holidayDates = await getHolidayDateStrings()
@@ -399,6 +404,7 @@ export async function confirmDateChange(
     cleared_room_numbers: Record<string, string[]>
   },
 ): Promise<ActionResult> {
+  await requirePermission('bookings', 'write')
   try {
     const supabase     = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -567,6 +573,7 @@ export async function swapRoomAssignment(
   bookingId: string,
   input: SwapInput,
 ): Promise<ActionResult> {
+  await requirePermission('bookings', 'write')
   try {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
