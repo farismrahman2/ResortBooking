@@ -32,10 +32,14 @@ const BOOKING_LIST_COLUMNS = `
 /** Fetch bookings with their rooms (list view — line_items/extra_items omitted) */
 export async function getBookings(filters: BookingFilters = {}): Promise<BookingWithRooms[]> {
   const supabase = createClient()
+  // booking_number is the deterministic tiebreaker — without it Postgres can
+  // reorder rows that share the same visit_date across requests, which made
+  // bookings appear/disappear from a limited list non-deterministically.
   let query = supabase
     .from('bookings')
     .select(BOOKING_LIST_COLUMNS)
-    .order('visit_date', { ascending: true })
+    .order('visit_date',     { ascending: true })
+    .order('booking_number', { ascending: true })
 
   if (filters.status) query = query.eq('status', filters.status)
   if (filters.from_date) query = query.gte('visit_date', filters.from_date)
