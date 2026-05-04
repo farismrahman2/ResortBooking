@@ -131,7 +131,7 @@ export async function createCoffeeShopSale(
     }
     if (!saleId) return { success: false, error: 'Could not allocate a unique sale number after 5 attempts.' }
 
-    // Items
+    // Items — resolve `comp_authorized_by` sentinels ('self' → current user)
     const itemRows = parsed.items.map((it, i) => ({
       sale_id:            saleId,
       charge_item_id:     it.charge_item_id ?? null,
@@ -140,7 +140,7 @@ export async function createCoffeeShopSale(
       quantity:           it.quantity,
       unit_price:         it.unit_price,
       is_complimentary:   it.is_complimentary,
-      comp_authorized_by: it.comp_authorized_by ?? null,
+      comp_authorized_by: it.is_complimentary ? (it.comp_authorized_by === 'self' ? userId : (it.comp_authorized_by ?? userId)) : null,
       comp_reason:        it.comp_reason ?? null,
       notes:              it.notes ?? null,
       display_order:      i,
@@ -221,13 +221,15 @@ export async function updateCoffeeShopSale(
     if (updErr) return { success: false, error: updErr.message }
 
     // Replace children
+    const userId = await currentUserId()
     await db.from('coffee_shop_sale_items').delete().eq('sale_id', saleId)
     await db.from('coffee_shop_sale_payments').delete().eq('sale_id', saleId)
     const { error: itemsErr } = await db.from('coffee_shop_sale_items').insert(
       parsed.items.map((it, i) => ({
         sale_id: saleId, charge_item_id: it.charge_item_id ?? null, category_id: it.category_id,
         description: it.description, quantity: it.quantity, unit_price: it.unit_price,
-        is_complimentary: it.is_complimentary, comp_authorized_by: it.comp_authorized_by ?? null,
+        is_complimentary: it.is_complimentary,
+        comp_authorized_by: it.is_complimentary ? (it.comp_authorized_by === 'self' ? userId : (it.comp_authorized_by ?? userId)) : null,
         comp_reason: it.comp_reason ?? null, notes: it.notes ?? null, display_order: i,
       })),
     )

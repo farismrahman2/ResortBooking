@@ -11,7 +11,7 @@ export const coffeeShopSaleItemSchema = z.object({
   quantity:           z.number().positive('Quantity must be > 0'),
   unit_price:         z.number().min(0, 'Unit price must be ≥ 0'),
   is_complimentary:   z.boolean().default(false),
-  comp_authorized_by: z.string().uuid().nullable().optional(),
+  comp_authorized_by: z.string().nullable().optional(),  // 'self' sentinel or UUID; action resolves
   comp_reason:        z.string().nullable().optional(),
   notes:              z.string().nullable().optional(),
 }).refine(
