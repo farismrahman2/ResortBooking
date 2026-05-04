@@ -24,7 +24,7 @@ export default async function ProfitabilityPage({ searchParams }: PageProps) {
   const margin = totals.income > 0 ? Math.round((totals.net / totals.income) * 1000) / 10 : null
 
   return (
-    <ReportShell title="Profitability" subtitle="Top-line P&amp;L by month" period={period} preset={preset} customFrom={customFrom} customTo={customTo} mode={mode}>
+    <ReportShell exportReportId="profitability" title="Profitability" subtitle="Top-line P&amp;L by month" period={period} preset={preset} customFrom={customFrom} customTo={customTo} mode={mode}>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
         <KpiCard label="Total income"   value={formatBDTCompact(totals.income)} mode="off" />
         <KpiCard label="Total expenses" value={formatBDTCompact(totals.expenses)} mode="off" />

@@ -17,7 +17,7 @@ export default async function ByPackagePage({ searchParams }: PageProps) {
   const rows = await getPackageRevenue(period)
 
   return (
-    <ReportShell title="Revenue by package" subtitle="Room type / package performance" period={period} preset={preset} customFrom={customFrom} customTo={customTo} mode={mode}>
+    <ReportShell exportReportId="income-by-package" title="Revenue by package" subtitle="Room type / package performance" period={period} preset={preset} customFrom={customFrom} customTo={customTo} mode={mode}>
       <ChartCard title="Top packages by revenue">
         <PackageBarChart data={rows.slice(0, 12)} />
       </ChartCard>

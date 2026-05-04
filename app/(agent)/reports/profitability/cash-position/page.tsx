@@ -19,7 +19,7 @@ export default async function CashPositionPage({ searchParams }: PageProps) {
   const last = points[points.length - 1]
 
   return (
-    <ReportShell title="Cash position" subtitle="Running balance over time" period={period} preset={preset} customFrom={customFrom} customTo={customTo} mode={mode}>
+    <ReportShell exportReportId="cash-position" title="Cash position" subtitle="Running balance over time" period={period} preset={preset} customFrom={customFrom} customTo={customTo} mode={mode}>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <KpiCard label="Current balance"     value={last ? formatBDTCompact(last.balance) : '—'} mode="off" emphasis={last && last.balance >= 0 ? 'positive' : 'negative'} />
         <KpiCard label="Cumulative income"   value={last ? formatBDTCompact(last.cumulative_income) : '—'} mode="off" />

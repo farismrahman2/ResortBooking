@@ -17,7 +17,7 @@ export default async function DayOfWeekPage({ searchParams }: PageProps) {
   const rows = await getDayOfWeekStats(period)
 
   return (
-    <ReportShell title="Day-of-week pattern" subtitle="Weekday vs weekend revenue + occupancy" period={period} preset={preset} customFrom={customFrom} customTo={customTo} mode={mode}>
+    <ReportShell exportReportId="income-by-day-of-week" title="Day-of-week pattern" subtitle="Weekday vs weekend revenue + occupancy" period={period} preset={preset} customFrom={customFrom} customTo={customTo} mode={mode}>
       <ChartCard title="Avg revenue per day & occupancy">
         <DowChart data={rows} />
       </ChartCard>

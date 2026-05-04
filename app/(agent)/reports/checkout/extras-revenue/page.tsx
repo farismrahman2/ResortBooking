@@ -28,7 +28,7 @@ export default async function ExtrasRevenuePage({ searchParams }: PageProps) {
   const data = await getExtrasOverview(period)
 
   return (
-    <ReportShell title="Extras revenue" subtitle="F&amp;B and ancillary spend per guest" period={period} preset={preset} customFrom={customFrom} customTo={customTo} mode={mode}>
+    <ReportShell exportReportId="checkout-extras" title="Extras revenue" subtitle="F&amp;B and ancillary spend per guest" period={period} preset={preset} customFrom={customFrom} customTo={customTo} mode={mode}>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
         <KpiCard label="Total extras" value={formatBDTCompact(data.total_extras_revenue)} mode="off" />
         <KpiCard label="Finalized checkouts" value={String(data.finalized_checkouts)} mode="off" />

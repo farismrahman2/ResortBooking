@@ -26,7 +26,7 @@ export default async function LoanExposurePage({ searchParams }: PageProps) {
   const { totals, active, aging } = await getLoanExposure()
 
   return (
-    <ReportShell title="Loan exposure" subtitle="Outstanding staff loans + aging buckets" period={period} preset={preset} customFrom={customFrom} customTo={customTo} mode={mode}>
+    <ReportShell exportReportId="hr-loan-exposure" title="Loan exposure" subtitle="Outstanding staff loans + aging buckets" period={period} preset={preset} customFrom={customFrom} customTo={customTo} mode={mode}>
       <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-xs text-indigo-900">
         Loan exposure is the total outstanding amount that staff owe the business. Compare against the most recent finalized monthly payroll to assess concentration risk.
       </div>

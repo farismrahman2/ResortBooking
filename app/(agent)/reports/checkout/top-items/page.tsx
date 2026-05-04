@@ -26,7 +26,7 @@ export default async function TopItemsPage({ searchParams }: PageProps) {
   const top10 = rows.filter((r) => !r.is_freeform).slice(0, 10)
 
   return (
-    <ReportShell title="Top-selling items" subtitle="Most-popular charge items by revenue" period={period} preset={preset} customFrom={customFrom} customTo={customTo} mode={mode}>
+    <ReportShell exportReportId="checkout-top-items" title="Top-selling items" subtitle="Most-popular charge items by revenue" period={period} preset={preset} customFrom={customFrom} customTo={customTo} mode={mode}>
       <ChartCard title="Top 10 by revenue">
         <TopItemsBarChart data={top10} />
       </ChartCard>

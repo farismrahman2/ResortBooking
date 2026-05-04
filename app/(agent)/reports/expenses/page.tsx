@@ -40,7 +40,7 @@ export default async function ExpensesReportPage({ searchParams }: PageProps) {
   const avgTx = txCount > 0 ? Math.round(current.total_expenses / txCount) : 0
 
   return (
-    <ReportShell title="Expense overview" subtitle="Spend trends and category split" period={period} preset={preset} customFrom={customFrom} customTo={customTo} mode={mode}>
+    <ReportShell exportReportId="expenses" title="Expense overview" subtitle="Spend trends and category split" period={period} preset={preset} customFrom={customFrom} customTo={customTo} mode={mode}>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <KpiCard label="Total expenses" value={formatBDTCompact(current.total_expenses)} raw={current.total_expenses} prior={prev?.total_expenses ?? null} yoy={yoy?.total_expenses ?? null} mode={effectiveMode} invertColour />
         <KpiCard label="Transactions"   value={String(txCount)} mode="off" />

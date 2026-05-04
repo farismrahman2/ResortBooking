@@ -51,7 +51,7 @@ export default async function SalaryVsRevenuePage({ searchParams }: PageProps) {
     : null
 
   return (
-    <ReportShell title="Salary % of revenue" subtitle="Payroll cost relative to income" period={period} preset={preset} customFrom={customFrom} customTo={customTo} mode={mode}>
+    <ReportShell exportReportId="hr-salary-vs-revenue" title="Salary % of revenue" subtitle="Payroll cost relative to income" period={period} preset={preset} customFrom={customFrom} customTo={customTo} mode={mode}>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <KpiCard label="Salary % of revenue" value={currentPct === null ? '—' : `${currentPct.toFixed(1)}%`}
           mode="off" emphasis={currentPct === null ? 'default' : currentPct > 35 ? 'negative' : currentPct >= 30 ? 'default' : 'positive'} />

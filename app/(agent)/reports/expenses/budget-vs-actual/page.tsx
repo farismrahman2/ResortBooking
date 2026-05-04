@@ -23,7 +23,7 @@ export default async function BudgetVsActualPage({ searchParams }: PageProps) {
   const rows = await getBudgetVsActual(period)
 
   return (
-    <ReportShell title="Budget vs actual" subtitle="Variance by category" period={period} preset={preset} customFrom={customFrom} customTo={customTo} mode={mode}>
+    <ReportShell exportReportId="budget-vs-actual" title="Budget vs actual" subtitle="Variance by category" period={period} preset={preset} customFrom={customFrom} customTo={customTo} mode={mode}>
       {rows.length === 0 ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           No budgets configured for this period. Add monthly budgets in <Link href="/expenses/budgets" className="underline font-semibold">Expenses → Budgets</Link>.

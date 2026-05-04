@@ -23,7 +23,7 @@ export default async function AttendanceReportPage({ searchParams }: PageProps) 
   const { totals, byDepartment, topAbsentees } = await getAttendanceReport(period)
 
   return (
-    <ReportShell title="Attendance trends" subtitle="Department breakdown + top absentees" period={period} preset={preset} customFrom={customFrom} customTo={customTo} mode={mode}>
+    <ReportShell exportReportId="hr-attendance" title="Attendance trends" subtitle="Department breakdown + top absentees" period={period} preset={preset} customFrom={customFrom} customTo={customTo} mode={mode}>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <KpiCard label="Avg attendance rate" value={`${totals.attendance_rate_pct.toFixed(1)}%`} mode="off" />
         <KpiCard label="Total absent days"   value={String(totals.total_absent_days)} mode="off" invertColour />

@@ -23,7 +23,7 @@ export default async function ByRoomTypePage({ searchParams }: PageProps) {
   const rows = await getExtrasByRoomType(period)
 
   return (
-    <ReportShell title="Extras by room type" subtitle="Which room types upsell more" period={period} preset={preset} customFrom={customFrom} customTo={customTo} mode={mode}>
+    <ReportShell exportReportId="checkout-by-room-type" title="Extras by room type" subtitle="Which room types upsell more" period={period} preset={preset} customFrom={customFrom} customTo={customTo} mode={mode}>
       <SimpleTable<ExtrasByRoomTypeRow>
         rows={rows}
         columns={[

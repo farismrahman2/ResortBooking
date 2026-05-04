@@ -38,7 +38,7 @@ export default async function IncomeReportPage({ searchParams }: PageProps) {
   const avgBookingValue = current.booking_count > 0 ? Math.round(current.total_revenue / current.booking_count) : 0
 
   return (
-    <ReportShell title="Income overview" subtitle="Revenue across rooms and extras" period={period} preset={preset} customFrom={customFrom} customTo={customTo} mode={mode}>
+    <ReportShell exportReportId="income" title="Income overview" subtitle="Revenue across rooms and extras" period={period} preset={preset} customFrom={customFrom} customTo={customTo} mode={mode}>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <KpiCard label="Total revenue"  value={formatBDTCompact(current.total_revenue)}  raw={current.total_revenue}  prior={prev?.total_revenue ?? null}  yoy={yoy?.total_revenue ?? null}  mode={effectiveMode} />
         <KpiCard label="Room revenue"   value={formatBDTCompact(current.room_revenue)}   raw={current.room_revenue}   prior={prev?.room_revenue ?? null}   yoy={yoy?.room_revenue ?? null}   mode={effectiveMode} />

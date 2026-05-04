@@ -30,7 +30,7 @@ export default async function OperationsReportPage({ searchParams }: PageProps) 
   const fullDays = days.filter((d) => d.total_rooms > 0 && d.rooms_occupied >= d.total_rooms).length
 
   return (
-    <ReportShell title="Operations" subtitle="Occupancy + pickup pace" period={period} preset={preset} customFrom={customFrom} customTo={customTo} mode={mode}>
+    <ReportShell exportReportId="operations" title="Operations" subtitle="Occupancy + pickup pace" period={period} preset={preset} customFrom={customFrom} customTo={customTo} mode={mode}>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
         <KpiCard label="Avg occupancy" value={`${avg.toFixed(1)}%`} mode="off" />
         <KpiCard label="Peak day"      value={`${peak.toFixed(1)}%`} mode="off" />
