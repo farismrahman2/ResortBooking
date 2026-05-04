@@ -8,7 +8,7 @@ const db = () => createServiceClient() as any  // eslint-disable-line @typescrip
 
 // ─── Income overview (daily trend, by-package, by-day-of-week) ───────────────
 
-export interface DailyIncomeRow { date: string; room_revenue: number; extras_revenue: number; total_revenue: number; bookings: number }
+export interface DailyIncomeRow { date: string; room_revenue: number; extras_revenue: number; coffee_shop_revenue: number; total_revenue: number; bookings: number }
 export interface PackageRevenueRow { package_name: string; bookings: number; total_revenue: number; avg_per_booking: number; pct_of_total: number }
 export interface DowRow { dow: number; label: string; total_revenue: number; bookings: number; avg_revenue_per_day: number; days_in_period: number; avg_occupancy_pct: number }
 
@@ -17,7 +17,7 @@ const DOW_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Fri
 async function fetchDailyIncome(period: PeriodRange): Promise<DailyIncomeRow[]> {
   const fromIso = toIsoDate(period.from)
   const toIso   = toIsoDate(period.to)
-  const [{ data: bookings }, { data: checkouts }] = await Promise.all([
+  const [{ data: bookings }, { data: checkouts }, coffeeRes] = await Promise.all([
     db().from('bookings')
       .select('visit_date, total')
       .gte('visit_date', fromIso).lte('visit_date', toIso).neq('status', 'cancelled'),
@@ -25,13 +25,17 @@ async function fetchDailyIncome(period: PeriodRange): Promise<DailyIncomeRow[]> 
       .select('finalized_at, charges_total')
       .eq('status', 'finalized')
       .gte('finalized_at', fromIso).lte('finalized_at', `${toIso}T23:59:59`),
+    db().from('coffee_shop_sales')
+      .select('sale_date, net_amount')
+      .eq('status', 'completed')
+      .gte('sale_date', fromIso).lte('sale_date', toIso),
   ])
   const byDay = new Map<string, DailyIncomeRow>()
   // initialize zero-fill
   let d = new Date(period.from)
   while (d <= period.to) {
     const iso = toIsoDate(d)
-    byDay.set(iso, { date: iso, room_revenue: 0, extras_revenue: 0, total_revenue: 0, bookings: 0 })
+    byDay.set(iso, { date: iso, room_revenue: 0, extras_revenue: 0, coffee_shop_revenue: 0, total_revenue: 0, bookings: 0 })
     d = new Date(d.getTime() + 86400_000)
   }
   for (const b of (bookings ?? []) as Array<{ visit_date: string; total: number }>) {
@@ -46,7 +50,12 @@ async function fetchDailyIncome(period: PeriodRange): Promise<DailyIncomeRow[]> 
     if (!r) continue
     r.extras_revenue += Number(c.charges_total ?? 0)
   }
-  for (const r of byDay.values()) r.total_revenue = r.room_revenue + r.extras_revenue
+  for (const cs of (coffeeRes.data ?? []) as Array<{ sale_date: string; net_amount: number }>) {
+    const r = byDay.get(cs.sale_date)
+    if (!r) continue
+    r.coffee_shop_revenue += Number(cs.net_amount ?? 0)
+  }
+  for (const r of byDay.values()) r.total_revenue = r.room_revenue + r.extras_revenue + r.coffee_shop_revenue
   return Array.from(byDay.values())
 }
 

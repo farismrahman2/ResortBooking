@@ -11,6 +11,7 @@ export type ReportSection =
   | 'operations'
   | 'hr'
   | 'checkout'
+  | 'coffee_shop'
   | 'weekly'
 
 export interface ReportMeta {
@@ -51,6 +52,10 @@ export const REPORTS: ReportMeta[] = [
   { id: 'checkout-top-items',     title: 'Top-selling items',   description: 'Most-popular charge items by revenue',           href: '/reports/checkout/top-items',      section: 'checkout',      icon: Hammer,     module: 'checkout', phase: 1 },
   { id: 'checkout-by-room-type',  title: 'Extras by room type', description: 'Which room types upsell more',                   href: '/reports/checkout/by-room-type',   section: 'checkout',      icon: Hotel,      module: 'checkout', phase: 1 },
 
+  // Coffee shop
+  { id: 'coffee-shop',            title: 'Coffee Shop',         description: 'Standalone walk-in sales — separate from room extras', href: '/reports/coffee-shop',         section: 'coffee_shop',   icon: ListChecks, module: 'reports', phase: 1 },
+  { id: 'coffee-shop-cash',       title: 'Cash drawer',         description: 'End-of-day cash reconciliation',                 href: '/reports/coffee-shop/cash',        section: 'coffee_shop',   icon: ListChecks, module: 'reports', phase: 1 },
+
   // Weekly
   { id: 'weekly',                 title: 'Weekly summary',      description: 'Last week at a glance + anomaly callouts',       href: '/reports/weekly',                  section: 'weekly',        icon: BarChart3,  phase: 1 },
 ]
@@ -62,9 +67,10 @@ export const SECTION_LABELS: Record<ReportSection, string> = {
   operations:    'Operations',
   hr:            'HR & Payroll',
   checkout:      'Checkout & Extras',
+  coffee_shop:   'Coffee Shop',
   weekly:        'Weekly summary',
 }
 
 export const SECTION_ORDER: ReportSection[] = [
-  'income', 'expenses', 'profitability', 'operations', 'hr', 'checkout', 'weekly',
+  'income', 'expenses', 'profitability', 'operations', 'hr', 'checkout', 'coffee_shop', 'weekly',
 ]

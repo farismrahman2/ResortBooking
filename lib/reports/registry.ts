@@ -8,6 +8,7 @@ import { getMonthlyPnL, getCashPosition } from '@/lib/queries/reports/profitabil
 import { getOccupancyByDay, getPickupPace } from '@/lib/queries/reports/operations'
 import { getSalaryVsRevenue, getAttendanceReport, getLoanExposure } from '@/lib/queries/reports/hr'
 import { getExtrasOverview, getTopChargeItems, getExtrasByRoomType } from '@/lib/queries/reports/checkout'
+import { getCoffeeShopOverview } from '@/lib/queries/reports/coffee-shop'
 
 export type ReportBuilder = (period: PeriodRange, generatedBy: string) => Promise<ReportExportPayload>
 
@@ -310,6 +311,37 @@ const REGISTRY: Record<string, ReportBuilder> = {
         { key: 'avg_price',     label: 'Avg price',  align: 'right', format: 'currency' },
         { key: 'total_revenue', label: 'Revenue',    align: 'right', format: 'currency' },
       ], rows }],
+    }
+  },
+
+  'coffee-shop': async (period, generatedBy) => {
+    const data = await getCoffeeShopOverview(period)
+    return {
+      reportId: 'coffee-shop', title: 'Coffee Shop', subtitle: period.label, generatedAt: stamp(), generatedBy,
+      kpis: [
+        { label: 'Sales',        value: String(data.sales_count) },
+        { label: 'Net revenue',  value: `${data.net_revenue.toLocaleString('en-IN')} ৳` },
+        { label: 'Avg sale',     value: `${data.avg_sale.toLocaleString('en-IN')} ৳` },
+        { label: 'Comp value',   value: `${data.comp_value.toLocaleString('en-IN')} ৳` },
+      ],
+      tables: [
+        { title: 'Daily revenue', columns: [
+          { key: 'date',    label: 'Date',    format: 'date' },
+          { key: 'revenue', label: 'Revenue', align: 'right', format: 'currency' },
+        ], rows: data.daily },
+        { title: 'Top items', columns: [
+          { key: 'name',       label: 'Item' },
+          { key: 'category',   label: 'Category' },
+          { key: 'units_sold', label: 'Units sold', align: 'right', format: 'number' },
+          { key: 'revenue',    label: 'Revenue',    align: 'right', format: 'currency' },
+        ], rows: data.top_items },
+        { title: 'Payment mix', columns: [
+          { key: 'method', label: 'Method' },
+          { key: 'amount', label: 'Amount', align: 'right', format: 'currency' },
+          { key: 'pct',    label: '%',      align: 'right', format: 'percent' },
+        ], rows: data.payment_mix },
+      ],
+      notes: ['Comp items count toward units sold but not revenue.'],
     }
   },
 

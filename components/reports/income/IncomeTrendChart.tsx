@@ -18,8 +18,9 @@ export function IncomeTrendChart({ data }: Props) {
           labelFormatter={(d) => format(new Date(d + 'T00:00:00'), 'EEE d MMM yyyy')}
         />
         <Legend wrapperStyle={{ fontSize: 11 }} />
-        <Area type="monotone" name="Room"   dataKey="room_revenue"   stackId="1" stroke="#4f46e5" fill="#6366f1" fillOpacity={0.7} />
-        <Area type="monotone" name="Extras" dataKey="extras_revenue" stackId="1" stroke="#a78bfa" fill="#c4b5fd" fillOpacity={0.7} />
+        <Area type="monotone" name="Room"        dataKey="room_revenue"        stackId="1" stroke="#4f46e5" fill="#6366f1" fillOpacity={0.7} />
+        <Area type="monotone" name="Extras"      dataKey="extras_revenue"      stackId="1" stroke="#a78bfa" fill="#c4b5fd" fillOpacity={0.7} />
+        <Area type="monotone" name="Coffee shop" dataKey="coffee_shop_revenue" stackId="1" stroke="#a8a29e" fill="#d6d3d1" fillOpacity={0.8} />
       </AreaChart>
     </ResponsiveContainer>
   )

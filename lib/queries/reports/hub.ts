@@ -10,18 +10,19 @@ import type { PeriodRange } from '@/lib/reports/types'
  */
 
 export interface HubTotals {
-  total_revenue:  number
-  room_revenue:   number
-  extras_revenue: number
-  booking_count:  number
-  total_expenses: number
-  net:            number
+  total_revenue:       number
+  room_revenue:        number
+  extras_revenue:      number
+  coffee_shop_revenue: number
+  booking_count:       number
+  total_expenses:      number
+  net:                 number
   // occupancy is daily averaged across the period
   avg_occupancy_pct: number | null
   total_rooms:       number | null
 }
 
-interface MonthlyIncomeRow  { month: string; room_revenue: number; extras_revenue: number; total_revenue: number; booking_count: number }
+interface MonthlyIncomeRow  { month: string; room_revenue: number; extras_revenue: number; coffee_shop_revenue?: number; total_revenue: number; booking_count: number }
 interface MonthlyExpenseRow { month: string; total_expenses: number; expense_count: number }
 interface DailyOccupancyRow { date: string;  rooms_occupied: number; total_rooms: number; occupancy_pct: number | null }
 
@@ -40,11 +41,12 @@ async function fetchHubTotalsRaw(period: PeriodRange): Promise<HubTotals> {
   const expense = (expenseRows ?? []) as MonthlyExpenseRow[]
   const occ     = (occRows     ?? []) as DailyOccupancyRow[]
 
-  const total_revenue   = income.reduce((s, r) => s + Number(r.total_revenue),  0)
-  const room_revenue    = income.reduce((s, r) => s + Number(r.room_revenue),   0)
-  const extras_revenue  = income.reduce((s, r) => s + Number(r.extras_revenue), 0)
-  const booking_count   = income.reduce((s, r) => s + Number(r.booking_count),  0)
-  const total_expenses  = expense.reduce((s, r) => s + Number(r.total_expenses), 0)
+  const total_revenue        = income.reduce((s, r) => s + Number(r.total_revenue),  0)
+  const room_revenue         = income.reduce((s, r) => s + Number(r.room_revenue),   0)
+  const extras_revenue       = income.reduce((s, r) => s + Number(r.extras_revenue), 0)
+  const coffee_shop_revenue  = income.reduce((s, r) => s + Number(r.coffee_shop_revenue ?? 0), 0)
+  const booking_count        = income.reduce((s, r) => s + Number(r.booking_count),  0)
+  const total_expenses       = expense.reduce((s, r) => s + Number(r.total_expenses), 0)
 
   const total_rooms = occ.length > 0 ? Number(occ[0].total_rooms) : null
   const occPctSum   = occ.reduce((s, r) => s + Number(r.occupancy_pct ?? 0), 0)
@@ -54,6 +56,7 @@ async function fetchHubTotalsRaw(period: PeriodRange): Promise<HubTotals> {
     total_revenue,
     room_revenue,
     extras_revenue,
+    coffee_shop_revenue,
     booking_count,
     total_expenses,
     net: total_revenue - total_expenses,
