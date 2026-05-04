@@ -487,7 +487,7 @@ export type SalesEmployee = Pick<EmployeeRow,
 // ─── Auth & Roles ────────────────────────────────────────────────────────────
 
 export type RoleSlug       = 'admin' | 'manager' | 'front_desk' | 'accountant'
-export type ModuleSlug     = 'bookings' | 'checkout' | 'expenses' | 'hr' | 'reports' | 'settings' | 'availability' | 'attendance'
+export type ModuleSlug     = 'bookings' | 'checkout' | 'expenses' | 'hr' | 'reports' | 'settings' | 'availability' | 'attendance' | 'coffee_shop'
 export type PermissionLevel = 'none' | 'read' | 'write'
 
 export interface RoleRow {
@@ -561,6 +561,10 @@ export interface ChargeItemRow {
   default_price: number
   description: string | null
   is_active: boolean
+  /** Visible in the Coffee Shop POS picker. Default true. */
+  is_available_in_coffee_shop: boolean
+  /** Selectable as an extra to add to a guest booking via Add Charge. Default true. */
+  is_available_as_room_extra: boolean
   display_order: number
   created_at: string
   updated_at: string

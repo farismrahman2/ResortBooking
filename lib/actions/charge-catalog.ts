@@ -181,3 +181,45 @@ export async function toggleChargeItemActive(id: string): Promise<ActionResult> 
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }
 }
+
+/** Flip whether a catalog item is shown in the Coffee Shop POS picker. */
+export async function toggleChargeItemCoffeeShop(id: string): Promise<ActionResult> {
+  try {
+    await requirePermission('settings', 'write')
+    const supabase = createClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = supabase as any
+    const { data: cur } = await db.from('charge_items').select('is_available_in_coffee_shop').eq('id', id).single()
+    if (!cur) return { success: false, error: 'Item not found' }
+    const next = !cur.is_available_in_coffee_shop
+    const { error } = await db.from('charge_items').update({ is_available_in_coffee_shop: next }).eq('id', id)
+    if (error) return { success: false, error: error.message }
+    await logHistory(id, 'edited', 'charge_item_coffee_shop_toggled', { is_available_in_coffee_shop: next })
+    revalidateTag('charge-catalog')
+    revalidatePath('/settings/charge-catalog')
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/** Flip whether a catalog item can be added as a guest's room extra. */
+export async function toggleChargeItemRoomExtra(id: string): Promise<ActionResult> {
+  try {
+    await requirePermission('settings', 'write')
+    const supabase = createClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = supabase as any
+    const { data: cur } = await db.from('charge_items').select('is_available_as_room_extra').eq('id', id).single()
+    if (!cur) return { success: false, error: 'Item not found' }
+    const next = !cur.is_available_as_room_extra
+    const { error } = await db.from('charge_items').update({ is_available_as_room_extra: next }).eq('id', id)
+    if (error) return { success: false, error: error.message }
+    await logHistory(id, 'edited', 'charge_item_room_extra_toggled', { is_available_as_room_extra: next })
+    revalidateTag('charge-catalog')
+    revalidatePath('/settings/charge-catalog')
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}

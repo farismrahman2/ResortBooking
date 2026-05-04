@@ -7,12 +7,13 @@ import { createMiddlewareClient } from '@/lib/supabase/middleware'
  * before `/hr` so front_desk users (who have `attendance` but not `hr`) don't
  * get 403'd on the attendance page.
  */
-const MODULE_PREFIX: Array<{ prefix: string; module: 'bookings' | 'checkout' | 'expenses' | 'hr' | 'reports' | 'settings' | 'availability' | 'attendance' }> = [
+const MODULE_PREFIX: Array<{ prefix: string; module: 'bookings' | 'checkout' | 'expenses' | 'hr' | 'reports' | 'settings' | 'availability' | 'attendance' | 'coffee_shop' }> = [
   { prefix: '/bookings',      module: 'bookings'     },
   { prefix: '/quotes',        module: 'bookings'     },   // quotes live under the bookings module
   { prefix: '/packages',      module: 'bookings'     },   // packages too — operational/booking-side
   { prefix: '/availability',  module: 'availability' },
   { prefix: '/checkout',      module: 'checkout'     },
+  { prefix: '/coffee-shop',   module: 'coffee_shop'  },
   { prefix: '/expenses',      module: 'expenses'     },
   { prefix: '/hr/attendance', module: 'attendance'   },   // MUST precede /hr — sub-permission
   { prefix: '/hr',            module: 'hr'           },
