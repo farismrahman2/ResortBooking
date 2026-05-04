@@ -257,22 +257,26 @@ export async function bulkMarkAttendance(
     if (upErr) return { success: false, error: upErr.message }
 
     // 3. Reconcile leave balances only for rows that actually moved in/out of
-    //    paid_leave or changed leave type
-    for (const e of parsed.entries) {
-      const prev = prevByEmp.get(e.employee_id)
-      const wasPaid = prev?.status === 'paid_leave' && !!prev?.leave_type_id
-      const nowPaid = e.status === 'paid_leave' && !!e.leave_type_id
-      if (!wasPaid && !nowPaid) continue
-      if (wasPaid && nowPaid && prev?.leave_type_id === e.leave_type_id) continue
-      await syncLeaveBalanceUsage({
-        employeeId:    e.employee_id,
-        date:          parsed.date,
-        prevStatus:    prev?.status ?? null,
-        prevLeaveType: prev?.leave_type_id ?? null,
-        nextStatus:    e.status,
-        nextLeaveType: e.leave_type_id ?? null,
+    //    paid_leave or changed leave type. Each row is independent (different
+    //    employee or different leave_type), so run them concurrently.
+    const balanceTasks = parsed.entries
+      .map((e) => {
+        const prev = prevByEmp.get(e.employee_id)
+        const wasPaid = prev?.status === 'paid_leave' && !!prev?.leave_type_id
+        const nowPaid = e.status === 'paid_leave' && !!e.leave_type_id
+        if (!wasPaid && !nowPaid) return null
+        if (wasPaid && nowPaid && prev?.leave_type_id === e.leave_type_id) return null
+        return syncLeaveBalanceUsage({
+          employeeId:    e.employee_id,
+          date:          parsed.date,
+          prevStatus:    prev?.status ?? null,
+          prevLeaveType: prev?.leave_type_id ?? null,
+          nextStatus:    e.status,
+          nextLeaveType: e.leave_type_id ?? null,
+        })
       })
-    }
+      .filter((t): t is Promise<void> => t !== null)
+    await Promise.all(balanceTasks)
 
     // 4. One audit entry for the whole batch
     await logHistory(parsed.entries[0].employee_id, 'edited', 'attendance_bulk_marked', {
