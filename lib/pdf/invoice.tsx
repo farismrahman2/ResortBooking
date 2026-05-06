@@ -270,8 +270,34 @@ export function Invoice({
           </View>
         </View>
 
+        {/* Booking breakdown — calculator line items frozen at conversion */}
+        {booking.line_items && booking.line_items.length > 0 && (
+          <>
+            <Text style={[styles.blockLabel, { marginTop: 6 }]}>Booking breakdown</Text>
+            <View style={styles.table}>
+              <View style={styles.tableHeader}>
+                <Text style={[styles.colDesc, { flex: 3 }]}>Description</Text>
+                <Text style={styles.colQty}>Qty</Text>
+                <Text style={styles.colPrice}>Unit</Text>
+                <Text style={styles.colAmt}>Amount</Text>
+              </View>
+              {booking.line_items.map((li, i) => (
+                <View key={i} style={styles.tableRow}>
+                  <Text style={[styles.colDesc, { flex: 3 }]}>{li.label}</Text>
+                  <Text style={styles.colQty}>{Number(li.qty)}</Text>
+                  <Text style={styles.colPrice}>
+                    {bdt(Number(li.unit_price))}
+                    {li.nights ? ` × ${li.nights}n` : ''}
+                  </Text>
+                  <Text style={styles.colAmt}>{bdt(Number(li.subtotal))}</Text>
+                </View>
+              ))}
+            </View>
+          </>
+        )}
+
         {/* Charges table */}
-        <Text style={[styles.blockLabel, { marginTop: 6 }]}>Charges</Text>
+        <Text style={[styles.blockLabel, { marginTop: 6 }]}>Charges (added during stay)</Text>
         <View style={styles.table}>
           <View style={styles.tableHeader}>
             <Text style={styles.colDate}>Date</Text>
