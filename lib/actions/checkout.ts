@@ -134,7 +134,7 @@ export async function finalizeCheckout(
 
     const { data: checkout } = await db
       .from('checkouts')
-      .select('id, status, booking_id')
+      .select('id, status, booking_id, discount_amount')
       .eq('id', checkoutId)
       .maybeSingle()
     if (!checkout) return { success: false, error: 'Checkout not found' }
@@ -154,14 +154,25 @@ export async function finalizeCheckout(
     const { data: payments } = await db
       .from('checkout_payments').select('amount').eq('checkout_id', checkoutId)
 
-    const bookingTotal  = Number(booking.total ?? 0)
-    const advance       = Number(booking.advance_paid ?? 0)
-    const chargesTotal  = calcChargesTotal((charges ?? []) as any[])
-    const paymentsTotal = calcPaymentsTotal((payments ?? []) as any[])
-    // Net due = (booking total + extra charges) − (advance + at-checkout payments)
-    const netDue        = Math.round(
-      (bookingTotal + chargesTotal - advance - paymentsTotal) * 100,
+    const bookingTotal   = Number(booking.total ?? 0)
+    const advance        = Number(booking.advance_paid ?? 0)
+    const chargesTotal   = calcChargesTotal((charges ?? []) as any[])
+    const paymentsTotal  = calcPaymentsTotal((payments ?? []) as any[])
+    const discountAmount = Number(checkout.discount_amount ?? 0)
+    // Net due includes the discount: (bookingTotal + chargesTotal − discount) − (advance + payments)
+    const netDue = Math.round(
+      (bookingTotal + chargesTotal - discountAmount - advance - paymentsTotal) * 100,
     ) / 100
+
+    // Hard guard: don't finalize while the guest still owes money. Refund-due
+    // (netDue < 0) is allowed through — the operator records the payout via
+    // the existing Refund Payout flow after finalize.
+    if (netDue > 0.01) {
+      return {
+        success: false,
+        error: `Cannot finalize — guest still owes ৳${netDue.toLocaleString('en-IN')}. Record a payment to settle the balance first.`,
+      }
+    }
 
     const { error: updErr } = await db
       .from('checkouts')
@@ -263,6 +274,64 @@ export async function voidCheckout(
       summary:     `Checkout voided — ${parsed.reason}`,
       payload:     { booking_id: checkout.booking_id, reason: parsed.reason, refund_expense_id: checkout.refund_expense_id },
       created_by:  ctx?.user_id ?? null,
+    })
+
+    revalidatePath(`/checkout/${checkout.booking_id}`)
+    revalidatePath(`/bookings/${checkout.booking_id}`)
+    revalidatePath('/checkout')
+    revalidatePath('/settings/audit-log')
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+// ─── Reopen a finalized checkout (admin only) ────────────────────────────────
+
+/**
+ * Flip a finalized checkout back to draft so an admin can edit charges,
+ * payments, discount, or guest count and re-finalize. Reverts the booking
+ * status from `checked_out` back to `confirmed` so the operational state
+ * matches the bill state.
+ *
+ * Refund payouts and audit alerts that reference this checkout are NOT
+ * rolled back — surface them in the next finalize for the admin to decide.
+ */
+export async function reopenCheckout(checkoutId: string): Promise<ActionResult> {
+  try {
+    await requirePermission('checkout', 'write')
+    if (!(await isAdmin())) {
+      return { success: false, error: 'Only an admin can reopen a finalized checkout.' }
+    }
+    const supabase = createClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = supabase as any
+    const { data: checkout } = await db
+      .from('checkouts')
+      .select('id, status, booking_id')
+      .eq('id', checkoutId)
+      .maybeSingle()
+    if (!checkout) return { success: false, error: 'Checkout not found' }
+    if (checkout.status !== 'finalized') {
+      return { success: false, error: `Cannot reopen — checkout is ${checkout.status}.` }
+    }
+
+    const { error: updErr } = await db
+      .from('checkouts')
+      .update({ status: 'draft', finalized_at: null, finalized_by: null })
+      .eq('id', checkoutId)
+    if (updErr) return { success: false, error: updErr.message }
+
+    // Revert the booking back to confirmed so it doesn't read as checked_out
+    // while the bill is being amended.
+    const { error: bookErr } = await db
+      .from('bookings')
+      .update({ status: 'confirmed' })
+      .eq('id', checkout.booking_id)
+    if (bookErr) console.warn(`[reopen] booking status revert failed: ${bookErr.message}`)
+
+    await logHistory(checkoutId, 'edited', 'checkout_reopened', {
+      booking_id: checkout.booking_id,
     })
 
     revalidatePath(`/checkout/${checkout.booking_id}`)

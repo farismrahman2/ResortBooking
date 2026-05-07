@@ -8,8 +8,8 @@ import { Textarea } from '@/components/ui/Textarea'
 import { NumberInput } from '@/components/ui/NumberInput'
 import { Select } from '@/components/ui/Select'
 import { Input } from '@/components/ui/Input'
-import { AlertCircle, AlertTriangle, CheckCircle2, FileDown, RotateCcw } from 'lucide-react'
-import { finalizeCheckout, voidCheckout, recordRefund } from '@/lib/actions/checkout'
+import { AlertCircle, AlertTriangle, CheckCircle2, FileDown, RotateCcw, Unlock } from 'lucide-react'
+import { finalizeCheckout, voidCheckout, recordRefund, reopenCheckout } from '@/lib/actions/checkout'
 import { formatBDT } from '@/lib/formatters/currency'
 import { CHECKOUT_PAYMENT_METHOD_OPTIONS } from '@/components/checkout/labels'
 import type { CheckoutPaymentMethod, CheckoutWithFull } from '@/lib/supabase/types'
@@ -70,6 +70,16 @@ export function FinalizeAndVoid({ checkout, totals, isAdmin, canWrite }: Props) 
     })
   }
 
+  function handleReopen() {
+    if (!window.confirm('Reopen this finalized checkout for editing? The booking will revert from "checked out" to "confirmed" while you amend the bill.')) return
+    setError(null)
+    startTransition(async () => {
+      const r = await reopenCheckout(checkout.id)
+      if (!r.success) { setError(r.error); return }
+      router.refresh()
+    })
+  }
+
   function handleRefund() {
     setError(null)
     startTransition(async () => {
@@ -98,8 +108,20 @@ export function FinalizeAndVoid({ checkout, totals, isAdmin, canWrite }: Props) 
         </a>
 
         {canWrite && isDraft && (
-          <Button variant="primary" size="md" onClick={() => setFinalizeOpen(true)}>
+          <Button
+            variant="primary"
+            size="md"
+            onClick={() => setFinalizeOpen(true)}
+            disabled={totals.netDue > 0.01}
+            title={totals.netDue > 0.01 ? `Settle the ৳${totals.netDue.toLocaleString('en-IN')} balance first` : undefined}
+          >
             <CheckCircle2 size={14} /> Finalize Checkout
+          </Button>
+        )}
+
+        {isAdmin && isFinalized && (
+          <Button variant="outline" size="md" onClick={handleReopen} className="gap-1.5">
+            <Unlock size={14} /> Reopen for editing
           </Button>
         )}
 
@@ -128,8 +150,17 @@ export function FinalizeAndVoid({ checkout, totals, isAdmin, canWrite }: Props) 
         <div className="space-y-3">
           <p className="text-sm text-gray-700">
             This will lock all charges & payments, mark the booking as <strong>checked out</strong>,
-            and snapshot the totals. Partial settlement is allowed — outstanding balance stays visible.
+            and snapshot the totals. Finalization is only allowed when the guest has no outstanding due
+            (refunds owed to the guest get recorded after finalize via the Refund Payout button).
           </p>
+          {totals.netDue > 0.01 && (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              <AlertTriangle size={14} className="mt-0.5 flex-shrink-0" />
+              <span>
+                Guest still owes <strong>{formatBDT(totals.netDue)}</strong>. Record a payment to settle the balance, then come back here to finalize.
+              </span>
+            </div>
+          )}
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-1 text-sm">
             <Row label="Booking Total" value={formatBDT(totals.bookingTotal)} />
             {totals.chargesTotal > 0 && (
@@ -154,7 +185,7 @@ export function FinalizeAndVoid({ checkout, totals, isAdmin, canWrite }: Props) 
           )}
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="outline" size="md" onClick={() => setFinalizeOpen(false)}>Cancel</Button>
-            <Button variant="primary" size="md" loading={pending} onClick={handleFinalize}>
+            <Button variant="primary" size="md" loading={pending} onClick={handleFinalize} disabled={totals.netDue > 0.01}>
               Confirm Finalize
             </Button>
           </div>
