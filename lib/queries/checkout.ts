@@ -189,13 +189,15 @@ export async function listCheckoutCandidates(opts: {
 
   const rows: CheckoutListRow[] = (bookings ?? []).map((b: any) => {
     const c = checkoutsByBooking.get(b.id) ?? null
-    // Override DB-generated net_due with the corrected formula that includes booking.total.
-    // For drafts, advance_amount may not be snapshotted yet → use the live advance_paid.
+    // Override DB-generated net_due with the corrected formula that includes
+    // booking.total AND the discount. For drafts, advance_amount may not be
+    // snapshotted yet → use the live advance_paid. Mirrors lib/checkout/totals.ts::calcNetDue.
     if (c) {
-      const bookingTotal = Number(b.total ?? 0)
-      const advance = c.status === 'finalized' ? c.advance_amount : Number(b.advance_paid ?? 0)
+      const bookingTotal   = Number(b.total ?? 0)
+      const advance        = c.status === 'finalized' ? c.advance_amount : Number(b.advance_paid ?? 0)
+      const discountAmount = Number(c.discount_amount ?? 0)
       c.net_due = Math.round(
-        (bookingTotal + c.charges_total - advance - c.payments_total) * 100,
+        (bookingTotal + c.charges_total - discountAmount - advance - c.payments_total) * 100,
       ) / 100
     }
     return {
