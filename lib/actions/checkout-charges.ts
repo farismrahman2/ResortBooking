@@ -53,7 +53,6 @@ export async function getOrCreateDraftCheckout(
       .single()
     if (error || !data) return { success: false, error: error?.message ?? 'Insert failed' }
     revalidatePath(`/checkout/${bookingId}`)
-    revalidatePath(`/bookings/${bookingId}`)
     return { success: true, data: data as any }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
@@ -115,9 +114,10 @@ export async function addCharge(input: unknown): Promise<ActionData<{ id: string
       amount:      parsed.quantity * parsed.unit_price,
     })
 
-    revalidatePath(`/bookings/${parsed.booking_id}`)
+    // Only revalidate the detail page the user is on. The list page
+    // (/checkout) refreshes on next nav — keeping it cached avoids a
+    // second route invalidation per click.
     revalidatePath(`/checkout/${parsed.booking_id}`)
-    revalidatePath('/checkout')
     return { success: true, data: { id: data.id } }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
@@ -158,8 +158,6 @@ export async function updateCharge(chargeId: string, input: unknown): Promise<Ac
       booking_id: charge.checkout.booking_id,
       charge_id:  chargeId,
     })
-
-    revalidatePath(`/bookings/${charge.checkout.booking_id}`)
     revalidatePath(`/checkout/${charge.checkout.booking_id}`)
     return { success: true }
   } catch (err) {
@@ -191,8 +189,6 @@ export async function removeCharge(chargeId: string): Promise<ActionResult> {
       booking_id: charge.checkout.booking_id,
       charge_id:  chargeId,
     })
-
-    revalidatePath(`/bookings/${charge.checkout.booking_id}`)
     revalidatePath(`/checkout/${charge.checkout.booking_id}`)
     return { success: true }
   } catch (err) {

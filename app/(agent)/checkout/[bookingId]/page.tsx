@@ -12,12 +12,7 @@ import { GuestCountAdjustButton } from '@/components/checkout/GuestCountAdjustBu
 import { StartCheckoutButton } from '@/components/checkout/StartCheckoutButton'
 import { BookingChargesTab } from '@/components/checkout/BookingChargesTab'
 import { CHECKOUT_STATUS_BADGE, CHECKOUT_STATUS_LABELS } from '@/components/checkout/labels'
-import { getBookingById } from '@/lib/queries/bookings'
-import {
-  getCheckoutByBooking,
-  getChargesByCheckout,
-  getPaymentsByCheckout,
-} from '@/lib/queries/checkout'
+import { getBookingDetailWithCheckout } from '@/lib/queries/checkout'
 import { calcChargesTotal, calcPaymentsTotal, calcNetDue } from '@/lib/checkout/totals'
 import { getExtraGuestUnitPrice } from '@/lib/checkout/extras-pricing'
 import {
@@ -36,14 +31,17 @@ interface PageProps {
 }
 
 export default async function CheckoutDetailPage({ params }: PageProps) {
-  await requirePermission('checkout', 'read')
-
-  const [booking, canWrite, isAdmin, ctx] = await Promise.all([
-    getBookingById(params.bookingId),
+  // Single nested-select pulls booking + checkout + charges + payments in
+  // one DB round-trip; permission checks ride along on the cached
+  // getCurrentUserContext.
+  const [bundle, canWrite, isAdmin, ctx] = await Promise.all([
+    getBookingDetailWithCheckout(params.bookingId).catch(() => null),
     hasPermission('checkout', 'write'),
     checkAdmin(),
     getCurrentUserContext(),
   ])
+  await requirePermission('checkout', 'read')
+  const booking = bundle?.booking
   if (!booking) notFound()
 
   // Front desk is scoped to bookings within today − 3 days through today + 2
@@ -56,21 +54,12 @@ export default async function CheckoutDetailPage({ params }: PageProps) {
     }
   }
 
-  let migrationError: string | null = null
-  let checkout: Awaited<ReturnType<typeof getCheckoutByBooking>> = null
-  let charges: Awaited<ReturnType<typeof getChargesByCheckout>> = []
-  let payments: Awaited<ReturnType<typeof getPaymentsByCheckout>> = []
-  try {
-    checkout = await getCheckoutByBooking(booking.id)
-    if (checkout) {
-      [charges, payments] = await Promise.all([
-        getChargesByCheckout(checkout.id),
-        getPaymentsByCheckout(checkout.id),
-      ])
-    }
-  } catch (err) {
-    migrationError = err instanceof Error ? err.message : String(err)
-  }
+  // bundle is null only when the checkout migration hasn't been applied
+  // (the nested select fails silently via .catch). Show the migration banner.
+  const migrationError: string | null = bundle ? null : 'Checkout tables missing — apply migrations/checkout-module/000_create_checkout_tables.sql.'
+  const checkout = bundle?.checkout ?? null
+  const charges  = bundle?.charges  ?? []
+  const payments = bundle?.payments ?? []
 
   const bookingTotal   = Number(booking.total)
   const advance        = Number(booking.advance_paid)

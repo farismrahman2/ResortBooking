@@ -5,6 +5,7 @@ import type {
   CheckoutChargeWithRefs,
   CheckoutPaymentRow,
   BookingRow,
+  BookingWithRooms,
   CheckoutStatus,
 } from '@/lib/supabase/types'
 
@@ -30,6 +31,66 @@ function coerceCharge(r: any): CheckoutChargeWithRefs {
 
 function coercePayment(r: any): CheckoutPaymentRow {
   return { ...r, amount: Number(r.amount ?? 0) }
+}
+
+/**
+ * Single-round-trip data fetch for `/checkout/[bookingId]`. Pulls booking
+ * (full row including jsonb), booking_rooms, checkout (if any), checkout
+ * charges (with category + item refs), and payments — all in one nested
+ * Supabase query.
+ *
+ * Replaces the previous chain of getBookingById → getCheckoutByBooking →
+ * Promise.all([charges, payments]) which was 3 sequential round-trips.
+ */
+export async function getBookingDetailWithCheckout(bookingId: string): Promise<{
+  booking:  BookingWithRooms
+  checkout: CheckoutRow | null
+  charges:  CheckoutChargeWithRefs[]
+  payments: CheckoutPaymentRow[]
+} | null> {
+  const supabase = createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any
+  const { data, error } = await db
+    .from('bookings')
+    .select(`
+      *,
+      booking_rooms(*),
+      checkouts (
+        *,
+        charges:checkout_charges (
+          *,
+          category:charge_categories!inner (id, slug, display_name),
+          charge_item:charge_items (id, name)
+        ),
+        payments:checkout_payments (*)
+      )
+    `)
+    .eq('id', bookingId)
+    .maybeSingle()
+  if (error) throw new Error(`getBookingDetailWithCheckout: ${error.message}`)
+  if (!data) return null
+
+  const { checkouts, ...bookingFields } = data as any  // eslint-disable-line @typescript-eslint/no-explicit-any
+  // checkouts comes back as an array (1:N relationship on bookings → checkouts).
+  // There's a UNIQUE constraint on booking_id so it's effectively 0–1 rows.
+  const checkoutRaw: any = Array.isArray(checkouts) ? checkouts[0] ?? null : checkouts ?? null  // eslint-disable-line @typescript-eslint/no-explicit-any
+  const booking: BookingWithRooms = { ...bookingFields, rooms: bookingFields.booking_rooms ?? [] }
+
+  if (!checkoutRaw) {
+    return { booking, checkout: null, charges: [], payments: [] }
+  }
+  const charges  = (checkoutRaw.charges ?? []) as any[]   // eslint-disable-line @typescript-eslint/no-explicit-any
+  const payments = (checkoutRaw.payments ?? []) as any[]  // eslint-disable-line @typescript-eslint/no-explicit-any
+  // Sort to match the previous order (added_at / paid_at ascending)
+  charges.sort((a, b) => (a.added_at ?? '').localeCompare(b.added_at ?? ''))
+  payments.sort((a, b) => (a.paid_at ?? '').localeCompare(b.paid_at ?? ''))
+  return {
+    booking,
+    checkout: coerceCheckout(checkoutRaw),
+    charges:  charges.map(coerceCharge),
+    payments: payments.map(coercePayment),
+  }
 }
 
 export async function getCheckoutByBooking(bookingId: string): Promise<CheckoutRow | null> {

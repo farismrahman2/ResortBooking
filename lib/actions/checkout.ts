@@ -80,7 +80,6 @@ export async function addPayment(
     })
 
     revalidatePath(`/checkout/${checkout.booking_id}`)
-    revalidatePath(`/bookings/${checkout.booking_id}`)
     return { success: true, data: { id: data.id } }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
@@ -113,7 +112,6 @@ export async function removePayment(paymentId: string): Promise<ActionResult> {
     })
 
     revalidatePath(`/checkout/${payment.checkout.booking_id}`)
-    revalidatePath(`/bookings/${payment.checkout.booking_id}`)
     return { success: true }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
@@ -204,7 +202,6 @@ export async function finalizeCheckout(
     })
 
     revalidatePath(`/checkout/${booking.id}`)
-    revalidatePath(`/bookings/${booking.id}`)
     revalidatePath('/checkout')
     revalidatePath('/bookings')
     return { success: true, data: { booking_id: booking.id, net_due: netDue } }
@@ -277,7 +274,6 @@ export async function voidCheckout(
     })
 
     revalidatePath(`/checkout/${checkout.booking_id}`)
-    revalidatePath(`/bookings/${checkout.booking_id}`)
     revalidatePath('/checkout')
     revalidatePath('/settings/audit-log')
     return { success: true }
@@ -335,7 +331,6 @@ export async function reopenCheckout(checkoutId: string): Promise<ActionResult> 
     })
 
     revalidatePath(`/checkout/${checkout.booking_id}`)
-    revalidatePath(`/bookings/${checkout.booking_id}`)
     revalidatePath('/checkout')
     revalidatePath('/settings/audit-log')
     return { success: true }
