@@ -80,7 +80,11 @@ export async function getUpcomingBookings(limit = 5): Promise<BookingWithRooms[]
   return getBookings({ status: 'confirmed', from_date: today, limit })
 }
 
-/** Get booking total revenue (for dashboard) */
+/** Get booking total revenue (for dashboard).
+ *  `pending_advance` correctly accounts for checkout-time payments + checkout
+ *  discounts via the same per-booking math as `lib/checkout/totals.ts::calcNetDue`,
+ *  rather than summing the DB-generated `bookings.remaining` (which is just
+ *  `total - advance_paid` and doesn't see checkout payments). */
 export async function getBookingStats(): Promise<{
   total_bookings: number
   total_revenue: number
@@ -89,12 +93,29 @@ export async function getBookingStats(): Promise<{
   const supabase = createClient()
   const { data } = await supabase
     .from('bookings')
-    .select('total, remaining')
+    .select(`
+      total, advance_paid,
+      checkout:checkouts (
+        status, discount_amount,
+        payments:checkout_payments (amount)
+      )
+    `)
     .neq('status', 'cancelled')
 
   const total_bookings = data?.length ?? 0
-  const total_revenue = data?.reduce((sum, b) => sum + (b.total ?? 0), 0) ?? 0
-  const pending_advance = data?.reduce((sum, b) => sum + (b.remaining ?? 0), 0) ?? 0
+  let total_revenue = 0
+  let pending_advance = 0
+  for (const row of (data ?? []) as any[]) {  // eslint-disable-line @typescript-eslint/no-explicit-any
+    total_revenue += Number(row.total ?? 0)
+    const advance     = Number(row.advance_paid ?? 0)
+    const co          = Array.isArray(row.checkout) ? row.checkout[0] : row.checkout
+    const isFinal     = co?.status === 'finalized'
+    const coDiscount  = isFinal ? Number(co.discount_amount ?? 0) : 0
+    const coPayments  = isFinal
+      ? ((co.payments ?? []) as Array<{ amount: number }>).reduce((s, p) => s + Number(p.amount ?? 0), 0)
+      : 0
+    pending_advance += Math.max(0, Number(row.total ?? 0) - coDiscount - advance - coPayments)
+  }
   return { total_bookings, total_revenue, pending_advance }
 }
 
