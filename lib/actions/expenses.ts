@@ -301,7 +301,11 @@ export async function createPayee(input: unknown): Promise<ActionData<{ id: stri
     if (error || !data) return { success: false, error: error?.message ?? 'Insert failed' }
 
     await logHistory(data.id, 'created', 'payee_created', { name: parsed.name })
+    // Invalidate every page that lists payees so the dropdown refreshes
+    // after the modal closes (admin page + entry forms).
     revalidatePath('/expenses/payees')
+    revalidatePath('/expenses/new')
+    revalidatePath('/expenses/bulk')
     return { success: true, data: { id: data.id } }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
