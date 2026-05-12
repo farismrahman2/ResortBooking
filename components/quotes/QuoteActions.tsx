@@ -96,6 +96,17 @@ export function QuoteActions({ quote, bookingId }: QuoteActionsProps) {
       pending={loading === 'convert'}
     />
     <div className="flex flex-wrap items-center gap-2">
+      {/* Always available: download a fresh draft-preview PDF. Opens in
+          a new tab; users hit it again to refresh after edits. */}
+      <a
+        href={`/api/quotes/${quote.id}/pdf`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+      >
+        Download PDF
+      </a>
+
       {/* DRAFT → edit, mark as sent, delete */}
       {status === 'draft' && (
         <>

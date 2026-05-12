@@ -119,7 +119,15 @@ export default async function BookingDetailPage({ params }: PageProps) {
           <span className="text-xs text-gray-500">
             Created {formatDate(booking.created_at.slice(0, 10))}
           </span>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
+            <a
+              href={`/api/bookings/${booking.id}/pdf`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              Download PDF
+            </a>
             <Link
               href={`/bookings/${booking.id}/print`}
               className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"
