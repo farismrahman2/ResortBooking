@@ -1032,10 +1032,16 @@ function WhatsAppPreview({
     .map((r) => `${r.display_name} × ${r.qty}: Complimentary`)
     .join('\n')
 
+  // Show qty × unit_price = subtotal so the recipient can audit the math.
+  // Single-unit lines (qty=1, no nights) collapse to just the label + total.
   const pricingLines = calcResult.line_items
     .map((item) => {
-      const ns = item.nights ? ` × ${item.nights}N` : ''
-      return `  ${item.label}${ns}: ${formatBDT(item.subtotal)}`
+      const nightSuffix = item.nights ? ` × ${item.nights}N` : ''
+      const showBreakdown = item.qty > 1 || item.nights
+      const right = formatBDT(item.subtotal)
+      if (!showBreakdown) return `  ${item.label}: ${right}`
+      const factors = `${item.qty} × ${formatBDT(item.unit_price)}${nightSuffix}`
+      return `  ${item.label}: ${factors} = ${right}`
     })
     .join('\n')
 
