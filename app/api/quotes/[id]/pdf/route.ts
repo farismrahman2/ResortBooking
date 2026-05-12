@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { renderToBuffer } from '@react-pdf/renderer'
-import { getQuoteById } from '@/lib/queries/quotes'
+import { getEffectiveQuoteForDisplay } from '@/lib/queries/quotes'
 import { getSettings, getRoomInventory } from '@/lib/queries/settings'
 import { hasPermission } from '@/lib/auth/permissions'
 import { QuotationPdfDocument } from '@/lib/pdf/quotation'
@@ -20,7 +20,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   }
 
   const [quote, settings, inventory] = await Promise.all([
-    getQuoteById(params.id),
+    getEffectiveQuoteForDisplay(params.id),
     getSettings(),
     getRoomInventory(),
   ])
