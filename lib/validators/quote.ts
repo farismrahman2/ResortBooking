@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { ROOM_NUMBERS } from '@/lib/config/rooms'
+import type { RoomType } from '@/lib/supabase/types'
 
 export const ExtraItemSchema = z.object({
   label:      z.string().min(1, 'Item name is required'),
@@ -13,6 +15,23 @@ const RoomSelectionSchema = z.object({
   unit_price:   z.number().int().min(0),
   room_numbers: z.array(z.string()).default([]),
 })
+
+/** Returns a message for the first room row whose picked room_numbers don't
+ *  match its qty, or null if every row is fine. Room types with no fixed
+ *  numbers in ROOM_NUMBERS (e.g. tree_house) are skipped. */
+export function findUnassignedRoomNumbersError(
+  rooms: { room_type: string; display_name?: string; qty: number; room_numbers: string[] }[],
+): string | null {
+  for (const r of rooms) {
+    const fixed = ROOM_NUMBERS[r.room_type as RoomType] ?? []
+    if (fixed.length === 0) continue
+    if (r.room_numbers.length !== r.qty) {
+      const name = r.display_name ?? r.room_type.replace(/_/g, ' ')
+      return `Pick ${r.qty} room number${r.qty > 1 ? 's' : ''} for ${name} (picked ${r.room_numbers.length}).`
+    }
+  }
+  return null
+}
 
 const BaseQuoteSchema = z.object({
   // Customer
@@ -82,6 +101,23 @@ export const CreateQuoteSchema = BaseQuoteSchema
     },
     { message: 'Tree House is available for daylong bookings only', path: ['rooms'] },
   )
+  .superRefine((data, ctx) => {
+    // Every selected room type with fixed room numbers must have exactly qty
+    // specific room numbers picked. Prevents "ghost" rooms where the booking
+    // has a room type but no physical room assigned.
+    data.rooms.forEach((r, idx) => {
+      const fixed = ROOM_NUMBERS[r.room_type as RoomType] ?? []
+      if (fixed.length === 0) return
+      if (r.room_numbers.length !== r.qty) {
+        const name = r.display_name ?? r.room_type.replace(/_/g, ' ')
+        ctx.addIssue({
+          code:    z.ZodIssueCode.custom,
+          path:    ['rooms', idx, 'room_numbers'],
+          message: `Pick ${r.qty} room number${r.qty > 1 ? 's' : ''} for ${name} (picked ${r.room_numbers.length}).`,
+        })
+      }
+    })
+  })
 
 export type CreateQuoteInput = z.infer<typeof CreateQuoteSchema>
 

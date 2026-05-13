@@ -9,6 +9,7 @@ import { checkAvailabilityConflict, getBookedRoomNumbers } from '@/lib/queries/a
 import { findDuplicateBookings } from '@/lib/queries/duplicate-bookings'
 import { ROOM_NUMBERS } from '@/lib/config/rooms'
 import { requirePermission } from '@/lib/auth/permissions'
+import { findUnassignedRoomNumbersError } from '@/lib/validators/quote'
 import type { ActionResult, ActionData } from './types'
 import type { RoomType, PackageType, PackageSnapshot } from '@/lib/supabase/types'
 
@@ -75,6 +76,13 @@ export async function convertQuoteToBooking(
     if (capacityErr) {
       return { success: false, error: `Cannot convert: ${capacityErr}` }
     }
+
+    // Catches legacy quotes saved before the room_numbers refine landed —
+    // they could still have a room type with no physical room picked.
+    const unassignedErr = findUnassignedRoomNumbersError(
+      ((quoteRooms ?? []) as { room_type: string; qty: number; room_numbers: string[] }[]).filter((r) => r.qty > 0),
+    )
+    if (unassignedErr) return { success: false, error: `Cannot convert: ${unassignedErr}` }
 
     // Specific room numbers — guard against the same physical rooms being
     // claimed by another booking that confirmed first.
@@ -297,6 +305,9 @@ export async function updateBooking(
     const holidayDates = await getHolidayDateStrings()
 
     const { rooms, extra_items, package_type, visit_date, check_out_date, package_snapshot, ...guestData } = input
+
+    const unassignedErr = findUnassignedRoomNumbersError(rooms.filter((r) => r.qty > 0))
+    if (unassignedErr) return { success: false, error: unassignedErr }
 
     // Recalculate totals using the frozen snapshot
     let calc
