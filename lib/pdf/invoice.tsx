@@ -195,8 +195,17 @@ export function Invoice({
     : `${fmtDate(booking.visit_date)} (Daylong)`
 
   const bookingTotal     = Number(booking.total ?? 0)
-  const bookingSubtotal  = Number(booking.subtotal ?? 0)
-  const bookingDiscount  = Number(booking.discount ?? 0)
+  // Compute the booking-level subtotal/discount from line_items rather than
+  // booking.subtotal/booking.discount. The line-items table on the invoice is
+  // what the customer can verify by hand, so anchoring the discount to its
+  // sum guarantees the math reconciles even if the stored discount field
+  // somehow drifted.
+  const lineItemsSum     = (booking.line_items ?? []).reduce(
+    (s, li) => s + Number(li.subtotal ?? 0),
+    0,
+  )
+  const bookingSubtotal  = lineItemsSum
+  const bookingDiscount  = Math.max(0, lineItemsSum - bookingTotal)
   const bookingDiscPct   = Number(booking.discount_pct ?? 0)
   const advance          = Number(checkout.advance_amount)
   const charges          = Number(checkout.charges_total)
