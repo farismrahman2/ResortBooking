@@ -194,12 +194,15 @@ export function Invoice({
     ? `${fmtDate(booking.visit_date)} → ${fmtDate(booking.check_out_date)}  (${booking.nights ?? 0} night${booking.nights === 1 ? '' : 's'})`
     : `${fmtDate(booking.visit_date)} (Daylong)`
 
-  const bookingTotal   = Number(booking.total ?? 0)
-  const advance        = Number(checkout.advance_amount)
-  const charges        = Number(checkout.charges_total)
-  const discount       = Number(checkout.discount_amount ?? 0)
-  const discountPct    = Number(checkout.discount_pct ?? 0)
-  const payments       = Number(checkout.payments_total)
+  const bookingTotal     = Number(booking.total ?? 0)
+  const bookingSubtotal  = Number(booking.subtotal ?? 0)
+  const bookingDiscount  = Number(booking.discount ?? 0)
+  const bookingDiscPct   = Number(booking.discount_pct ?? 0)
+  const advance          = Number(checkout.advance_amount)
+  const charges          = Number(checkout.charges_total)
+  const discount         = Number(checkout.discount_amount ?? 0)
+  const discountPct      = Number(checkout.discount_pct ?? 0)
+  const payments         = Number(checkout.payments_total)
   // Total bill = booking total + extras at checkout − discount
   const subtotalBefore = bookingTotal + charges
   const totalBill      = subtotalBefore - discount
@@ -328,6 +331,20 @@ export function Invoice({
 
         {/* Totals */}
         <View style={styles.totalsBlock}>
+          {bookingDiscount > 0 && (
+            <>
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>Booking Subtotal</Text>
+                <Text style={styles.totalValue}>{bdt(bookingSubtotal)}</Text>
+              </View>
+              <View style={styles.totalRow}>
+                <Text style={[styles.totalLabel, { color: '#047857' }]}>
+                  Booking Discount{bookingDiscPct > 0 ? ` (${bookingDiscPct}%)` : ''}
+                </Text>
+                <Text style={[styles.totalValue, { color: '#047857' }]}>− {bdt(bookingDiscount)}</Text>
+              </View>
+            </>
+          )}
           <View style={styles.totalRow}>
             <Text style={styles.totalLabel}>Booking Total</Text>
             <Text style={styles.totalValue}>{bdt(bookingTotal)}</Text>
@@ -341,7 +358,7 @@ export function Invoice({
           {discount > 0 && (
             <View style={styles.totalRow}>
               <Text style={[styles.totalLabel, { color: '#047857' }]}>
-                Discount{discountPct > 0 ? ` (${discountPct}%)` : ''}
+                Checkout Discount{discountPct > 0 ? ` (${discountPct}%)` : ''}
               </Text>
               <Text style={[styles.totalValue, { color: '#047857' }]}>− {bdt(discount)}</Text>
             </View>
