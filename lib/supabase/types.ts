@@ -7,6 +7,7 @@ export type RoomType =
   | 'cottage'
   | 'eco_deluxe'
   | 'deluxe'
+  | 'superior_deluxe'
   | 'premium_deluxe'
   | 'premium'
   | 'super_premium'
