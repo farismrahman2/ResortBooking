@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Download } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { AvailabilityGrid } from './AvailabilityGrid'
+import { MonthCalendar } from './MonthCalendar'
 import type { AvailabilityResult, RoomInventoryRow } from '@/lib/supabase/types'
 import type { DailyReportRow } from '@/lib/queries/daily-report'
 
@@ -88,12 +89,13 @@ export function AvailabilityCalendar({ inventory: _inventory }: AvailabilityCale
   const [error,         setError]         = useState<string | null>(null)
   const [downloading,   setDownloading]   = useState(false)
 
-  async function check() {
-    if (!selectedDate) return
+  async function check(dateOverride?: string) {
+    const date = dateOverride ?? selectedDate
+    if (!date) return
     setLoading(true)
     setError(null)
     try {
-      const params = new URLSearchParams({ date: selectedDate })
+      const params = new URLSearchParams({ date })
       if (packageType !== 'all') params.set('type', packageType)
       const res = await fetch(`/api/availability?${params}`)
       if (!res.ok) throw new Error(`Error ${res.status}: ${await res.text()}`)
@@ -105,6 +107,11 @@ export function AvailabilityCalendar({ inventory: _inventory }: AvailabilityCale
     } finally {
       setLoading(false)
     }
+  }
+
+  function handleCalendarClick(date: string) {
+    setSelectedDate(date)
+    void check(date)
   }
 
   async function downloadAllocation() {
@@ -133,6 +140,9 @@ export function AvailabilityCalendar({ inventory: _inventory }: AvailabilityCale
 
   return (
     <div className="space-y-6 p-6">
+      {/* Calendar — month-at-a-glance availability */}
+      <MonthCalendar selectedDate={selectedDate} onDateClick={handleCalendarClick} />
+
       {/* Controls */}
       <div className="flex flex-wrap items-end gap-4 rounded-xl border border-gray-200 bg-white p-5">
         <div>
@@ -166,7 +176,7 @@ export function AvailabilityCalendar({ inventory: _inventory }: AvailabilityCale
         </div>
 
         <div className="flex gap-2">
-          <Button onClick={check} loading={loading} disabled={!selectedDate}>
+          <Button onClick={() => check()} loading={loading} disabled={!selectedDate}>
             Check Availability
           </Button>
           <Button
