@@ -81,7 +81,6 @@ function downloadCsv(content: string, filename: string) {
 }
 
 export function AvailabilityCalendar({ inventory }: AvailabilityCalendarProps) {
-  const totalInventory = inventory.reduce((sum, r) => sum + r.total_units, 0)
   const today = new Date().toISOString().split('T')[0]
   const [selectedDate,  setSelectedDate]  = useState(today)
   const [packageType,   setPackageType]   = useState<PackageFilter>('all')
@@ -145,7 +144,7 @@ export function AvailabilityCalendar({ inventory }: AvailabilityCalendarProps) {
       <MonthCalendar
         selectedDate={selectedDate}
         onDateClick={handleCalendarClick}
-        totalInventory={totalInventory}
+        inventory={inventory}
       />
 
       {/* Controls */}
