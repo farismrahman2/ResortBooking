@@ -487,7 +487,7 @@ export type SalesEmployee = Pick<EmployeeRow,
 
 // ─── Auth & Roles ────────────────────────────────────────────────────────────
 
-export type RoleSlug       = 'admin' | 'manager' | 'front_desk' | 'accountant'
+export type RoleSlug       = 'admin' | 'manager' | 'front_desk' | 'accountant' | 'reservation'
 export type ModuleSlug     = 'bookings' | 'checkout' | 'expenses' | 'hr' | 'reports' | 'settings' | 'availability' | 'attendance' | 'coffee_shop'
 export type PermissionLevel = 'none' | 'read' | 'write'
 

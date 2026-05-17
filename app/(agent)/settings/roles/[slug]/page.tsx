@@ -7,7 +7,7 @@ import type { RoleSlug } from '@/lib/supabase/types'
 
 export const dynamic = 'force-dynamic'
 
-const VALID: RoleSlug[] = ['admin', 'manager', 'front_desk', 'accountant']
+const VALID: RoleSlug[] = ['admin', 'manager', 'front_desk', 'accountant', 'reservation']
 
 interface PageProps {
   params: { slug: string }

@@ -24,17 +24,18 @@ import {
 import { cn } from '@/lib/utils'
 import { useSidebar } from '@/lib/sidebar-context'
 
-import type { ModuleSlug, PermissionLevel } from '@/lib/supabase/types'
+import type { ModuleSlug, PermissionLevel, RoleSlug } from '@/lib/supabase/types'
 
 interface NavItem {
   href:   string
   label:  string
   icon:   typeof LayoutDashboard
   module?: ModuleSlug          // when set, hides the link unless user has at least 'read'
+  hideForRoles?: RoleSlug[]    // when set, hides the link from these specific roles
 }
 
 const navItems: NavItem[] = [
-  { href: '/',             label: 'Dashboard',    icon: LayoutDashboard, module: 'bookings' },
+  { href: '/',             label: 'Dashboard',    icon: LayoutDashboard, module: 'bookings', hideForRoles: ['reservation'] },
   { href: '/quotes',       label: 'Quotes',       icon: FileText,       module: 'bookings' },
   { href: '/bookings',     label: 'Bookings',     icon: CalendarCheck,  module: 'bookings' },
   { href: '/checkout',     label: 'Checkout',     icon: Receipt,        module: 'checkout' },
@@ -46,7 +47,7 @@ const navItems: NavItem[] = [
   { href: '/expenses',     label: 'Expenses',     icon: Wallet,         module: 'expenses' },
   { href: '/hr',              label: 'HR',           icon: Users,          module: 'hr' },
   { href: '/hr/attendance',   label: 'Attendance',   icon: ClipboardCheck, module: 'attendance' },
-  { href: '/packages',        label: 'Packages',     icon: Package,        module: 'bookings' },
+  { href: '/packages',        label: 'Packages',     icon: Package,        module: 'bookings', hideForRoles: ['reservation'] },
   { href: '/settings',     label: 'Settings',     icon: Settings,       module: 'settings' },
 ]
 
@@ -54,6 +55,7 @@ interface SidebarProps {
   userEmail:    string | null
   permissions:  Record<ModuleSlug, PermissionLevel> | null
   roleLabel:    string | null
+  roleSlug:     RoleSlug | null
   unreadAlerts: number
 }
 
@@ -61,7 +63,7 @@ function canSee(perm: PermissionLevel | undefined): boolean {
   return perm === 'read' || perm === 'write'
 }
 
-export function Sidebar({ userEmail, permissions, roleLabel, unreadAlerts }: SidebarProps) {
+export function Sidebar({ userEmail, permissions, roleLabel, roleSlug, unreadAlerts }: SidebarProps) {
   const pathname  = usePathname()
   const { isOpen, close } = useSidebar()
 
@@ -99,10 +101,11 @@ export function Sidebar({ userEmail, permissions, roleLabel, unreadAlerts }: Sid
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto p-3">
         <ul className="space-y-1">
-          {navItems.map(({ href, label, icon: Icon, module }) => {
+          {navItems.map(({ href, label, icon: Icon, module, hideForRoles }) => {
             // Permission-gate. If permissions haven't loaded yet (null), we
             // fail open and show the link — middleware still enforces server-side.
             if (module && permissions && !canSee(permissions[module])) return null
+            if (hideForRoles && roleSlug && hideForRoles.includes(roleSlug)) return null
             const isActive = href === '/' ? pathname === '/' : pathname.startsWith(href)
             const showBadge = href === '/settings' && unreadAlerts > 0
             return (

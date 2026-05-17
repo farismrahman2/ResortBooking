@@ -15,6 +15,7 @@ export default async function AgentLayout({ children }: { children: React.ReactN
       userEmail={user?.email ?? null}
       permissions={ctx?.permissions ?? null}
       roleLabel={ctx?.profile.role.display_name ?? null}
+      roleSlug={ctx?.profile.role.slug ?? null}
       unreadAlerts={unreadAlerts}
     >
       {children}

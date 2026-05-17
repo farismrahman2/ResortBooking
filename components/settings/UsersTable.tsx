@@ -11,6 +11,7 @@ const ROLE_BADGE: Record<string, string> = {
   manager:    'bg-indigo-50 text-indigo-700 border-indigo-200',
   front_desk: 'bg-violet-50 text-violet-700 border-violet-200',
   accountant: 'bg-rose-50 text-rose-700 border-rose-200',
+  reservation: 'bg-emerald-50 text-emerald-700 border-emerald-200',
 }
 
 export function UsersTable({ rows, currentUserId }: Props) {

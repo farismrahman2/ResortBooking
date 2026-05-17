@@ -8,7 +8,7 @@ import { QuickActions } from '@/components/dashboard/QuickActions'
 import { RevenueWidget } from '@/components/dashboard/RevenueWidget'
 import { ExpensesThisMonth } from '@/components/dashboard/ExpensesThisMonth'
 import { MonthlyPnLWidget } from '@/components/dashboard/MonthlyPnLWidget'
-import { hasPermission } from '@/lib/auth/permissions'
+import { getCurrentUserContext, hasPermission } from '@/lib/auth/permissions'
 import { formatDate } from '@/lib/formatters/dates'
 import { formatBDT } from '@/lib/formatters/currency'
 import Link from 'next/link'
@@ -16,6 +16,12 @@ import Link from 'next/link'
 export const dynamic = 'force-dynamic'
 
 export default async function DashboardPage() {
+  // The reservation role has bookings:write but is scoped to the
+  // quote→booking funnel — Dashboard surfaces revenue/expense widgets that
+  // they aren't supposed to see. Send them straight to /quotes.
+  const ctx = await getCurrentUserContext()
+  if (ctx?.profile.role.slug === 'reservation') redirect('/quotes')
+
   // Dashboard surfaces booking + revenue widgets — gate by bookings:read.
   // Roles without that (e.g. front_desk) get bounced to whatever they can use.
   if (!(await hasPermission('bookings', 'read'))) {

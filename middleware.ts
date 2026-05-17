@@ -7,6 +7,19 @@ import { createMiddlewareClient } from '@/lib/supabase/middleware'
  * before `/hr` so front_desk users (who have `attendance` but not `hr`) don't
  * get 403'd on the attendance page.
  */
+type RoleSlug = 'admin' | 'manager' | 'front_desk' | 'accountant' | 'reservation'
+
+/**
+ * Per-role route deny-list. Used when a role passes the module-level check
+ * but should still be blocked from a specific sub-route. Example: the
+ * 'reservation' role has bookings:write (so it can use /quotes and
+ * /bookings) but should not see /packages, which is also under the bookings
+ * module.
+ */
+const ROLE_DENY: Array<{ prefix: string; roles: RoleSlug[] }> = [
+  { prefix: '/packages', roles: ['reservation'] },
+]
+
 const MODULE_PREFIX: Array<{ prefix: string; module: 'bookings' | 'checkout' | 'expenses' | 'hr' | 'reports' | 'settings' | 'availability' | 'attendance' | 'coffee_shop' }> = [
   { prefix: '/bookings',      module: 'bookings'     },
   { prefix: '/quotes',        module: 'bookings'     },   // quotes live under the bookings module
@@ -97,6 +110,7 @@ export async function middleware(request: NextRequest) {
             role_id,
             is_active,
             role:roles!inner (
+              slug,
               role_permissions (
                 level,
                 module:modules!inner (slug)
@@ -130,6 +144,22 @@ export async function middleware(request: NextRequest) {
           const url = new URL('/403', request.url)
           url.searchParams.set('from', mod)
           return NextResponse.redirect(url)
+        }
+
+        // Per-role deny-list — overrides a module-level allow
+        const roleSlug = profile.role?.slug as RoleSlug | undefined
+        if (roleSlug) {
+          for (const deny of ROLE_DENY) {
+            const matches = pathname === deny.prefix || pathname.startsWith(deny.prefix + '/')
+            if (matches && deny.roles.includes(roleSlug)) {
+              if (isApiRoute) {
+                return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+              }
+              const url = new URL('/403', request.url)
+              url.searchParams.set('from', mod)
+              return NextResponse.redirect(url)
+            }
+          }
         }
       } catch {
         // DB unreachable — fail open rather than locking everyone out
