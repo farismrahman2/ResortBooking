@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { AvailabilityResult } from '@/lib/supabase/types'
 
@@ -13,8 +13,9 @@ interface DaySummary {
 }
 
 interface MonthCalendarProps {
-  selectedDate:  string
-  onDateClick:   (date: string) => void
+  selectedDate:   string
+  onDateClick:    (date: string) => void
+  totalInventory: number       // sum of all room types' total_units — used as the baseline for days the API returns no occupancy for
 }
 
 function isoOf(d: Date): string {
@@ -55,42 +56,58 @@ function bandFor(available: number, total: number): Band {
   return                       { bg: 'bg-red-600 hover:bg-red-700',          text: 'text-white',       label: 'Full' }
 }
 
-export function MonthCalendar({ selectedDate, onDateClick }: MonthCalendarProps) {
+export function MonthCalendar({ selectedDate, onDateClick, totalInventory }: MonthCalendarProps) {
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()))
   const [days,      setDays]      = useState<Map<string, DaySummary> | null>(null)
   const [loading,   setLoading]   = useState(false)
   const [error,     setError]     = useState<string | null>(null)
 
-  const windowEnd = addDays(weekStart, WEEKS_VISIBLE * 7 - 1)
-  const today     = isoOf(new Date())
+  const today = isoOf(new Date())
 
-  const load = useCallback(async () => {
+  // Only depends on weekStart (stable across renders) and totalInventory (a number,
+  // so referentially stable). Critically we do NOT depend on a `windowEnd` Date
+  // object — that would be a fresh reference every render and turn the effect
+  // into an infinite re-fetch loop.
+  useEffect(() => {
+    let cancelled = false
+    const winEnd = addDays(weekStart, WEEKS_VISIBLE * 7 - 1)
     setLoading(true)
     setError(null)
-    try {
-      const params = new URLSearchParams({ from: isoOf(weekStart), to: isoOf(windowEnd) })
-      const res = await fetch(`/api/availability?${params}`)
-      if (!res.ok) throw new Error(`Error ${res.status}: ${await res.text()}`)
-      const data = await res.json()
-      const map = new Map<string, DaySummary>()
-      for (const d of data.dates ?? []) {
-        let totalUnits     = 0
-        let totalAvailable = 0
-        for (const r of d.rooms as AvailabilityResult[]) {
-          totalUnits     += r.total_units
-          totalAvailable += r.available
-        }
-        map.set(d.date, { date: d.date, totalUnits, totalAvailable })
-      }
-      setDays(map)
-    } catch (err) {
-      setError(String(err))
-    } finally {
-      setLoading(false)
-    }
-  }, [weekStart, windowEnd])
+    ;(async () => {
+      try {
+        const params = new URLSearchParams({ from: isoOf(weekStart), to: isoOf(winEnd) })
+        const res = await fetch(`/api/availability?${params}`)
+        if (!res.ok) throw new Error(`Error ${res.status}: ${await res.text()}`)
+        const data = await res.json()
+        if (cancelled) return
 
-  useEffect(() => { void load() }, [load])
+        // Pre-fill every visible day with full inventory. The RPC only returns
+        // days that have *some* occupancy, so missing days mean "fully open".
+        const map = new Map<string, DaySummary>()
+        for (let i = 0; i < WEEKS_VISIBLE * 7; i++) {
+          const iso = isoOf(addDays(weekStart, i))
+          map.set(iso, { date: iso, totalUnits: totalInventory, totalAvailable: totalInventory })
+        }
+        for (const d of data.dates ?? []) {
+          let totalUnits     = 0
+          let totalAvailable = 0
+          for (const r of d.rooms as AvailabilityResult[]) {
+            totalUnits     += r.total_units
+            totalAvailable += r.available
+          }
+          map.set(d.date, { date: d.date, totalUnits, totalAvailable })
+        }
+        setDays(map)
+      } catch (err) {
+        if (!cancelled) setError(String(err))
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [weekStart, totalInventory])
+
+  const windowEnd = addDays(weekStart, WEEKS_VISIBLE * 7 - 1)
 
   const cells = Array.from({ length: WEEKS_VISIBLE * 7 }, (_, i) => {
     const d   = addDays(weekStart, i)

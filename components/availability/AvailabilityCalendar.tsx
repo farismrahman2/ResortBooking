@@ -80,7 +80,8 @@ function downloadCsv(content: string, filename: string) {
   URL.revokeObjectURL(url)
 }
 
-export function AvailabilityCalendar({ inventory: _inventory }: AvailabilityCalendarProps) {
+export function AvailabilityCalendar({ inventory }: AvailabilityCalendarProps) {
+  const totalInventory = inventory.reduce((sum, r) => sum + r.total_units, 0)
   const today = new Date().toISOString().split('T')[0]
   const [selectedDate,  setSelectedDate]  = useState(today)
   const [packageType,   setPackageType]   = useState<PackageFilter>('all')
@@ -141,7 +142,11 @@ export function AvailabilityCalendar({ inventory: _inventory }: AvailabilityCale
   return (
     <div className="space-y-6 p-6">
       {/* Calendar — month-at-a-glance availability */}
-      <MonthCalendar selectedDate={selectedDate} onDateClick={handleCalendarClick} />
+      <MonthCalendar
+        selectedDate={selectedDate}
+        onDateClick={handleCalendarClick}
+        totalInventory={totalInventory}
+      />
 
       {/* Controls */}
       <div className="flex flex-wrap items-end gap-4 rounded-xl border border-gray-200 bg-white p-5">
