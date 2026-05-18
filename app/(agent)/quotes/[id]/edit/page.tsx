@@ -4,14 +4,17 @@ import { QuoteForm } from '@/components/quotes/QuoteForm'
 import { getQuoteById } from '@/lib/queries/quotes'
 import { getActivePackagesWithPrices } from '@/lib/queries/packages'
 import { getRoomInventory, getSettings, getHolidayDates } from '@/lib/queries/settings'
+import { listSalesEmployees } from '@/lib/queries/employees'
+import type { SalesEmployee } from '@/lib/supabase/types'
 
 export const dynamic = 'force-dynamic'
 
 const ROOM_LABELS: Record<string, string> = {
   cottage:        'Cottage',
-  eco_deluxe:     'Eco Deluxe',
-  deluxe:         'Deluxe',
-  premium_deluxe: 'Premium Deluxe',
+  eco_deluxe:      'Eco Deluxe',
+  deluxe:          'Deluxe',
+  superior_deluxe: 'Superior Deluxe',
+  premium_deluxe:  'Premium Deluxe',
   premium:        'Premium',
   super_premium:  'Super Premium',
   tree_house:     'Tree House',
@@ -72,9 +75,13 @@ export default async function EditQuotePage({ params }: PageProps) {
     service_charge_pct: quote.service_charge_pct ?? 0,
     advance_required:   quote.advance_required,
     advance_paid:       quote.advance_paid,
+    sales_employee_id:  (quote as any).sales_employee_id ?? null,
   }
 
   const initialExtraItems = (quote as any).extra_items ?? []
+
+  let salesEmployees: SalesEmployee[] = []
+  try { salesEmployees = await listSalesEmployees() } catch { salesEmployees = [] }
 
   return (
     <div className="flex h-full flex-col">
@@ -88,6 +95,7 @@ export default async function EditQuotePage({ params }: PageProps) {
           rooms={rooms}
           holidayDates={holidayDates}
           settings={settings}
+          salesEmployees={salesEmployees}
           quoteId={params.id}
           initialValues={initialValues}
           initialExtraItems={initialExtraItems}

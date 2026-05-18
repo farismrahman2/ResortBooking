@@ -7,11 +7,16 @@ import {
   FileText,
   CalendarCheck,
   CalendarSearch,
+  ClipboardCheck,
+  Coffee,
   Package,
   BarChart2,
+  TrendingUp,
   Wallet,
   Settings,
   Leaf,
+  Users,
+  Receipt,
   X,
   LogOut,
   User,
@@ -19,22 +24,46 @@ import {
 import { cn } from '@/lib/utils'
 import { useSidebar } from '@/lib/sidebar-context'
 
-const navItems = [
-  { href: '/',             label: 'Dashboard',    icon: LayoutDashboard },
-  { href: '/quotes',       label: 'Quotes',       icon: FileText        },
-  { href: '/bookings',     label: 'Bookings',     icon: CalendarCheck   },
-  { href: '/availability', label: 'Availability', icon: CalendarSearch  },
-  { href: '/analytics',    label: 'Analytics',    icon: BarChart2       },
-  { href: '/expenses',     label: 'Expenses',     icon: Wallet          },
-  { href: '/packages',     label: 'Packages',     icon: Package         },
-  { href: '/settings',     label: 'Settings',     icon: Settings        },
+import type { ModuleSlug, PermissionLevel, RoleSlug } from '@/lib/supabase/types'
+
+interface NavItem {
+  href:   string
+  label:  string
+  icon:   typeof LayoutDashboard
+  module?: ModuleSlug          // when set, hides the link unless user has at least 'read'
+  hideForRoles?: RoleSlug[]    // when set, hides the link from these specific roles
+}
+
+const navItems: NavItem[] = [
+  { href: '/',             label: 'Dashboard',    icon: LayoutDashboard, module: 'bookings', hideForRoles: ['reservation'] },
+  { href: '/quotes',       label: 'Quotes',       icon: FileText,       module: 'bookings' },
+  { href: '/bookings',     label: 'Bookings',     icon: CalendarCheck,  module: 'bookings' },
+  { href: '/checkout',     label: 'Checkout',     icon: Receipt,        module: 'checkout' },
+  { href: '/availability', label: 'Availability', icon: CalendarSearch, module: 'availability' },
+  { href: '/coffee-shop',  label: 'Coffee Shop',  icon: Coffee,         module: 'coffee_shop' },
+  { href: '/analytics',          label: 'Analytics',         icon: BarChart2,   module: 'reports' },
+  { href: '/booking-analytics',  label: 'Booking Analytics', icon: TrendingUp,  module: 'reports' },
+  { href: '/reports',            label: 'Reports',           icon: BarChart2,   module: 'reports' },
+  { href: '/expenses',     label: 'Expenses',     icon: Wallet,         module: 'expenses' },
+  { href: '/hr',              label: 'HR',           icon: Users,          module: 'hr' },
+  { href: '/hr/attendance',   label: 'Attendance',   icon: ClipboardCheck, module: 'attendance' },
+  { href: '/packages',        label: 'Packages',     icon: Package,        module: 'bookings', hideForRoles: ['reservation'] },
+  { href: '/settings',     label: 'Settings',     icon: Settings,       module: 'settings' },
 ]
 
 interface SidebarProps {
-  userEmail: string | null
+  userEmail:    string | null
+  permissions:  Record<ModuleSlug, PermissionLevel> | null
+  roleLabel:    string | null
+  roleSlug:     RoleSlug | null
+  unreadAlerts: number
 }
 
-export function Sidebar({ userEmail }: SidebarProps) {
+function canSee(perm: PermissionLevel | undefined): boolean {
+  return perm === 'read' || perm === 'write'
+}
+
+export function Sidebar({ userEmail, permissions, roleLabel, roleSlug, unreadAlerts }: SidebarProps) {
   const pathname  = usePathname()
   const { isOpen, close } = useSidebar()
 
@@ -72,8 +101,13 @@ export function Sidebar({ userEmail }: SidebarProps) {
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto p-3">
         <ul className="space-y-1">
-          {navItems.map(({ href, label, icon: Icon }) => {
+          {navItems.map(({ href, label, icon: Icon, module, hideForRoles }) => {
+            // Permission-gate. If permissions haven't loaded yet (null), we
+            // fail open and show the link — middleware still enforces server-side.
+            if (module && permissions && !canSee(permissions[module])) return null
+            if (hideForRoles && roleSlug && hideForRoles.includes(roleSlug)) return null
             const isActive = href === '/' ? pathname === '/' : pathname.startsWith(href)
+            const showBadge = href === '/settings' && unreadAlerts > 0
             return (
               <li key={href}>
                 <Link
@@ -87,7 +121,12 @@ export function Sidebar({ userEmail }: SidebarProps) {
                   )}
                 >
                   <Icon size={18} className={isActive ? 'text-forest-700' : 'text-gray-400'} />
-                  {label}
+                  <span className="flex-1">{label}</span>
+                  {showBadge && (
+                    <span className="inline-flex items-center justify-center rounded-full bg-amber-500 text-white text-[10px] font-bold px-1.5 min-w-[18px] h-[18px]">
+                      {unreadAlerts}
+                    </span>
+                  )}
                 </Link>
               </li>
             )
@@ -102,7 +141,10 @@ export function Sidebar({ userEmail }: SidebarProps) {
             <div className="flex h-6 w-6 items-center justify-center rounded-full bg-forest-100 text-forest-700 flex-shrink-0">
               <User size={12} />
             </div>
-            <p className="text-xs text-gray-700 font-medium truncate">{userEmail}</p>
+            <div className="min-w-0">
+              <p className="text-xs text-gray-700 font-medium truncate">{userEmail}</p>
+              {roleLabel && <p className="text-[10px] text-gray-500 truncate">{roleLabel}</p>}
+            </div>
           </div>
         )}
         <form action="/auth/signout" method="POST">

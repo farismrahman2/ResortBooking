@@ -10,13 +10,36 @@ export interface BookingFilters {
   offset?:    number
 }
 
-/** Fetch bookings with their rooms */
+/**
+ * Columns actually rendered by booking lists (`/bookings`, dashboard
+ * "upcoming"). The big jsonb fields — `line_items`, `extra_items` — are
+ * intentionally omitted because they're only needed on the detail page and
+ * inflate the list payload significantly. `package_snapshot` is kept because
+ * the list page reads `.name` for filtering. If you need a list helper that
+ * returns the full row, add a separate function rather than widening this.
+ */
+const BOOKING_LIST_COLUMNS = `
+  id, booking_number, quote_id, customer_name, customer_phone,
+  package_type, visit_date, check_out_date, nights,
+  adults, children_paid, children_free, drivers, extra_beds,
+  subtotal, discount, discount_pct, service_charge_pct,
+  total, advance_required, advance_paid, due_advance, remaining,
+  status, sales_employee_id, package_snapshot,
+  created_at, updated_at,
+  booking_rooms(*)
+`
+
+/** Fetch bookings with their rooms (list view — line_items/extra_items omitted) */
 export async function getBookings(filters: BookingFilters = {}): Promise<BookingWithRooms[]> {
   const supabase = createClient()
+  // booking_number is the deterministic tiebreaker — without it Postgres can
+  // reorder rows that share the same visit_date across requests, which made
+  // bookings appear/disappear from a limited list non-deterministically.
   let query = supabase
     .from('bookings')
-    .select('*, booking_rooms(*)')
-    .order('visit_date', { ascending: true })
+    .select(BOOKING_LIST_COLUMNS)
+    .order('visit_date',     { ascending: true })
+    .order('booking_number', { ascending: true })
 
   if (filters.status) query = query.eq('status', filters.status)
   if (filters.from_date) query = query.gte('visit_date', filters.from_date)
@@ -57,7 +80,11 @@ export async function getUpcomingBookings(limit = 5): Promise<BookingWithRooms[]
   return getBookings({ status: 'confirmed', from_date: today, limit })
 }
 
-/** Get booking total revenue (for dashboard) */
+/** Get booking total revenue (for dashboard).
+ *  `pending_advance` correctly accounts for checkout-time payments + checkout
+ *  discounts via the same per-booking math as `lib/checkout/totals.ts::calcNetDue`,
+ *  rather than summing the DB-generated `bookings.remaining` (which is just
+ *  `total - advance_paid` and doesn't see checkout payments). */
 export async function getBookingStats(): Promise<{
   total_bookings: number
   total_revenue: number
@@ -66,12 +93,29 @@ export async function getBookingStats(): Promise<{
   const supabase = createClient()
   const { data } = await supabase
     .from('bookings')
-    .select('total, remaining')
+    .select(`
+      total, advance_paid,
+      checkout:checkouts (
+        status, discount_amount,
+        payments:checkout_payments (amount)
+      )
+    `)
     .neq('status', 'cancelled')
 
   const total_bookings = data?.length ?? 0
-  const total_revenue = data?.reduce((sum, b) => sum + (b.total ?? 0), 0) ?? 0
-  const pending_advance = data?.reduce((sum, b) => sum + (b.remaining ?? 0), 0) ?? 0
+  let total_revenue = 0
+  let pending_advance = 0
+  for (const row of (data ?? []) as any[]) {  // eslint-disable-line @typescript-eslint/no-explicit-any
+    total_revenue += Number(row.total ?? 0)
+    const advance     = Number(row.advance_paid ?? 0)
+    const co          = Array.isArray(row.checkout) ? row.checkout[0] : row.checkout
+    const isFinal     = co?.status === 'finalized'
+    const coDiscount  = isFinal ? Number(co.discount_amount ?? 0) : 0
+    const coPayments  = isFinal
+      ? ((co.payments ?? []) as Array<{ amount: number }>).reduce((s, p) => s + Number(p.amount ?? 0), 0)
+      : 0
+    pending_advance += Math.max(0, Number(row.total ?? 0) - coDiscount - advance - coPayments)
+  }
   return { total_bookings, total_revenue, pending_advance }
 }
 

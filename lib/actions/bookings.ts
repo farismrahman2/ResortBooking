@@ -6,14 +6,23 @@ import { generateBookingNumber } from '@/lib/utils'
 import { calculateDaylong, calculateNight } from '@/lib/engine/calculator'
 import { getHolidayDateStrings } from '@/lib/queries/settings'
 import { checkAvailabilityConflict, getBookedRoomNumbers } from '@/lib/queries/availability'
+import { findDuplicateBookings } from '@/lib/queries/duplicate-bookings'
 import { ROOM_NUMBERS } from '@/lib/config/rooms'
+import { requirePermission } from '@/lib/auth/permissions'
+import { findUnassignedRoomNumbersError } from '@/lib/validators/quote'
 import type { ActionResult, ActionData } from './types'
 import type { RoomType, PackageType, PackageSnapshot } from '@/lib/supabase/types'
 
-/** Convert a confirmed quote into a booking */
+/** Convert a confirmed quote into a booking.
+ *
+ * If a non-cancelled booking already exists for the same guest+date+package,
+ * returns success: false with a `duplicate` payload unless allowDuplicate=true.
+ */
 export async function convertQuoteToBooking(
   quoteId: string,
+  allowDuplicate: boolean = false,
 ): Promise<ActionData<{ bookingId: string; bookingNumber: string }>> {
+  await requirePermission('bookings', 'write')
   try {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -28,10 +37,74 @@ export async function convertQuoteToBooking(
 
     if (qErr || !quote) return { success: false, error: 'Quote not found' }
 
+    // Soft duplicate check — exclude the source quote itself
+    if (!allowDuplicate) {
+      const dupes = await findDuplicateBookings({
+        phone:            quote.customer_phone,
+        visit_date:       quote.visit_date,
+        package_type:     quote.package_type,
+        exclude_quote_id: quoteId,
+      })
+      if (dupes.length > 0) {
+        return {
+          success: false,
+          error:   `An existing ${dupes[0].kind} (${dupes[0].number}) was found for this guest on the same date. Please confirm before converting.`,
+          duplicate: { existing: dupes },
+        }
+      }
+    }
+
     const { data: quoteRooms } = await db
       .from('quote_rooms')
       .select('*')
       .eq('quote_id', quoteId)
+
+    // Re-check capacity and physical room numbers at conversion time. The
+    // initial availability check ran when the quote was created — but other
+    // bookings may have claimed the same rooms in the meantime.
+    const requestedRoomQtys = ((quoteRooms ?? []) as any[]).map((r) => ({
+      room_type: r.room_type as string,
+      qty:       Number(r.qty ?? 0),
+    }))
+    const capacityErr = await checkAvailabilityConflict(
+      quote.visit_date,
+      quote.check_out_date,
+      requestedRoomQtys,
+      undefined,
+      quoteId,
+    )
+    if (capacityErr) {
+      return { success: false, error: `Cannot convert: ${capacityErr}` }
+    }
+
+    // Catches legacy quotes saved before the room_numbers refine landed —
+    // they could still have a room type with no physical room picked.
+    const unassignedErr = findUnassignedRoomNumbersError(
+      ((quoteRooms ?? []) as { room_type: string; qty: number; room_numbers: string[] }[]).filter((r) => r.qty > 0),
+    )
+    if (unassignedErr) return { success: false, error: `Cannot convert: ${unassignedErr}` }
+
+    // Specific room numbers — guard against the same physical rooms being
+    // claimed by another booking that confirmed first.
+    const taken = new Set(
+      await getBookedRoomNumbers(quote.visit_date, quote.check_out_date),
+    )
+    const conflictingNumbers: string[] = []
+    for (const r of (quoteRooms ?? []) as any[]) {
+      for (const num of (r.room_numbers ?? [])) {
+        if (taken.has(num)) conflictingNumbers.push(num)
+      }
+    }
+    if (conflictingNumbers.length > 0) {
+      const unique = Array.from(new Set(conflictingNumbers))
+      return {
+        success: false,
+        error:
+          `Room number${unique.length > 1 ? 's' : ''} already booked by another booking: ` +
+          `${unique.join(', ')}. Edit the quote to pick different rooms, or cancel the ` +
+          `conflicting booking first.`,
+      }
+    }
 
     // Generate booking number
     const booking_number = await generateBookingNumber(supabase as any)
@@ -60,6 +133,7 @@ export async function convertQuoteToBooking(
         advance_required:    quote.advance_required,
         advance_paid:        quote.advance_paid,
         status:              'confirmed',
+        sales_employee_id:   quote.sales_employee_id ?? null,
         package_snapshot: quote.package_snapshot,
         line_items:       quote.line_items,
         extra_items:      quote.extra_items ?? [],
@@ -120,6 +194,7 @@ export async function updateAdvancePaid(
   advance_paid: number,
   advance_required: number,
 ): Promise<ActionResult> {
+  await requirePermission('bookings', 'write')
   try {
     const supabase = createClient()
     const { error } = await supabase
@@ -146,8 +221,19 @@ export async function updateAdvancePaid(
 
 /** Cancel a booking */
 export async function cancelBooking(bookingId: string): Promise<ActionResult> {
+  await requirePermission('bookings', 'write')
   try {
     const supabase = createClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = supabase as any
+
+    // Pull the booking for the alert summary
+    const { data: booking } = await db
+      .from('bookings')
+      .select('booking_number, customer_name, status')
+      .eq('id', bookingId)
+      .maybeSingle()
+
     const { error } = await supabase
       .from('bookings')
       .update({ status: 'cancelled' })
@@ -160,11 +246,27 @@ export async function cancelBooking(bookingId: string): Promise<ActionResult> {
       entity_id:   bookingId,
       event:       'status_changed',
       actor:       'system',
-      payload:     { from: 'confirmed', to: 'cancelled' },
+      payload:     { from: booking?.status ?? 'confirmed', to: 'cancelled' },
     })
+
+    if (booking) {
+      // Best-effort alert. Lazy-import to avoid circular module deps.
+      const { flagAlert } = await import('@/lib/auth/alerts')
+      const { getCurrentUserContext } = await import('@/lib/auth/permissions')
+      const ctx = await getCurrentUserContext()
+      await flagAlert({
+        event_type:  'booking_cancelled',
+        entity_type: 'booking',
+        entity_id:   bookingId,
+        summary:     `Booking ${booking.booking_number} cancelled — ${booking.customer_name}`,
+        payload:     { from: booking.status ?? 'confirmed' },
+        created_by:  ctx?.user_id ?? null,
+      })
+    }
 
     revalidatePath('/bookings')
     revalidatePath(`/bookings/${bookingId}`)
+    revalidatePath('/settings/audit-log')
     return { success: true }
   } catch (err) {
     return { success: false, error: String(err) }
@@ -197,11 +299,15 @@ export async function updateBooking(
     package_snapshot: PackageSnapshot
   },
 ): Promise<ActionResult> {
+  await requirePermission('bookings', 'write')
   try {
     const supabase   = createClient()
     const holidayDates = await getHolidayDateStrings()
 
     const { rooms, extra_items, package_type, visit_date, check_out_date, package_snapshot, ...guestData } = input
+
+    const unassignedErr = findUnassignedRoomNumbersError(rooms.filter((r) => r.qty > 0))
+    if (unassignedErr) return { success: false, error: unassignedErr }
 
     // Recalculate totals using the frozen snapshot
     let calc
@@ -309,6 +415,7 @@ export async function confirmDateChange(
     cleared_room_numbers: Record<string, string[]>
   },
 ): Promise<ActionResult> {
+  await requirePermission('bookings', 'write')
   try {
     const supabase     = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -477,6 +584,7 @@ export async function swapRoomAssignment(
   bookingId: string,
   input: SwapInput,
 ): Promise<ActionResult> {
+  await requirePermission('bookings', 'write')
   try {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -787,5 +895,60 @@ export async function swapRoomAssignment(
     return { success: false, error: 'Invalid swap mode' }
   } catch (err) {
     return { success: false, error: String(err) }
+  }
+}
+
+// ─── Sales attribution: re-assign rep on a booking ──────────────────────────
+
+export async function setBookingSalesRep(
+  bookingId: string,
+  employeeId: string | null,
+): Promise<ActionResult> {
+  try {
+    const { requirePermission, getCurrentUserContext } = await import('@/lib/auth/permissions')
+    await requirePermission('bookings', 'write')
+    const ctx = await getCurrentUserContext()
+    const supabase = createClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = supabase as any
+
+    // Validate the employee is a sales-eligible HR record
+    if (employeeId) {
+      const { data: emp } = await db
+        .from('employees')
+        .select('id, is_sales, employment_status')
+        .eq('id', employeeId)
+        .maybeSingle()
+      if (!emp)              return { success: false, error: 'Employee not found' }
+      if (!emp.is_sales)     return { success: false, error: 'Employee is not flagged as a sales rep.' }
+    }
+
+    const { data: prev } = await db
+      .from('bookings').select('sales_employee_id').eq('id', bookingId).maybeSingle()
+
+    const { error } = await db
+      .from('bookings')
+      .update({ sales_employee_id: employeeId })
+      .eq('id', bookingId)
+    if (error) return { success: false, error: error.message }
+
+    await db.from('history_log').insert({
+      entity_type: 'booking',
+      entity_id:   bookingId,
+      event:       'edited',
+      actor:       'system',
+      payload: {
+        action: 'sales_rep_changed',
+        from:   prev?.sales_employee_id ?? null,
+        to:     employeeId,
+        by:     ctx?.user_id ?? null,
+      },
+    }).catch((e: any) => console.warn(`[history_log] non-fatal: ${e?.message ?? e}`))
+
+    revalidatePath(`/bookings/${bookingId}`)
+    revalidatePath('/hr/sales')
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
   }
 }

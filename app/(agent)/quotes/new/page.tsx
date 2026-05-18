@@ -2,6 +2,8 @@ import { Topbar } from '@/components/layout/Topbar'
 import { QuoteForm } from '@/components/quotes/QuoteForm'
 import { getActivePackagesWithPrices } from '@/lib/queries/packages'
 import { getRoomInventory, getSettings, getHolidayDates } from '@/lib/queries/settings'
+import { listSalesEmployees } from '@/lib/queries/employees'
+import type { SalesEmployee } from '@/lib/supabase/types'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,6 +14,10 @@ export default async function NewQuotePage() {
     getSettings(),
     getHolidayDates(),
   ])
+
+  // Best-effort — works even if HR migration 001 hasn't been run yet
+  let salesEmployees: SalesEmployee[] = []
+  try { salesEmployees = await listSalesEmployees() } catch { salesEmployees = [] }
 
   const holidayDates = holidays.map((h) => h.date)
 
@@ -24,6 +30,7 @@ export default async function NewQuotePage() {
           rooms={rooms}
           holidayDates={holidayDates}
           settings={settings}
+          salesEmployees={salesEmployees}
         />
       </div>
     </div>

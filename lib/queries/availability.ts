@@ -10,6 +10,8 @@ import type { OccupiedRoom } from '@/lib/engine/availability'
  * Check if requested rooms are available across every night in [visitDate, checkOutDate).
  * For daylong, only checks the single visit date.
  * Optionally excludes a booking from the occupancy count (for date-change scenarios).
+ * Optionally excludes a quote (for re-checking at conversion time, where the quote
+ * being converted shouldn't conflict with itself).
  * Returns a human-readable conflict message, or null if all clear.
  */
 export async function checkAvailabilityConflict(
@@ -17,6 +19,7 @@ export async function checkAvailabilityConflict(
   checkOutDate: string | null,
   requestedRooms: { room_type: string; qty: number }[],
   excludeBookingId?: string,
+  excludeQuoteId?: string,
 ): Promise<string | null> {
   const supabase = createClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -53,12 +56,18 @@ export async function checkAvailabilityConflict(
     const { data: bookingOccupied } = await bookingQuery
 
     // Fetch occupied quote_rooms (confirmed, not yet converted)
-    const { data: quoteOccupied } = await db
+    let quoteQuery = db
       .from('quote_rooms')
-      .select('room_type, qty, quotes!inner(visit_date, check_out_date, status, converted_to_booking_id)')
+      .select('room_type, qty, quotes!inner(id, visit_date, check_out_date, status, converted_to_booking_id)')
       .filter('quotes.visit_date', 'lte', date)
       .eq('quotes.status', 'confirmed')
       .is('quotes.converted_to_booking_id', null)
+
+    if (excludeQuoteId) {
+      quoteQuery = quoteQuery.neq('quotes.id', excludeQuoteId)
+    }
+
+    const { data: quoteOccupied } = await quoteQuery
 
     // Sum occupied units per room type on this date
     const occupied = new Map<string, number>()

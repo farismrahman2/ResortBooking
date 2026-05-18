@@ -5,12 +5,13 @@ import type { RoomType } from '@/lib/supabase/types'
  * Edit this file to add/remove room numbers — no other code changes needed.
  */
 export const ROOM_NUMBERS: Partial<Record<RoomType, string[]>> = {
-  super_premium:  ['101'],
-  premium:        ['102'],
-  cottage:        ['103', '104', '105', '106', '107'],
-  premium_deluxe: ['108'],
-  deluxe:         ['202', '203', '205', '206', '301', '302'],
-  eco_deluxe:     ['204', '207'],
+  super_premium:   ['101'],
+  premium:         ['102'],
+  cottage:         ['103', '104', '105', '106', '107'],
+  premium_deluxe:  ['108'],
+  deluxe:          ['202', '205', '301', '302'],
+  superior_deluxe: ['203', '206'],
+  eco_deluxe:      ['204', '207'],
   // tree_house: no fixed room numbers assigned
 }
 

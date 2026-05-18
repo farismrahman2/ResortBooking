@@ -65,22 +65,61 @@ function isoDate(d: Date): string {
   return `${y}-${m}-${dd}`
 }
 
+/**
+ * Per-booking "collected vs outstanding" math that mirrors
+ * lib/checkout/totals.ts::calcNetDue. Replaces summing
+ * `bookings.remaining` (which is just `total - advance_paid` and
+ * doesn't know about checkout payments or checkout-time discount).
+ *
+ * Expects each row to optionally include a nested `checkout` with its
+ * `discount_amount` + `payments[]`. Negative results clamp to 0 — refunds
+ * surface separately as expenses, not as analytics outstanding.
+ */
+export function settledOutstanding(row: any): { collected: number; outstanding: number } {  // eslint-disable-line @typescript-eslint/no-explicit-any
+  const total      = Number(row.total ?? 0)
+  const advance    = Number(row.advance_paid ?? 0)
+  const co         = Array.isArray(row.checkout) ? row.checkout[0] : row.checkout
+  const isFinal    = co?.status === 'finalized'
+  const coDiscount = isFinal ? Number(co.discount_amount ?? 0) : 0
+  const coPayments = isFinal
+    ? ((co.payments ?? []) as Array<{ amount: number }>).reduce((s, p) => s + Number(p.amount ?? 0), 0)
+    : 0
+  const collected   = advance + coPayments
+  const outstanding = Math.max(0, total - coDiscount - collected)
+  return { collected, outstanding }
+}
+
+/** Nested-select fragment used by the analytics queries below to pull the
+ *  per-booking checkout aggregate in the same round-trip. */
+export const BOOKING_CHECKOUT_SELECT = `
+  checkout:checkouts (
+    status, discount_amount,
+    payments:checkout_payments (amount)
+  )
+`
+
 // ─── Totals Summary ──────────────────────────────────────────────────────────
 
 export async function getTotalsSummary(from: string, to: string): Promise<TotalsSummary> {
   const supabase = createClient()
   const { data } = await supabase
     .from('bookings')
-    .select('id, total, advance_paid, remaining')
+    .select(`id, total, advance_paid, ${BOOKING_CHECKOUT_SELECT}`)
     .gte('visit_date', from)
     .lte('visit_date', to)
     .neq('status', 'cancelled')
 
   const rows = data ?? []
   const total_bookings = rows.length
-  const total_revenue  = rows.reduce((s, r: any) => s + (r.total ?? 0), 0)
-  const collected      = rows.reduce((s, r: any) => s + (r.advance_paid ?? 0), 0)
-  const outstanding    = rows.reduce((s, r: any) => s + (r.remaining ?? 0), 0)
+  let total_revenue = 0
+  let collected = 0
+  let outstanding = 0
+  for (const r of rows as any[]) {  // eslint-disable-line @typescript-eslint/no-explicit-any
+    total_revenue += Number(r.total ?? 0)
+    const s = settledOutstanding(r)
+    collected   += s.collected
+    outstanding += s.outstanding
+  }
 
   return {
     total_bookings,
@@ -97,22 +136,23 @@ export async function getDailyRevenue(from: string, to: string): Promise<DailyRe
   const supabase = createClient()
   const { data } = await supabase
     .from('bookings')
-    .select('visit_date, subtotal, discount, total, advance_paid, remaining')
+    .select(`visit_date, subtotal, discount, total, advance_paid, ${BOOKING_CHECKOUT_SELECT}`)
     .gte('visit_date', from)
     .lte('visit_date', to)
     .neq('status', 'cancelled')
 
   // Aggregate by visit_date
   const map = new Map<string, DailyRevenueRow>()
-  for (const row of (data ?? []) as any[]) {
+  for (const row of (data ?? []) as any[]) {  // eslint-disable-line @typescript-eslint/no-explicit-any
     const d = row.visit_date as string
     const cur = map.get(d) ?? { date: d, booking_count: 0, subtotal: 0, discount: 0, total: 0, collected: 0, outstanding: 0 }
+    const s = settledOutstanding(row)
     cur.booking_count += 1
     cur.subtotal      += row.subtotal ?? 0
     cur.discount      += row.discount ?? 0
     cur.total         += row.total ?? 0
-    cur.collected     += row.advance_paid ?? 0
-    cur.outstanding   += row.remaining ?? 0
+    cur.collected     += s.collected
+    cur.outstanding   += s.outstanding
     map.set(d, cur)
   }
 
@@ -134,7 +174,7 @@ export async function getPackageTypeBreakdown(from: string, to: string): Promise
   const supabase = createClient()
   const { data } = await supabase
     .from('bookings')
-    .select('package_type, total, advance_paid, remaining')
+    .select(`package_type, total, advance_paid, ${BOOKING_CHECKOUT_SELECT}`)
     .gte('visit_date', from)
     .lte('visit_date', to)
     .neq('status', 'cancelled')
@@ -142,12 +182,13 @@ export async function getPackageTypeBreakdown(from: string, to: string): Promise
   const empty = (): PackageTypeStats => ({ booking_count: 0, total: 0, collected: 0, outstanding: 0 })
   const out: PackageTypeBreakdown = { daylong: empty(), night: empty() }
 
-  for (const row of (data ?? []) as any[]) {
+  for (const row of (data ?? []) as any[]) {  // eslint-disable-line @typescript-eslint/no-explicit-any
     const bucket = row.package_type === 'night' ? out.night : out.daylong
+    const s = settledOutstanding(row)
     bucket.booking_count += 1
     bucket.total         += row.total ?? 0
-    bucket.collected     += row.advance_paid ?? 0
-    bucket.outstanding   += row.remaining ?? 0
+    bucket.collected     += s.collected
+    bucket.outstanding   += s.outstanding
   }
 
   return out

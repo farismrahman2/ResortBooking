@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
-import { Download } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Download, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { AvailabilityGrid } from './AvailabilityGrid'
+import { MonthCalendar } from './MonthCalendar'
 import type { AvailabilityResult, RoomInventoryRow } from '@/lib/supabase/types'
 import type { DailyReportRow } from '@/lib/queries/daily-report'
 
@@ -79,7 +80,7 @@ function downloadCsv(content: string, filename: string) {
   URL.revokeObjectURL(url)
 }
 
-export function AvailabilityCalendar({ inventory: _inventory }: AvailabilityCalendarProps) {
+export function AvailabilityCalendar({ inventory }: AvailabilityCalendarProps) {
   const today = new Date().toISOString().split('T')[0]
   const [selectedDate,  setSelectedDate]  = useState(today)
   const [packageType,   setPackageType]   = useState<PackageFilter>('all')
@@ -87,13 +88,37 @@ export function AvailabilityCalendar({ inventory: _inventory }: AvailabilityCale
   const [loading,       setLoading]       = useState(false)
   const [error,         setError]         = useState<string | null>(null)
   const [downloading,   setDownloading]   = useState(false)
+  const [menuOpen,      setMenuOpen]      = useState(false)
+  const menuRef                           = useRef<HTMLDivElement | null>(null)
 
-  async function check() {
+  // Close the download menu on outside click / Escape
+  useEffect(() => {
+    if (!menuOpen) return
+    const onClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenuOpen(false) }
+    document.addEventListener('mousedown', onClick)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onClick)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [menuOpen])
+
+  function openPrint(lang: 'en' | 'bn') {
     if (!selectedDate) return
+    setMenuOpen(false)
+    window.open(`/print/daily-report?date=${selectedDate}&lang=${lang}`, '_blank', 'noopener')
+  }
+
+  async function check(dateOverride?: string) {
+    const date = dateOverride ?? selectedDate
+    if (!date) return
     setLoading(true)
     setError(null)
     try {
-      const params = new URLSearchParams({ date: selectedDate })
+      const params = new URLSearchParams({ date })
       if (packageType !== 'all') params.set('type', packageType)
       const res = await fetch(`/api/availability?${params}`)
       if (!res.ok) throw new Error(`Error ${res.status}: ${await res.text()}`)
@@ -105,6 +130,11 @@ export function AvailabilityCalendar({ inventory: _inventory }: AvailabilityCale
     } finally {
       setLoading(false)
     }
+  }
+
+  function handleCalendarClick(date: string) {
+    setSelectedDate(date)
+    void check(date)
   }
 
   async function downloadAllocation() {
@@ -133,6 +163,13 @@ export function AvailabilityCalendar({ inventory: _inventory }: AvailabilityCale
 
   return (
     <div className="space-y-6 p-6">
+      {/* Calendar — month-at-a-glance availability */}
+      <MonthCalendar
+        selectedDate={selectedDate}
+        onDateClick={handleCalendarClick}
+        inventory={inventory}
+      />
+
       {/* Controls */}
       <div className="flex flex-wrap items-end gap-4 rounded-xl border border-gray-200 bg-white p-5">
         <div>
@@ -166,18 +203,47 @@ export function AvailabilityCalendar({ inventory: _inventory }: AvailabilityCale
         </div>
 
         <div className="flex gap-2">
-          <Button onClick={check} loading={loading} disabled={!selectedDate}>
+          <Button onClick={() => check()} loading={loading} disabled={!selectedDate}>
             Check Availability
           </Button>
-          <Button
-            variant="outline"
-            onClick={downloadAllocation}
-            loading={downloading}
-            disabled={!selectedDate}
-          >
-            <Download size={14} className="mr-1.5" />
-            Download Room Allocation
-          </Button>
+          <div ref={menuRef} className="relative">
+            <Button
+              variant="outline"
+              onClick={() => setMenuOpen((v) => !v)}
+              disabled={!selectedDate}
+            >
+              <Download size={14} className="mr-1.5" />
+              Download Room Allocation
+              <ChevronDown size={14} className="ml-1.5" />
+            </Button>
+            {menuOpen && (
+              <div className="absolute right-0 z-20 mt-1 w-56 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                <button
+                  type="button"
+                  onClick={() => openPrint('en')}
+                  className="block w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  Save as PDF — English
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openPrint('bn')}
+                  className="block w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  Save as PDF — বাংলা
+                </button>
+                <div className="my-1 border-t border-gray-100" />
+                <button
+                  type="button"
+                  onClick={() => { setMenuOpen(false); void downloadAllocation() }}
+                  disabled={downloading}
+                  className="block w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  {downloading ? 'Preparing CSV…' : 'Download CSV'}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

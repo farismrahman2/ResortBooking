@@ -12,6 +12,7 @@ import {
 } from '@/lib/validators/expense'
 import type { ActionResult, ActionData } from './types'
 import type { PaymentMethod } from '@/lib/supabase/types'
+import { requirePermission } from '@/lib/auth/permissions'
 
 /**
  * EXPENSE SERVER ACTIONS — Phase 1
@@ -60,6 +61,7 @@ async function currentUserId(): Promise<string | null> {
 // ─── Expense CRUD ────────────────────────────────────────────────────────────
 
 export async function createExpense(input: unknown): Promise<ActionData<{ id: string }>> {
+  await requirePermission('expenses', 'write')
   try {
     const parsed = expenseFormSchema.parse(input)
     const supabase = createClient()
@@ -101,6 +103,7 @@ export async function createExpense(input: unknown): Promise<ActionData<{ id: st
 }
 
 export async function updateExpense(id: string, input: unknown): Promise<ActionResult> {
+  await requirePermission('expenses', 'write')
   try {
     const parsed = expenseFormSchema.parse(input)
     const supabase = createClient()
@@ -137,6 +140,7 @@ export async function updateExpense(id: string, input: unknown): Promise<ActionR
 }
 
 export async function deleteExpense(id: string): Promise<ActionResult> {
+  await requirePermission('expenses', 'write')
   try {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -160,6 +164,7 @@ export async function deleteExpense(id: string): Promise<ActionResult> {
 export async function createDailyExpenses(
   input: unknown,
 ): Promise<ActionData<{ inserted: number }>> {
+  await requirePermission('expenses', 'write')
   try {
     const parsed = dailyExpenseBulkSchema.parse(input)
     const supabase = createClient()
@@ -206,6 +211,7 @@ export async function createDailyExpenses(
 // ─── Categories ──────────────────────────────────────────────────────────────
 
 export async function createCategory(input: unknown): Promise<ActionData<{ id: string }>> {
+  await requirePermission('expenses', 'write')
   try {
     const parsed = categoryFormSchema.parse(input)
     const supabase = createClient()
@@ -229,6 +235,7 @@ export async function createCategory(input: unknown): Promise<ActionData<{ id: s
 }
 
 export async function updateCategory(id: string, input: unknown): Promise<ActionResult> {
+  await requirePermission('expenses', 'write')
   try {
     const parsed = categoryFormSchema.parse(input)
     const supabase = createClient()
@@ -247,6 +254,7 @@ export async function updateCategory(id: string, input: unknown): Promise<Action
 }
 
 export async function toggleCategoryActive(id: string): Promise<ActionResult> {
+  await requirePermission('expenses', 'write')
   try {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -277,6 +285,7 @@ export async function toggleCategoryActive(id: string): Promise<ActionResult> {
 // ─── Payees ──────────────────────────────────────────────────────────────────
 
 export async function createPayee(input: unknown): Promise<ActionData<{ id: string }>> {
+  await requirePermission('expenses', 'write')
   try {
     const parsed = payeeFormSchema.parse(input)
     const supabase = createClient()
@@ -292,7 +301,11 @@ export async function createPayee(input: unknown): Promise<ActionData<{ id: stri
     if (error || !data) return { success: false, error: error?.message ?? 'Insert failed' }
 
     await logHistory(data.id, 'created', 'payee_created', { name: parsed.name })
+    // Invalidate every page that lists payees so the dropdown refreshes
+    // after the modal closes (admin page + entry forms).
     revalidatePath('/expenses/payees')
+    revalidatePath('/expenses/new')
+    revalidatePath('/expenses/bulk')
     return { success: true, data: { id: data.id } }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
@@ -300,6 +313,7 @@ export async function createPayee(input: unknown): Promise<ActionData<{ id: stri
 }
 
 export async function updatePayee(id: string, input: unknown): Promise<ActionResult> {
+  await requirePermission('expenses', 'write')
   try {
     const parsed = payeeFormSchema.parse(input)
     const supabase = createClient()
@@ -318,6 +332,7 @@ export async function updatePayee(id: string, input: unknown): Promise<ActionRes
 }
 
 export async function togglePayeeActive(id: string): Promise<ActionResult> {
+  await requirePermission('expenses', 'write')
   try {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -359,6 +374,7 @@ export async function attachReceipt(input: {
   mime_type:    'image/jpeg' | 'image/png' | 'image/webp' | 'application/pdf'
   size_bytes:   number
 }): Promise<ActionData<{ id: string }>> {
+  await requirePermission('expenses', 'write')
   try {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -407,6 +423,7 @@ export async function attachReceipt(input: {
  * remove the storage blob.
  */
 export async function removeReceipt(attachmentId: string): Promise<ActionResult> {
+  await requirePermission('expenses', 'write')
   try {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -443,6 +460,7 @@ export async function removeReceipt(attachmentId: string): Promise<ActionResult>
 // ─── PHASE 3: Budgets ────────────────────────────────────────────────────────
 
 export async function upsertBudget(input: unknown): Promise<ActionData<{ id: string }>> {
+  await requirePermission('expenses', 'write')
   try {
     const parsed = budgetFormSchema.parse(input)
     const supabase = createClient()
@@ -512,6 +530,7 @@ export async function upsertBudget(input: unknown): Promise<ActionData<{ id: str
 }
 
 export async function deleteBudget(id: string): Promise<ActionResult> {
+  await requirePermission('expenses', 'write')
   try {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -529,6 +548,7 @@ export async function deleteBudget(id: string): Promise<ActionResult> {
 // ─── PHASE 3: Recurring templates ────────────────────────────────────────────
 
 export async function createRecurringTemplate(input: unknown): Promise<ActionData<{ id: string }>> {
+  await requirePermission('expenses', 'write')
   try {
     const parsed = recurringTemplateFormSchema.parse(input)
     const supabase = createClient()
@@ -559,6 +579,7 @@ export async function createRecurringTemplate(input: unknown): Promise<ActionDat
 }
 
 export async function updateRecurringTemplate(id: string, input: unknown): Promise<ActionResult> {
+  await requirePermission('expenses', 'write')
   try {
     const parsed = recurringTemplateFormSchema.parse(input)
     const supabase = createClient()
@@ -588,6 +609,7 @@ export async function updateRecurringTemplate(id: string, input: unknown): Promi
 }
 
 export async function toggleRecurringTemplateActive(id: string): Promise<ActionResult> {
+  await requirePermission('expenses', 'write')
   try {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -613,6 +635,7 @@ export async function toggleRecurringTemplateActive(id: string): Promise<ActionR
 }
 
 export async function deleteRecurringTemplate(id: string): Promise<ActionResult> {
+  await requirePermission('expenses', 'write')
   try {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -635,6 +658,7 @@ export async function deleteRecurringTemplate(id: string): Promise<ActionResult>
 export async function generateMonthlyDrafts(
   monthIso: string,   // 'YYYY-MM'
 ): Promise<ActionData<{ generated: number; skipped: number }>> {
+  await requirePermission('expenses', 'write')
   try {
     const m = monthIso.match(/^(\d{4})-(\d{2})$/)
     if (!m) return { success: false, error: 'monthIso must be YYYY-MM' }
@@ -722,6 +746,7 @@ export async function confirmDraftExpense(
     reference_number?: string | null
   } = {},
 ): Promise<ActionResult> {
+  await requirePermission('expenses', 'write')
   try {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -756,6 +781,7 @@ export async function confirmDraftExpense(
 }
 
 export async function discardDraftExpense(id: string): Promise<ActionResult> {
+  await requirePermission('expenses', 'write')
   try {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

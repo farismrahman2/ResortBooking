@@ -1,11 +1,13 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, revalidateTag } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import type { ActionResult } from './types'
+import { requirePermission } from '@/lib/auth/permissions'
 
 /** Create or update a settings key-value pair */
 export async function upsertSetting(key: string, value: string): Promise<ActionResult> {
+  await requirePermission('settings', 'write')
   try {
     const supabase = createClient()
     const { error } = await supabase
@@ -14,6 +16,8 @@ export async function upsertSetting(key: string, value: string): Promise<ActionR
 
     if (error) return { success: false, error: error.message }
 
+    revalidateTag('settings')
+    revalidateTag('holiday-dates')
     revalidatePath('/settings')
     return { success: true }
   } catch (err) {
@@ -25,6 +29,7 @@ export async function upsertSetting(key: string, value: string): Promise<ActionR
 export async function upsertSettings(
   settings: Record<string, string>,
 ): Promise<ActionResult> {
+  await requirePermission('settings', 'write')
   try {
     const supabase = createClient()
     const rows = Object.entries(settings).map(([key, value]) => ({ key, value }))
@@ -34,6 +39,8 @@ export async function upsertSettings(
 
     if (error) return { success: false, error: error.message }
 
+    revalidateTag('settings')
+    revalidateTag('holiday-dates')
     revalidatePath('/settings')
     return { success: true }
   } catch (err) {
@@ -43,6 +50,7 @@ export async function upsertSettings(
 
 /** Add a new holiday date */
 export async function addHolidayDate(date: string, label: string): Promise<ActionResult> {
+  await requirePermission('settings', 'write')
   try {
     const supabase = createClient()
     const { error } = await supabase
@@ -51,6 +59,8 @@ export async function addHolidayDate(date: string, label: string): Promise<Actio
 
     if (error) return { success: false, error: error.message }
 
+    revalidateTag('settings')
+    revalidateTag('holiday-dates')
     revalidatePath('/settings')
     return { success: true }
   } catch (err) {
@@ -60,6 +70,7 @@ export async function addHolidayDate(date: string, label: string): Promise<Actio
 
 /** Delete a holiday date by ID */
 export async function deleteHolidayDate(id: string): Promise<ActionResult> {
+  await requirePermission('settings', 'write')
   try {
     const supabase = createClient()
     const { error } = await supabase
@@ -69,6 +80,8 @@ export async function deleteHolidayDate(id: string): Promise<ActionResult> {
 
     if (error) return { success: false, error: error.message }
 
+    revalidateTag('settings')
+    revalidateTag('holiday-dates')
     revalidatePath('/settings')
     return { success: true }
   } catch (err) {

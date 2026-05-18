@@ -6,10 +6,16 @@ import { StatusBadge } from '@/components/ui/Badge'
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
 import { BookingActions } from '@/components/bookings/BookingActions'
 import { BookingWhatsAppOutput } from '@/components/bookings/BookingWhatsAppOutput'
+import { BookingChargesTab } from '@/components/checkout/BookingChargesTab'
+import { SalesRepEditor } from '@/components/bookings/SalesRepEditor'
+import { getExtraGuestUnitPrice } from '@/lib/checkout/extras-pricing'
 import { getBookingById } from '@/lib/queries/bookings'
+import { listSalesEmployees } from '@/lib/queries/employees'
 import { getSettings, getHolidayDateStrings, getRoomInventory } from '@/lib/queries/settings'
 import { WhatsAppLink } from '@/components/ui/WhatsAppLink'
 import { getBookedRoomNumbers } from '@/lib/queries/availability'
+import { getCheckoutByBooking, getChargesByCheckout } from '@/lib/queries/checkout'
+import { hasPermission } from '@/lib/auth/permissions'
 import { createClient } from '@/lib/supabase/server'
 import { formatDate, formatDateRange } from '@/lib/formatters/dates'
 import { formatBDT } from '@/lib/formatters/currency'
@@ -23,9 +29,10 @@ interface PageProps {
 
 const ROOM_LABELS: Record<RoomType, string> = {
   cottage:        'Cottage',
-  eco_deluxe:     'Eco Deluxe',
-  deluxe:         'Deluxe',
-  premium_deluxe: 'Premium Deluxe',
+  eco_deluxe:      'Eco Deluxe',
+  deluxe:          'Deluxe',
+  superior_deluxe: 'Superior Deluxe',
+  premium_deluxe:  'Premium Deluxe',
   premium:        'Premium',
   super_premium:  'Super Premium',
   tree_house:     'Tree House',
@@ -45,6 +52,38 @@ export default async function BookingDetailPage({ params }: PageProps) {
     : []
 
   if (!booking) notFound()
+
+  // Charges section (best-effort: ignore errors so unmigrated installs still load)
+  const [canSeeCheckout, canWriteCheckout, canEditBooking] = await Promise.all([
+    hasPermission('checkout', 'read'),
+    hasPermission('checkout', 'write'),
+    hasPermission('bookings', 'write'),
+  ])
+  const showCharges = canSeeCheckout && (booking.status === 'confirmed' || booking.status === 'checked_out')
+  let charges: Awaited<ReturnType<typeof getChargesByCheckout>> = []
+  let checkoutStatus: Awaited<ReturnType<typeof getCheckoutByBooking>> extends infer T ? (T extends { status: infer S } ? S : null) : null = null
+  if (showCharges) {
+    try {
+      const co = await getCheckoutByBooking(booking.id)
+      if (co) {
+        checkoutStatus = co.status as any
+        charges = await getChargesByCheckout(co.id)
+      }
+    } catch {
+      // unmigrated — skip silently
+    }
+  }
+
+  // Sales rep — best-effort lookup. Skip silently if HR migration 001 not yet applied.
+  let salesEmployees: Awaited<ReturnType<typeof listSalesEmployees>> = []
+  let currentRep: Awaited<ReturnType<typeof listSalesEmployees>>[number] | null = null
+  try {
+    salesEmployees = await listSalesEmployees()
+    if ((booking as any).sales_employee_id) {
+      currentRep = salesEmployees.find((e) => e.id === (booking as any).sales_employee_id)
+        ?? null
+    }
+  } catch { /* HR module not migrated yet */ }
 
   // Check if any selected rooms have a night stay checking out on the visit date
   let roomAvailableAfterNoon = false
@@ -81,7 +120,15 @@ export default async function BookingDetailPage({ params }: PageProps) {
           <span className="text-xs text-gray-500">
             Created {formatDate(booking.created_at.slice(0, 10))}
           </span>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
+            <a
+              href={`/api/bookings/${booking.id}/pdf`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              Download PDF
+            </a>
             <Link
               href={`/bookings/${booking.id}/print`}
               className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"
@@ -296,6 +343,21 @@ export default async function BookingDetailPage({ params }: PageProps) {
               </div>
             </Card>
 
+            {/* Guest charges (during-stay extras) */}
+            {showCharges && (
+              <Card>
+                <BookingChargesTab
+                  bookingId={booking.id}
+                  canWrite={canWriteCheckout}
+                  checkoutStatus={checkoutStatus}
+                  charges={charges}
+                  snapshot={booking.package_snapshot}
+                  nights={booking.nights}
+                  extraGuestRate={getExtraGuestUnitPrice(booking)}
+                />
+              </Card>
+            )}
+
             {/* 5. Actions */}
             <Card>
               <CardHeader>
@@ -307,6 +369,16 @@ export default async function BookingDetailPage({ params }: PageProps) {
 
           {/* RIGHT column */}
           <div className="space-y-5">
+            {/* Sales rep */}
+            {salesEmployees.length > 0 && (
+              <SalesRepEditor
+                bookingId={booking.id}
+                current={currentRep}
+                options={salesEmployees}
+                canEdit={canEditBooking}
+              />
+            )}
+
             {/* WhatsApp output */}
             <Card>
               <BookingWhatsAppOutput booking={booking} settings={settings} roomAvailableAfterNoon={roomAvailableAfterNoon} />

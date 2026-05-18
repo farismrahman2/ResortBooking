@@ -10,6 +10,10 @@ node_modules/
 .next/
 out/
 
+# TypeScript incremental build cache
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+
 # Build
 dist/
 build/

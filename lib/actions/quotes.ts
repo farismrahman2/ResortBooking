@@ -8,16 +8,43 @@ import { buildPackageSnapshot } from '@/lib/engine/snapshot'
 import { generateQuoteNumber } from '@/lib/utils'
 import { getHolidayDateStrings } from '@/lib/queries/settings'
 import { checkAvailabilityConflict } from '@/lib/queries/availability'
+import { findDuplicateBookings } from '@/lib/queries/duplicate-bookings'
+import { requirePermission } from '@/lib/auth/permissions'
 import type { ActionResult, ActionData } from './types'
 import type { BookingStatus, RoomType } from '@/lib/supabase/types'
 
-/** Create a new quote with full calculation and snapshot */
+/** Create a new quote with full calculation and snapshot.
+ *
+ * If a non-cancelled quote/booking already exists for the same
+ * (customer_phone, visit_date, package_type), the call returns
+ * `success: false` with a `duplicate.existing` payload UNLESS
+ * `allowDuplicate=true`. Front-end shows a confirmation modal and
+ * re-submits with the override.
+ */
 export async function createQuote(
   input: CreateQuoteInput,
+  allowDuplicate: boolean = false,
 ): Promise<ActionData<{ quoteId: string; quoteNumber: string }>> {
+  await requirePermission('bookings', 'write')
   try {
     const validated = CreateQuoteSchema.parse(input)
     const supabase  = createClient()
+
+    // Soft duplicate check (skip if user already overrode)
+    if (!allowDuplicate) {
+      const dupes = await findDuplicateBookings({
+        phone:        validated.customer_phone,
+        visit_date:   validated.visit_date,
+        package_type: validated.package_type,
+      })
+      if (dupes.length > 0) {
+        return {
+          success: false,
+          error:   `An existing ${dupes[0].kind} (${dupes[0].number}) was found for this guest on the same date. Please confirm before creating another.`,
+          duplicate: { existing: dupes },
+        }
+      }
+    }
 
     // Fetch package + room prices for snapshot
     const { data: pkg } = await supabase
@@ -118,6 +145,7 @@ export async function createQuote(
         advance_required:    calcResult.advance_required,
         advance_paid:        calcResult.advance_paid,
         status:              'draft',
+        sales_employee_id:   validated.sales_employee_id ?? null,
         package_snapshot: snapshot,
         line_items:       calcResult.line_items,
         extra_items:      validated.extra_items ?? [],
@@ -161,6 +189,7 @@ export async function updateQuote(
   id: string,
   input: CreateQuoteInput,
 ): Promise<ActionResult> {
+  await requirePermission('bookings', 'write')
   try {
     const validated = CreateQuoteSchema.parse(input)
     const supabase  = createClient()
@@ -261,6 +290,7 @@ export async function updateQuote(
         service_charge_pct:  validated.service_charge_pct ?? 0,
         advance_required:    calcResult.advance_required,
         advance_paid:        calcResult.advance_paid,
+        sales_employee_id:   validated.sales_employee_id ?? null,
         package_snapshot: snapshot,
         line_items:       calcResult.line_items,
         extra_items:      validated.extra_items ?? [],
@@ -303,6 +333,7 @@ export async function updateQuoteStatus(
   id: string,
   status: BookingStatus,
 ): Promise<ActionResult> {
+  await requirePermission('bookings', 'write')
   try {
     const supabase = createClient()
 
@@ -341,6 +372,7 @@ export async function updateQuoteAdvance(
   advance_paid: number,
   advance_required: number,
 ): Promise<ActionResult> {
+  await requirePermission('bookings', 'write')
   try {
     const supabase = createClient()
     const { error } = await supabase
@@ -367,6 +399,7 @@ export async function updateQuoteAdvance(
 
 /** Delete a draft quote */
 export async function deleteQuote(id: string): Promise<ActionResult> {
+  await requirePermission('bookings', 'write')
   try {
     const supabase = createClient()
 

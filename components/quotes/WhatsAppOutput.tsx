@@ -168,6 +168,7 @@ function roomTypeLabel(roomType: string): string {
     cottage:         'Cottage',
     eco_deluxe:      'Eco Deluxe',
     deluxe:          'Deluxe',
+    superior_deluxe: 'Superior Deluxe',
     premium_deluxe:  'Premium Deluxe',
     premium:         'Premium',
     super_premium:   'Super Premium',

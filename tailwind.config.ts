@@ -58,7 +58,17 @@ const config: Config = {
         },
       },
       fontFamily: {
-        sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        // Inter handles Latin glyphs; Noto Sans Bengali is the next fallback
+        // so the BDT taka sign (৳) and any other Bangla glyphs render with
+        // consistent metrics across browsers/OSes.
+        sans: [
+          'var(--font-inter)',
+          'Inter',
+          'var(--font-bn)',
+          'ui-sans-serif',
+          'system-ui',
+          'sans-serif',
+        ],
       },
       container: {
         center: true,

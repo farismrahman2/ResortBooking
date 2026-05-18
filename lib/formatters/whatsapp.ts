@@ -89,12 +89,19 @@ export function formatWhatsApp(p: WhatsAppParams): string {
   if (p.childrenFree > 0) guestParts.push(`Children (free, <3): ${p.childrenFree}`)
   if (p.drivers > 0) guestParts.push(`Drivers: ${p.drivers}`)
 
-  // Pricing line items
+  // Pricing line items — show qty × unit_price = subtotal so the
+  // recipient can audit the math. Service-charge / single-unit lines
+  // (qty=1 unit_price=subtotal) collapse to just the total.
   const pricingLines = p.lineItems
     .map((item) => {
       const nightSuffix = item.nights ? ` × ${item.nights}N` : ''
-      const right = formatBDT(item.subtotal).padStart(10)
-      return `  ${item.label}${nightSuffix}: ${right}`
+      const showBreakdown = item.qty > 1 || item.nights
+      const right = formatBDT(item.subtotal)
+      if (!showBreakdown) {
+        return `  ${item.label}: ${right}`
+      }
+      const factors = `${item.qty} × ${formatBDT(item.unit_price)}${nightSuffix}`
+      return `  ${item.label}: ${factors} = ${right}`
     })
     .join('\n')
 

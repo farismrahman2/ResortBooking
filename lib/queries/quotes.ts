@@ -1,5 +1,12 @@
 import { createClient } from '@/lib/supabase/server'
-import type { QuoteRow, QuoteWithRooms, BookingStatus } from '@/lib/supabase/types'
+import type {
+  QuoteRow,
+  QuoteRoomRow,
+  QuoteWithRooms,
+  BookingWithRooms,
+  BookingStatus,
+} from '@/lib/supabase/types'
+import { getBookingById } from '@/lib/queries/bookings'
 
 export interface QuoteFilters {
   status?:       BookingStatus
@@ -10,12 +17,28 @@ export interface QuoteFilters {
   offset?:       number
 }
 
-/** Fetch quotes with optional filters */
+/**
+ * Columns actually rendered by quote lists (`/quotes`, dashboard "recent").
+ * Heavy jsonb (`line_items`, `extra_items`, `package_snapshot`) is omitted —
+ * they're only needed on the detail / edit / print pages and inflate the
+ * list payload substantially. Use `getQuoteById` when you need the full row.
+ */
+const QUOTE_LIST_COLUMNS = `
+  id, quote_number, customer_name, customer_phone,
+  package_type, visit_date, check_out_date, nights,
+  adults, children_paid, children_free, drivers, extra_beds,
+  subtotal, discount, discount_pct, service_charge_pct,
+  total, advance_required, advance_paid, due_advance, remaining,
+  status, converted_to_booking_id, sales_employee_id,
+  created_at, updated_at
+`
+
+/** Fetch quotes with optional filters (list view — heavy jsonb omitted) */
 export async function getQuotes(filters: QuoteFilters = {}): Promise<QuoteRow[]> {
   const supabase = createClient()
   let query = supabase
     .from('quotes')
-    .select('*')
+    .select(QUOTE_LIST_COLUMNS)
     .order('created_at', { ascending: false })
 
   if (filters.status) query = query.eq('status', filters.status)
@@ -31,7 +54,9 @@ export async function getQuotes(filters: QuoteFilters = {}): Promise<QuoteRow[]>
 
   const { data, error } = await query
   if (error) throw new Error(`getQuotes: ${error.message}`)
-  return data ?? []
+  // Custom select returns a partial QuoteRow shape (no jsonb cols); list
+  // consumers don't read those fields, so we cast through unknown.
+  return (data ?? []) as unknown as QuoteRow[]
 }
 
 /** Fetch a single quote with its rooms */
@@ -50,6 +75,70 @@ export async function getQuoteById(id: string): Promise<QuoteWithRooms | null> {
     .eq('quote_id', id)
 
   return { ...quote, rooms: rooms ?? [] }
+}
+
+/**
+ * Fetch a quote for display, overlaying the linked booking's mutable fields
+ * (rooms, line_items, totals, guest counts, dates, customer_notes,
+ * package_snapshot) when a booking exists. Identity fields — id, quote_number,
+ * status, converted_to_booking_id, sales_employee_id, created_at, updated_at —
+ * always come from the quote. Use this on read-only quote surfaces so that
+ * edits made post-conversion (e.g. removing a room from the booking) don't
+ * leave the quote view stale.
+ */
+export async function getEffectiveQuoteForDisplay(
+  id: string,
+): Promise<QuoteWithRooms | null> {
+  const quote = await getQuoteById(id)
+  if (!quote || !quote.converted_to_booking_id) return quote
+
+  const booking = await getBookingById(quote.converted_to_booking_id)
+  if (!booking) return quote
+
+  return overlayBookingOntoQuote(quote, booking)
+}
+
+function overlayBookingOntoQuote(
+  quote: QuoteWithRooms,
+  booking: BookingWithRooms,
+): QuoteWithRooms {
+  const rooms: QuoteRoomRow[] = booking.rooms.map((r) => ({
+    id:           r.id,
+    quote_id:     quote.id,
+    room_type:    r.room_type,
+    qty:          r.qty,
+    unit_price:   r.unit_price,
+    room_numbers: r.room_numbers,
+  }))
+
+  return {
+    ...quote,
+    customer_name:      booking.customer_name,
+    customer_phone:     booking.customer_phone,
+    customer_notes:     booking.customer_notes,
+    package_type:       booking.package_type,
+    package_snapshot:   booking.package_snapshot,
+    visit_date:         booking.visit_date,
+    check_out_date:     booking.check_out_date,
+    nights:             booking.nights,
+    adults:             booking.adults,
+    children_paid:      booking.children_paid,
+    children_free:      booking.children_free,
+    drivers:            booking.drivers,
+    extra_beds:         booking.extra_beds,
+    subtotal:           booking.subtotal,
+    discount:           booking.discount,
+    discount_pct:       booking.discount_pct,
+    service_charge_pct: booking.service_charge_pct,
+    total:              booking.total,
+    advance_required:   booking.advance_required,
+    advance_paid:       booking.advance_paid,
+    due_advance:        booking.due_advance,
+    remaining:          booking.remaining,
+    line_items:         booking.line_items,
+    extra_items:        booking.extra_items,
+    rooms,
+  }
 }
 
 /** Get quote count by status (for dashboard) */

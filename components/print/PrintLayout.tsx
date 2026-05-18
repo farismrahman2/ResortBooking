@@ -17,9 +17,10 @@ function isQuote(r: PrintRecord): r is QuoteWithRooms {
 
 const ROOM_LABELS: Record<RoomType, string> = {
   cottage:        'Cottage',
-  eco_deluxe:     'Eco Deluxe',
-  deluxe:         'Deluxe',
-  premium_deluxe: 'Premium Deluxe',
+  eco_deluxe:      'Eco Deluxe',
+  deluxe:          'Deluxe',
+  superior_deluxe: 'Superior Deluxe',
+  premium_deluxe:  'Premium Deluxe',
   premium:        'Premium',
   super_premium:  'Super Premium',
   tree_house:     'Tree House',

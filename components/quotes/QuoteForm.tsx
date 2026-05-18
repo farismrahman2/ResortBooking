@@ -12,6 +12,7 @@ import { getDayType } from '@/lib/formatters/dates'
 import { Input } from '@/components/ui/Input'
 import { NumberInput } from '@/components/ui/NumberInput'
 import { Textarea } from '@/components/ui/Textarea'
+import { Select } from '@/components/ui/Select'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { WhatsAppLink } from '@/components/ui/WhatsAppLink'
@@ -19,14 +20,19 @@ import { PackageSelector } from '@/components/quotes/PackageSelector'
 import { RoomSelector } from '@/components/quotes/RoomSelector'
 import { GuestInputs, type GuestValues } from '@/components/quotes/GuestInputs'
 import { PricingBreakdown } from '@/components/quotes/PricingBreakdown'
+import { DuplicateConfirmModal } from '@/components/quotes/DuplicateConfirmModal'
 import { ROOM_NUMBERS } from '@/lib/config/rooms'
 import type { PackageWithPrices, RoomInventoryRow, SettingsMap, ExtraItem, RoomType } from '@/lib/supabase/types'
+import type { DuplicateMatch } from '@/lib/queries/duplicate-bookings'
+import type { SalesEmployee } from '@/lib/supabase/types'
 
 interface QuoteFormProps {
   packages: PackageWithPrices[]
   rooms: RoomInventoryRow[]
   holidayDates: string[]
   settings: SettingsMap
+  /** Active employees with is_sales=true. Empty array hides the dropdown. */
+  salesEmployees?: SalesEmployee[]
   // Edit mode — when provided, form pre-fills and calls updateQuote
   quoteId?: string
   initialValues?: Partial<CreateQuoteInput>
@@ -39,7 +45,7 @@ const DAY_LABELS = {
   weekday: { label: 'Weekday Rate', variant: 'default' as const },
 }
 
-export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, initialValues, initialExtraItems }: QuoteFormProps) {
+export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmployees, quoteId, initialValues, initialExtraItems }: QuoteFormProps) {
   const router = useRouter()
   const isEditMode = !!quoteId
   const [submitting,         setSubmitting]         = useState(false)
@@ -48,6 +54,9 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
   const [bookedRoomNumbers,    setBookedRoomNumbers]    = useState<string[]>([])
   const [extraItems,           setExtraItems]           = useState<ExtraItem[]>(initialExtraItems ?? [])
   const [roomAvailableAfterNoon, setRoomAvailableAfterNoon] = useState(false)
+  // Duplicate detection — when set, the modal prompts for override
+  const [duplicates,     setDuplicates]     = useState<DuplicateMatch[] | null>(null)
+  const [pendingPayload, setPendingPayload] = useState<CreateQuoteInput | null>(null)
 
   // Separate complimentary rooms (unit_price=0) from paid rooms in initialValues
   // so RoomSelector only sees paid rooms
@@ -93,6 +102,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
       advance_required:    0,
       advance_paid:        0,
       extra_items:         [],
+      sales_employee_id:   null,
       // Spread initialValues last; rooms always overridden to paid-only list
       ...{ ...initialValues, rooms: paidInitialRooms },
     },
@@ -241,9 +251,25 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
       }))
   }
 
+  async function submitCreate(payload: CreateQuoteInput, allowDuplicate: boolean) {
+    const result = await createQuote(payload, allowDuplicate)
+    if (result.success) {
+      router.push(`/quotes/${result.data.quoteId}`)
+      return { handled: true }
+    }
+    if (result.duplicate?.existing?.length) {
+      setDuplicates(result.duplicate.existing)
+      setPendingPayload(payload)
+      return { handled: true }
+    }
+    setErrorMsg(result.error)
+    return { handled: false }
+  }
+
   async function onSubmit(data: CreateQuoteInput) {
     setSubmitting(true)
     setErrorMsg(null)
+    setDuplicates(null)
     try {
       // Merge paid rooms (from react-hook-form) with complimentary rooms
       // Ensure room_numbers is always an array (RoomSelection has it optional)
@@ -260,12 +286,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
           setErrorMsg(result.error ?? 'Update failed')
         }
       } else {
-        const result = await createQuote(payload)
-        if (result.success) {
-          router.push(`/quotes/${result.data.quoteId}`)
-        } else {
-          setErrorMsg(result.error)
-        }
+        await submitCreate(payload, false)
       }
     } catch (err) {
       setErrorMsg(String(err))
@@ -321,6 +342,25 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
   const dayBadge = dayType ? DAY_LABELS[dayType] : null
 
   return (
+    <>
+    <DuplicateConfirmModal
+      open={!!duplicates && duplicates.length > 0}
+      existing={duplicates ?? []}
+      attempting="quote"
+      onCancel={() => { setDuplicates(null); setPendingPayload(null) }}
+      onConfirm={async () => {
+        if (!pendingPayload) return
+        setSubmitting(true)
+        setDuplicates(null)
+        try {
+          await submitCreate(pendingPayload, true)
+        } finally {
+          setSubmitting(false)
+          setPendingPayload(null)
+        }
+      }}
+      pending={submitting}
+    />
     <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col lg:flex-row gap-6 min-h-0">
       {/* ── LEFT: Form ─────────────────────────────────────────────────────────── */}
       <div className="flex-1 min-w-0 space-y-6 pb-8">
@@ -350,6 +390,32 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
               )}
             </div>
           </div>
+
+          {/* Sales rep — only renders if any sales-eligible employees exist */}
+          {salesEmployees && salesEmployees.length > 0 && (
+            <Controller
+              name="sales_employee_id"
+              control={control}
+              render={({ field }) => (
+                <Select
+                  label="Sales Rep (optional)"
+                  value={field.value ?? ''}
+                  onChange={(e) => field.onChange(e.target.value || null)}
+                  hint="Tag the staff member who referred this customer for sales attribution."
+                >
+                  <option value="">— No rep assigned —</option>
+                  {salesEmployees.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.full_name}
+                      {s.sales_team ? ` · ${s.sales_team}` : ''}
+                      {' '}
+                      ({s.employee_code})
+                    </option>
+                  ))}
+                </Select>
+              )}
+            />
+          )}
         </FormSection>
 
         {/* SECTION: Package */}
@@ -452,10 +518,25 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
           for (const pr of currentRooms) {
             for (const n of pr.room_numbers ?? []) locallyTakenByPaid.add(n)
           }
+          const totalCompQty = Object.values(compRoomData)
+            .reduce((sum, r) => sum + (r?.qty ?? 0), 0)
+          // Auto-open if any comp rooms are already selected (e.g. when editing)
           return (
-            <FormSection title="Complimentary Rooms">
-              <p className="text-xs text-gray-500 -mt-1">
-                Rooms provided at no extra charge. Won't affect the total cost. Daylong packages only.
+            <CollapsibleSection
+              title="Complimentary Rooms"
+              defaultOpen={totalCompQty > 0}
+              summary={
+                totalCompQty > 0 ? (
+                  <span className="rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 px-2 py-0.5 text-[10px] font-semibold">
+                    {totalCompQty} room{totalCompQty === 1 ? '' : 's'}
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-gray-400 italic">none</span>
+                )
+              }
+            >
+              <p className="text-xs text-gray-500 -mt-2">
+                Rooms provided at no extra charge. Won&apos;t affect the total cost. Daylong packages only.
               </p>
               <div className="space-y-2">
                 {rooms
@@ -580,7 +661,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
                     )
                   })}
               </div>
-            </FormSection>
+            </CollapsibleSection>
           )
         })()}
 
@@ -847,6 +928,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, quoteId, in
         </div>
       </div>
     </form>
+    </>
   )
 }
 
@@ -856,6 +938,31 @@ function FormSection({ title, children }: { title: string; children: React.React
       <h3 className="text-xs font-semibold uppercase tracking-widest text-gray-500">{title}</h3>
       {children}
     </div>
+  )
+}
+
+/**
+ * Collapsible variant of FormSection. `defaultOpen` controls initial state.
+ * Used for low-frequency sections like Complimentary Rooms so they don't
+ * eat vertical space when the operator isn't using them.
+ */
+function CollapsibleSection({
+  title, defaultOpen = false, summary, children,
+}: { title: string; defaultOpen?: boolean; summary?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <details
+      className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm group"
+      {...(defaultOpen ? { open: true } : {})}
+    >
+      <summary className="flex items-center justify-between cursor-pointer select-none list-none">
+        <h3 className="text-xs font-semibold uppercase tracking-widest text-gray-500">{title}</h3>
+        <div className="flex items-center gap-2">
+          {summary}
+          <span className="text-gray-400 text-xs transition-transform group-open:rotate-90">▶</span>
+        </div>
+      </summary>
+      <div className="mt-4 space-y-4">{children}</div>
+    </details>
   )
 }
 
@@ -925,10 +1032,16 @@ function WhatsAppPreview({
     .map((r) => `${r.display_name} × ${r.qty}: Complimentary`)
     .join('\n')
 
+  // Show qty × unit_price = subtotal so the recipient can audit the math.
+  // Single-unit lines (qty=1, no nights) collapse to just the label + total.
   const pricingLines = calcResult.line_items
     .map((item) => {
-      const ns = item.nights ? ` × ${item.nights}N` : ''
-      return `  ${item.label}${ns}: ${formatBDT(item.subtotal)}`
+      const nightSuffix = item.nights ? ` × ${item.nights}N` : ''
+      const showBreakdown = item.qty > 1 || item.nights
+      const right = formatBDT(item.subtotal)
+      if (!showBreakdown) return `  ${item.label}: ${right}`
+      const factors = `${item.qty} × ${formatBDT(item.unit_price)}${nightSuffix}`
+      return `  ${item.label}: ${factors} = ${right}`
     })
     .join('\n')
 

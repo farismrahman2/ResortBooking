@@ -5,7 +5,7 @@ import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
 import { PricingBreakdown } from '@/components/quotes/PricingBreakdown'
 import { QuoteActions } from '@/components/quotes/QuoteActions'
 import { WhatsAppOutput } from '@/components/quotes/WhatsAppOutput'
-import { getQuoteById } from '@/lib/queries/quotes'
+import { getEffectiveQuoteForDisplay } from '@/lib/queries/quotes'
 import { getSettings } from '@/lib/queries/settings'
 import { createClient } from '@/lib/supabase/server'
 import { formatDate, formatDateRange } from '@/lib/formatters/dates'
@@ -22,7 +22,7 @@ interface PageProps {
 
 export default async function QuoteDetailPage({ params }: PageProps) {
   const [quote, settings] = await Promise.all([
-    getQuoteById(params.id),
+    getEffectiveQuoteForDisplay(params.id),
     getSettings(),
   ])
 
