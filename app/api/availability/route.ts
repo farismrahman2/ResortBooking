@@ -81,6 +81,10 @@ async function getOccupiedForDate(
 
   for (const row of bookingRooms ?? []) {
     const b = (row as any).bookings
+    // Defensive guard: the embedded .neq('bookings.status', 'cancelled')
+    // filter doesn't reliably cascade to parent rows under !inner — exclude
+    // cancelled bookings explicitly so freed-up rooms actually show as free.
+    if (!b || b.status === 'cancelled') continue
     const blocksDate = b.check_out_date
       ? b.visit_date <= date && b.check_out_date > date
       : b.visit_date === date
@@ -97,6 +101,8 @@ async function getOccupiedForDate(
 
   for (const row of quoteRooms ?? []) {
     const q = (row as any).quotes
+    // Same defensive guard — only confirmed, unconverted quotes block.
+    if (!q || q.status !== 'confirmed' || q.converted_to_booking_id) continue
     const blocksDate = q.check_out_date
       ? q.visit_date <= date && q.check_out_date > date
       : q.visit_date === date
