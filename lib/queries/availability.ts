@@ -73,6 +73,11 @@ export async function checkAvailabilityConflict(
     const occupied = new Map<string, number>()
     for (const row of bookingOccupied ?? []) {
       const b = (row as any).bookings
+      // Defensive guard: the embedded .neq('bookings.status', 'cancelled')
+      // filter doesn't reliably cascade to the parent rows under !inner in
+      // every PostgREST version, so cancelled bookings can slip through.
+      // Filter them out explicitly here.
+      if (!b || b.status === 'cancelled') continue
       const blocks = b.check_out_date ? b.check_out_date > date : b.visit_date === date
       if (blocks) {
         occupied.set(row.room_type, (occupied.get(row.room_type) ?? 0) + row.qty)
@@ -80,6 +85,8 @@ export async function checkAvailabilityConflict(
     }
     for (const row of quoteOccupied ?? []) {
       const q = (row as any).quotes
+      // Same defensive guard as bookings — only confirmed, unconverted quotes block.
+      if (!q || q.status !== 'confirmed' || q.converted_to_booking_id) continue
       const blocks = q.check_out_date ? q.check_out_date > date : q.visit_date === date
       if (blocks) {
         occupied.set(row.room_type, (occupied.get(row.room_type) ?? 0) + row.qty)
