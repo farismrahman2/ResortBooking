@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { computeDepreciation } from '@/lib/fixed-assets/depreciation'
 import type {
   FaCategory, FaLocation, FaAsset, FaMaintenanceLog, FaAssetWithRelations,
-  AssetStatus, AssetCondition,
+  AssetStatus, AssetCondition, FaAudit, FaAuditFull, FaAuditLine,
 } from '@/lib/supabase/types-fixed-assets'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -239,4 +239,48 @@ export async function getRegisterByCategory(): Promise<CategoryNbvRow[]> {
   }
   return [...map.values()].map((r) => ({ ...r, acquisition: Math.round(r.acquisition), nbv: Math.round(r.nbv) }))
     .sort((a, b) => b.nbv - a.nbv)
+}
+
+// ─── Audits (Phase 3) ──────────────────────────────────────────────────────────
+
+export async function listAudits(): Promise<FaAudit[]> {
+  const { data, error } = await db().from('fa_audits').select('*').order('started_at', { ascending: false })
+  if (error) throw new Error(`[fa.listAudits] ${error.message}`)
+  return (data ?? []) as FaAudit[]
+}
+
+export async function getAuditById(id: string): Promise<FaAuditFull | null> {
+  const [{ data: audit }, { data: lines }] = await Promise.all([
+    db().from('fa_audits').select('*').eq('id', id).maybeSingle(),
+    db().from('fa_audit_lines').select('*').eq('audit_id', id),
+  ])
+  if (!audit) return null
+
+  const lineRows = (lines ?? []) as FaAuditLine[]
+  const assetIds = [...new Set(lineRows.map((l) => l.asset_id))]
+  const locIds = [...new Set([
+    ...lineRows.map((l) => l.expected_location_id).filter(Boolean),
+  ])] as string[]
+  const [{ data: assets }, { data: locs }] = await Promise.all([
+    assetIds.length ? db().from('fa_assets').select('id, name, asset_tag, condition').in('id', assetIds) : Promise.resolve({ data: [] }),
+    locIds.length ? db().from('fa_locations').select('id, display_name').in('id', locIds) : Promise.resolve({ data: [] }),
+  ])
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const aById = new Map((assets ?? []).map((a: any) => [a.id, a]))
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const lById = new Map((locs ?? []).map((l: any) => [l.id, l.display_name]))
+
+  const decorated = lineRows.map((l) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const a = aById.get(l.asset_id) as any
+    return {
+      ...l,
+      asset_name:        a?.name ?? null,
+      asset_tag:         a?.asset_tag ?? null,
+      current_condition: a?.condition ?? null,
+      expected_location: l.expected_location_id ? ((lById.get(l.expected_location_id) as string) ?? null) : null,
+    }
+  }).sort((x, y) => (x.asset_tag ?? '').localeCompare(y.asset_tag ?? ''))
+
+  return { ...audit, lines: decorated } as FaAuditFull
 }

@@ -311,3 +311,118 @@ export async function updateAssetCategory(id: string, input: { default_useful_li
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }
 }
+
+// ─── Audits (Phase 3) ──────────────────────────────────────────────────────────
+
+export async function startAudit(year: number): Promise<ActionData<{ id: string }>> {
+  await requirePermission('fixed_assets', 'write')
+  try {
+    const db = dbc()
+    const userId = await currentUserId()
+
+    let auditId: string | null = null
+    let auditNumber = ''
+    for (let attempt = 0; attempt < 5 && !auditId; attempt++) {
+      const { count } = await db.from('fa_audits').select('id', { count: 'exact', head: true }).eq('audit_year', year)
+      auditNumber = `AUD-${year}-${String((count ?? 0) + 1 + attempt).padStart(2, '0')}`
+      const { data, error } = await db.from('fa_audits').insert({
+        audit_number: auditNumber, audit_year: year, conducted_by: userId,
+      }).select('id').single()
+      if (!error) { auditId = data.id; break }
+      if (error.code !== '23505') return { success: false, error: error.message }
+    }
+    if (!auditId) return { success: false, error: 'Could not generate a unique audit number' }
+
+    // Snapshot every active asset
+    const { data: assets } = await db.from('fa_assets').select('id, location_id').eq('is_active', true).eq('status', 'active')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const lineRows = ((assets ?? []) as any[]).map((a) => ({ audit_id: auditId, asset_id: a.id, expected_location_id: a.location_id }))
+    if (lineRows.length === 0) { await db.from('fa_audits').delete().eq('id', auditId); return { success: false, error: 'No active assets to audit' } }
+    const { error: linesErr } = await db.from('fa_audit_lines').insert(lineRows)
+    if (linesErr) { await db.from('fa_audits').delete().eq('id', auditId); return { success: false, error: linesErr.message } }
+
+    await logHistory('fa_audit', auditId, 'created', { audit_number: auditNumber, assets: lineRows.length })
+    revalidatePath('/fixed-assets/audits')
+    return { success: true, data: { id: auditId } }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+export async function recordAuditLine(
+  auditId: string, assetId: string,
+  input: { found: boolean; found_at_location_id?: string | null; found_condition?: string | null; variance_notes?: string | null },
+): Promise<ActionResult> {
+  await requirePermission('fixed_assets', 'write')
+  try {
+    const userId = await currentUserId()
+    const { error } = await dbc().from('fa_audit_lines').update({
+      found: input.found,
+      found_at_location_id: input.found_at_location_id ?? null,
+      found_condition: input.found_condition ?? null,
+      variance_notes: input.variance_notes ?? null,
+      verified_at: new Date().toISOString(), verified_by: userId,
+    }).eq('audit_id', auditId).eq('asset_id', assetId)
+    if (error) return { success: false, error: error.message }
+    revalidatePath(`/fixed-assets/audits/${auditId}`)
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+export async function finalizeAudit(auditId: string, markMissingAsLost = false): Promise<ActionResult> {
+  await requirePermission('fixed_assets', 'write')
+  try {
+    const db = dbc()
+    const userId = await currentUserId()
+    const { data: audit } = await db.from('fa_audits').select('status').eq('id', auditId).maybeSingle()
+    if (!audit) return { success: false, error: 'Audit not found' }
+    if (audit.status !== 'in_progress') return { success: false, error: 'Audit is not in progress' }
+
+    const { data: lines } = await db.from('fa_audit_lines').select('*').eq('audit_id', auditId)
+    const today = new Date().toISOString().slice(0, 10)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const l of (lines ?? []) as any[]) {
+      if (l.found === true) {
+        const update: Record<string, unknown> = { updated_at: new Date().toISOString() }
+        if (l.found_at_location_id) update.location_id = l.found_at_location_id
+        if (l.found_condition) update.condition = l.found_condition
+        if (Object.keys(update).length > 1) await db.from('fa_assets').update(update).eq('id', l.asset_id)
+      } else if (l.found === false && markMissingAsLost) {
+        await db.from('fa_assets').update({
+          status: 'lost', disposal_date: today, disposal_method: 'lost',
+          disposal_notes: `Marked lost during audit`, updated_at: new Date().toISOString(),
+        }).eq('id', l.asset_id)
+      }
+    }
+
+    const { error } = await db.from('fa_audits').update({
+      status: 'finalized', finalized_at: new Date().toISOString(),
+    }).eq('id', auditId)
+    if (error) return { success: false, error: error.message }
+    void userId
+
+    await logHistory('fa_audit', auditId, 'edited', { action: 'finalized', mark_missing_lost: markMissingAsLost })
+    revalidatePath('/fixed-assets')
+    revalidatePath('/fixed-assets/assets')
+    revalidatePath(`/fixed-assets/audits/${auditId}`)
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+export async function cancelAudit(auditId: string): Promise<ActionResult> {
+  await requirePermission('fixed_assets', 'write')
+  try {
+    const { error } = await dbc().from('fa_audits').update({ status: 'cancelled' }).eq('id', auditId).eq('status', 'in_progress')
+    if (error) return { success: false, error: error.message }
+    await logHistory('fa_audit', auditId, 'edited', { action: 'cancelled' })
+    revalidatePath('/fixed-assets/audits')
+    revalidatePath(`/fixed-assets/audits/${auditId}`)
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}

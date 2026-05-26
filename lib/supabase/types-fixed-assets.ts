@@ -96,3 +96,42 @@ export interface FaAssetWithRelations extends FaAsset {
   vendor_name:    string | null
   depreciation:   DepreciationResult
 }
+
+// ─── Audit (Phase 3) ───────────────────────────────────────────────────────────
+
+export type AuditStatus = 'in_progress' | 'finalized' | 'cancelled'
+
+export interface FaAudit {
+  id:           string
+  audit_number: string
+  audit_year:   number
+  status:       AuditStatus
+  started_at:   string
+  finalized_at: string | null
+  conducted_by: string | null
+  notes:        string | null
+}
+
+export interface FaAuditLine {
+  id:                   string
+  audit_id:             string
+  asset_id:             string
+  expected_location_id: string | null
+  found:                boolean | null
+  found_at_location_id: string | null
+  found_condition:      AssetCondition | null
+  variance_notes:       string | null
+  verified_at:          string | null
+  verified_by:          string | null
+}
+
+export interface FaAuditLineWithAsset extends FaAuditLine {
+  asset_name:        string | null
+  asset_tag:         string | null
+  current_condition: AssetCondition | null
+  expected_location: string | null
+}
+
+export interface FaAuditFull extends FaAudit {
+  lines: FaAuditLineWithAsset[]
+}
