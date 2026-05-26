@@ -86,3 +86,13 @@ export type ReceiptFormInput    = z.input<typeof receiptFormSchema>
 export type IssueFormInput      = z.input<typeof issueFormSchema>
 export type TransferFormInput   = z.input<typeof transferFormSchema>
 export type AdjustmentFormInput = z.input<typeof adjustmentFormSchema>
+
+// ─── Counts (Phase 3) ─────────────────────────────────────────────────────────
+
+export const countFormSchema = z.object({
+  store_id:    z.string().uuid('Store required'),
+  category_id: z.string().uuid().nullable().optional(),
+  notes:       z.string().trim().min(1).nullable().optional(),
+})
+
+export type CountFormInput = z.input<typeof countFormSchema>

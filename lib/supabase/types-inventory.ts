@@ -137,3 +137,43 @@ export interface InvMovementFull extends InvMovement {
   to_store: Pick<InvStore, 'slug' | 'display_name'> | null
   supplier: Pick<InvSupplier, 'id' | 'name'> | null
 }
+
+// ─── Counts (Phase 3) ─────────────────────────────────────────────────────────
+
+export type CountStatus = 'in_progress' | 'finalized' | 'cancelled'
+
+export interface InvCount {
+  id:                     string
+  count_number:           string
+  store_id:               string
+  category_id:            string | null
+  count_date:             string
+  status:                 CountStatus
+  notes:                  string | null
+  adjustment_movement_id: string | null
+  created_by:             string | null
+  created_at:             string
+  finalized_at:           string | null
+  finalized_by:           string | null
+}
+
+export interface InvCountLine {
+  id:          string
+  count_id:    string
+  item_id:     string
+  system_qty:  number
+  counted_qty: number | null
+  variance:    number   // generated
+  notes:       string | null
+  counted_at:  string | null
+  counted_by:  string | null
+}
+
+export interface InvCountLineWithItem extends InvCountLine {
+  item: Pick<InvItem, 'name' | 'sku_code'> & { unit_abbr: string | null }
+}
+
+export interface InvCountFull extends InvCount {
+  lines: InvCountLineWithItem[]
+  store: Pick<InvStore, 'slug' | 'display_name'> | null
+}

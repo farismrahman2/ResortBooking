@@ -11,6 +11,8 @@ import type {
   InvMovementFull,
   MovementType,
   MovementStatus,
+  InvCount,
+  InvCountFull,
 } from '@/lib/supabase/types-inventory'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -233,4 +235,45 @@ export async function getStockHistoryForItem(itemId: string): Promise<Array<{
     .filter((r) => r.movement)
     .map((r) => ({ movement: r.movement as InvMovement, quantity: Number(r.quantity), adjustment_direction: r.adjustment_direction }))
     .sort((a, b) => b.movement.movement_date.localeCompare(a.movement.movement_date))
+}
+
+// ─── Low stock ────────────────────────────────────────────────────────────────
+
+/** Active items at or below their reorder point. */
+export async function getLowStockItems(storeId?: string): Promise<InvItemWithStock[]> {
+  const items = await listItems({ storeId, lowStockOnly: true, activeOnly: true })
+  return items
+}
+
+// ─── Counts (Phase 3) ─────────────────────────────────────────────────────────
+
+export async function listCounts(storeId?: string): Promise<InvCount[]> {
+  let q = db().from('inv_counts').select('*')
+    .order('count_date', { ascending: false }).order('created_at', { ascending: false })
+  if (storeId) q = q.eq('store_id', storeId)
+  const { data, error } = await q
+  if (error) throw new Error(`[inventory.listCounts] ${error.message}`)
+  return (data ?? []) as InvCount[]
+}
+
+export async function getCountById(id: string): Promise<InvCountFull | null> {
+  const [{ data: c }, { data: lines }] = await Promise.all([
+    db().from('inv_counts').select('*, store:inv_stores (slug, display_name)').eq('id', id).maybeSingle(),
+    db().from('inv_count_lines').select(`
+      *,
+      item:inv_items (name, sku_code, unit:inv_units (abbreviation))
+    `).eq('count_id', id),
+  ])
+  if (!c) return null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const mapped = (lines ?? []).map((l: any) => ({
+    ...l,
+    item: {
+      name:      l.item?.name ?? '(deleted item)',
+      sku_code:  l.item?.sku_code ?? '',
+      unit_abbr: l.item?.unit?.abbreviation ?? null,
+    },
+  }))
+  mapped.sort((a: { item: { name: string } }, b: { item: { name: string } }) => a.item.name.localeCompare(b.item.name))
+  return { ...c, lines: mapped } as InvCountFull
 }

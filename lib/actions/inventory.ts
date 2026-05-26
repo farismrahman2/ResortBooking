@@ -5,9 +5,10 @@ import { createClient } from '@/lib/supabase/server'
 import { requirePermission } from '@/lib/auth/permissions'
 import {
   itemFormSchema, supplierFormSchema,
-  receiptFormSchema, issueFormSchema, transferFormSchema, adjustmentFormSchema,
+  receiptFormSchema, issueFormSchema, transferFormSchema, adjustmentFormSchema, countFormSchema,
   type ItemFormInput, type SupplierFormInput,
   type ReceiptFormInput, type IssueFormInput, type TransferFormInput, type AdjustmentFormInput,
+  type CountFormInput,
 } from '@/lib/validators/inventory'
 import { formatSkuCode, storePrefixFromSlug, categoryPrefixFromSlug } from '@/lib/inventory/sku-generator'
 import { formatMovementNumber, type MovementNumberType } from '@/lib/inventory/movement-number'
@@ -596,8 +597,158 @@ export async function voidMovement(id: string, reason: string): Promise<ActionRe
 function revalidateInventory(slug: string | null) {
   revalidatePath('/inventory')
   if (slug) revalidatePath(`/inventory/${slug}`)
-  revalidatePath('/inventory/receipts')
-  revalidatePath('/inventory/issues')
-  revalidatePath('/inventory/transfers')
-  revalidatePath('/inventory/adjustments')
+  revalidatePath('/inventory/movements')
+  revalidatePath('/inventory/low-stock')
+}
+
+// ─── Counts (Phase 3) ─────────────────────────────────────────────────────────
+
+export async function startCount(raw: CountFormInput): Promise<ActionData<{ id: string }>> {
+  await requirePermission('inventory', 'write')
+  try {
+    const input = countFormSchema.parse(raw)
+    const db = dbc()
+    const userId = await currentUserId()
+    const today = new Date().toISOString().slice(0, 10)
+
+    // Snapshot the active items in scope
+    let itemQ = db.from('inv_items').select('id, current_stock').eq('store_id', input.store_id).eq('is_active', true)
+    if (input.category_id) itemQ = itemQ.eq('category_id', input.category_id)
+    const { data: items } = await itemQ
+    if (!items || items.length === 0) return { success: false, error: 'No active items to count in this scope' }
+
+    // Number with retry
+    let countId: string | null = null
+    let countNumber = ''
+    for (let attempt = 0; attempt < 5 && !countId; attempt++) {
+      const { count } = await db.from('inv_counts').select('id', { count: 'exact', head: true }).eq('count_date', today)
+      countNumber = formatMovementNumber('count', today, (count ?? 0) + attempt)
+      const { data, error } = await db.from('inv_counts').insert({
+        count_number: countNumber, store_id: input.store_id, category_id: input.category_id ?? null,
+        count_date: today, notes: input.notes ?? null, created_by: userId,
+      }).select('id').single()
+      if (!error) { countId = data.id; break }
+      if (error.code !== '23505') return { success: false, error: error.message }
+    }
+    if (!countId) return { success: false, error: 'Could not generate a unique count number' }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const lineRows = (items as any[]).map((it) => ({
+      count_id: countId, item_id: it.id, system_qty: Number(it.current_stock),
+    }))
+    const { error: linesErr } = await db.from('inv_count_lines').insert(lineRows)
+    if (linesErr) { await db.from('inv_counts').delete().eq('id', countId); return { success: false, error: linesErr.message } }
+
+    await logHistory('inv_count', countId, 'created', { count_number: countNumber, items: lineRows.length })
+    revalidatePath('/inventory/counts')
+    return { success: true, data: { id: countId } }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+export async function recordCountedQty(countId: string, itemId: string, qty: number | null): Promise<ActionResult> {
+  await requirePermission('inventory', 'write')
+  try {
+    const db = dbc()
+    const userId = await currentUserId()
+    const { error } = await db.from('inv_count_lines').update({
+      counted_qty: qty, counted_at: qty == null ? null : new Date().toISOString(), counted_by: qty == null ? null : userId,
+    }).eq('count_id', countId).eq('item_id', itemId)
+    if (error) return { success: false, error: error.message }
+    revalidatePath(`/inventory/counts/${countId}`)
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+export async function bulkMarkMatching(countId: string): Promise<ActionResult> {
+  await requirePermission('inventory', 'write')
+  try {
+    const db = dbc()
+    const userId = await currentUserId()
+    const { data: lines } = await db.from('inv_count_lines').select('id, system_qty, counted_qty').eq('count_id', countId)
+    const now = new Date().toISOString()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const unmarked = ((lines ?? []) as any[]).filter((l) => l.counted_qty == null)
+    for (const l of unmarked) {
+      await db.from('inv_count_lines').update({ counted_qty: l.system_qty, counted_at: now, counted_by: userId }).eq('id', l.id)
+    }
+    revalidatePath(`/inventory/counts/${countId}`)
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+export async function finalizeCount(countId: string): Promise<ActionResult> {
+  await requirePermission('inventory', 'write')
+  try {
+    const db = dbc()
+    const userId = await currentUserId()
+
+    const { data: count } = await db.from('inv_counts').select('*').eq('id', countId).maybeSingle()
+    if (!count) return { success: false, error: 'Count not found' }
+    if (count.status !== 'in_progress') return { success: false, error: 'Count is not in progress' }
+
+    const { data: lines } = await db.from('inv_count_lines').select('item_id, counted_qty, system_qty').eq('count_id', countId)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const counted = ((lines ?? []) as any[]).filter((l) => l.counted_qty != null)
+    if (counted.length === 0) return { success: false, error: 'Record at least one counted quantity before finalizing' }
+
+    const variances = counted
+      .map((l) => ({ item_id: l.item_id as string, variance: Number(l.counted_qty) - Number(l.system_qty) }))
+      .filter((v) => Math.abs(v.variance) > 0.0001)
+
+    let adjustmentId: string | null = null
+    const today = new Date().toISOString().slice(0, 10)
+
+    if (variances.length > 0) {
+      const header = await insertMovementHeader(db, 'adjustment', today, {
+        movement_type: 'adjustment', movement_date: today, store_id: count.store_id,
+        adjustment_reason: 'recount', total_value: 0,
+        notes: `Auto-generated from count ${count.count_number}`, created_by: userId,
+      })
+      if ('error' in header) return { success: false, error: header.error }
+      adjustmentId = header.id
+
+      const lineRows = variances.map((v, idx) => ({
+        movement_id: header.id, item_id: v.item_id, quantity: Math.abs(v.variance),
+        adjustment_direction: v.variance > 0 ? 'increase' : 'decrease', display_order: idx,
+      }))
+      await db.from('inv_movement_lines').insert(lineRows)
+      for (const v of variances) await applyStockDelta(db, v.item_id, v.variance)
+      await logHistory('inv_movement', header.id, 'created', { type: 'adjustment', reason: 'recount', from_count: count.count_number })
+    }
+
+    const { error: finErr } = await db.from('inv_counts').update({
+      status: 'finalized', finalized_at: new Date().toISOString(), finalized_by: userId,
+      adjustment_movement_id: adjustmentId,
+    }).eq('id', countId)
+    if (finErr) return { success: false, error: finErr.message }
+
+    await logHistory('inv_count', countId, 'edited', { action: 'finalized', adjustments: variances.length })
+    const slug = await storeSlug(db, count.store_id)
+    revalidateInventory(slug)
+    revalidatePath(`/inventory/counts/${countId}`)
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+export async function cancelCount(countId: string): Promise<ActionResult> {
+  await requirePermission('inventory', 'write')
+  try {
+    const { error } = await dbc().from('inv_counts')
+      .update({ status: 'cancelled' }).eq('id', countId).eq('status', 'in_progress')
+    if (error) return { success: false, error: error.message }
+    await logHistory('inv_count', countId, 'edited', { action: 'cancelled' })
+    revalidatePath('/inventory/counts')
+    revalidatePath(`/inventory/counts/${countId}`)
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
 }

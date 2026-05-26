@@ -1,6 +1,6 @@
 import { Topbar } from '@/components/layout/Topbar'
 import Link from 'next/link'
-import { Boxes, Users, ArrowLeftRight } from 'lucide-react'
+import { Boxes, Users, ArrowLeftRight, ClipboardList, AlertTriangle, BarChart2 } from 'lucide-react'
 import { requirePermission } from '@/lib/auth/permissions'
 import { listStores, listItems, getInventoryHubKpis } from '@/lib/queries/inventory'
 import { MigrationErrorBanner } from '@/components/inventory/MigrationErrorBanner'
@@ -40,9 +40,18 @@ export default async function InventoryHubPage() {
 
         {!migrationError && (
           <>
-            <div className="flex items-center justify-end gap-4">
+            <div className="flex flex-wrap items-center justify-end gap-4">
               <Link href="/inventory/movements" className="inline-flex items-center gap-1.5 text-sm font-medium text-teal-700 hover:underline">
                 <ArrowLeftRight size={14} /> Movements
+              </Link>
+              <Link href="/inventory/counts" className="inline-flex items-center gap-1.5 text-sm font-medium text-teal-700 hover:underline">
+                <ClipboardList size={14} /> Counts
+              </Link>
+              <Link href="/inventory/low-stock" className="inline-flex items-center gap-1.5 text-sm font-medium text-teal-700 hover:underline">
+                <AlertTriangle size={14} /> Low stock
+              </Link>
+              <Link href="/inventory/reports" className="inline-flex items-center gap-1.5 text-sm font-medium text-teal-700 hover:underline">
+                <BarChart2 size={14} /> Reports
               </Link>
               <Link href="/inventory/suppliers" className="inline-flex items-center gap-1.5 text-sm font-medium text-teal-700 hover:underline">
                 <Users size={14} /> Suppliers
