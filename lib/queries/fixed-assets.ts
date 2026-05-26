@@ -190,3 +190,53 @@ export async function getFixedAssetsHubKpis(): Promise<FixedAssetsHubKpis> {
     maintenance_due,
   }
 }
+
+// ─── Depreciation reporting (Phase 2) ─────────────────────────────────────────
+
+export interface SchedulePoint { label: string; nbv: number; accumulated: number }
+
+/** Year-by-year NBV from acquisition to end of useful life (for the chart). */
+export function getDepreciationSchedule(asset: FaAsset): SchedulePoint[] {
+  const start = new Date(asset.depreciation_start_date + 'T00:00:00')
+  const points: SchedulePoint[] = []
+  for (let year = 0; year <= asset.useful_life_years; year++) {
+    const asOf = new Date(start); asOf.setFullYear(asOf.getFullYear() + year)
+    const dep = computeDepreciation({
+      acquisitionCost: Number(asset.acquisition_cost), salvageValue: Number(asset.salvage_value),
+      usefulLifeYears: asset.useful_life_years, depreciationStartDate: start, asOfDate: asOf,
+    })
+    points.push({ label: `Yr ${year}`, nbv: dep.netBookValue, accumulated: dep.totalDepreciation })
+  }
+  return points
+}
+
+/** Total straight-line depreciation expense for the month containing `monthIso`. */
+export async function getMonthlyDepreciationTotal(monthIso: string): Promise<number> {
+  const monthEnd = monthIso.slice(0, 7) + '-28'   // safe end-of-month proxy
+  const { data, error } = await db().from('fa_assets').select('*').eq('is_active', true)
+  if (error) throw new Error(`[fa.getMonthlyDepreciationTotal] ${error.message}`)
+  let total = 0
+  for (const a of (data ?? []) as FaAsset[]) {
+    if (a.depreciation_start_date > monthEnd) continue
+    if (a.disposal_date && a.disposal_date <= monthEnd) continue
+    const dep = depFor(a)
+    if (dep.isFullyDepreciated || dep.monthsElapsed <= 0) continue
+    total += dep.monthlyDepreciation
+  }
+  return Math.round(total * 100) / 100
+}
+
+export interface CategoryNbvRow { category: string; count: number; acquisition: number; nbv: number }
+
+export async function getRegisterByCategory(): Promise<CategoryNbvRow[]> {
+  const assets = await listAssets({ status: 'active', activeOnly: false })
+  const map = new Map<string, CategoryNbvRow>()
+  for (const a of assets) {
+    const key = a.category?.display_name ?? '—'
+    const r = map.get(key) ?? { category: key, count: 0, acquisition: 0, nbv: 0 }
+    r.count += 1; r.acquisition += Number(a.acquisition_cost); r.nbv += a.depreciation.netBookValue
+    map.set(key, r)
+  }
+  return [...map.values()].map((r) => ({ ...r, acquisition: Math.round(r.acquisition), nbv: Math.round(r.nbv) }))
+    .sort((a, b) => b.nbv - a.nbv)
+}

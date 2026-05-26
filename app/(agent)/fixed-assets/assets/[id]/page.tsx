@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { Printer } from 'lucide-react'
 import { Topbar } from '@/components/layout/Topbar'
 import { requirePermission, hasPermission } from '@/lib/auth/permissions'
-import { getAssetById, listMaintenanceForAsset } from '@/lib/queries/fixed-assets'
+import { getAssetById, listMaintenanceForAsset, getDepreciationSchedule } from '@/lib/queries/fixed-assets'
 import { getActivePayees } from '@/lib/queries/expenses'
 import { ConditionBadge, StatusBadge } from '@/components/fixed-assets/Badges'
 import { AssetDepreciationCard } from '@/components/fixed-assets/AssetDepreciationCard'
@@ -65,6 +65,23 @@ export default async function AssetDetailPage({ params }: { params: { id: string
           <div>
             <h3 className="mb-2 text-sm font-semibold text-gray-900">Depreciation</h3>
             <AssetDepreciationCard asset={asset} dep={asset.depreciation} />
+            <div className="mt-3 overflow-x-auto rounded-xl border border-gray-200 bg-white">
+              <table className="min-w-full text-xs">
+                <thead className="border-b border-gray-100 bg-gray-50 text-left uppercase tracking-wide text-gray-400">
+                  <tr>
+                    {getDepreciationSchedule(asset).map((p) => <th key={p.label} className="px-2.5 py-1.5 font-medium text-center">{p.label}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    {getDepreciationSchedule(asset).map((p) => (
+                      <td key={p.label} className="px-2.5 py-1.5 text-center tabular-nums text-gray-700">{formatBDT(p.nbv)}</td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p className="mt-1 text-[11px] text-gray-400">Net book value at each year-end (straight-line).</p>
           </div>
 
           <div>
