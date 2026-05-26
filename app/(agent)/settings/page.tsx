@@ -56,6 +56,12 @@ export default async function SettingsPage() {
             description="Set 30/60/90-day targets per sales rep"
           />
           <HubTile
+            href="/settings/asset-categories"
+            icon={<SettingsIcon size={18} />}
+            title="Asset Categories"
+            description="Default useful life & salvage % for fixed-asset depreciation"
+          />
+          <HubTile
             href="/settings/duplicate-bookings"
             icon={<Copy size={18} />}
             title="Duplicate Bookings"
