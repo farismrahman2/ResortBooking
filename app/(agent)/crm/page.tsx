@@ -34,6 +34,7 @@ export default async function CrmHubPage() {
               <Link href="/crm/opportunities" className="text-sm font-medium text-amber-700 hover:underline">Opportunities →</Link>
               <Link href="/crm/activities" className="text-sm font-medium text-amber-700 hover:underline">Activities →</Link>
               <Link href="/crm/kpi" className="text-sm font-medium text-amber-700 hover:underline">KPI Tracker →</Link>
+              <Link href="/crm/reports" className="text-sm font-medium text-amber-700 hover:underline">Reports →</Link>
             </div>
 
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
