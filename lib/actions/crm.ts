@@ -8,6 +8,7 @@ import {
   type AccountFormInput, type ContactFormInput, type OpportunityFormInput, type ActivityFormInput,
 } from '@/lib/validators/crm'
 import { formatAccountCode } from '@/lib/crm/account-code'
+import { generateBookingNumber } from '@/lib/utils'
 import { formatOpportunityCode } from '@/lib/crm/opportunity-code'
 import { DEFAULT_PROBABILITY_BY_STAGE, getProbabilityForStage } from '@/lib/crm/stage-probabilities'
 import type { OpportunityStage, LostReason } from '@/lib/supabase/types-crm'
@@ -375,28 +376,96 @@ export async function changeStage(id: string, newStage: OpportunityStage, notes?
   }
 }
 
-/** Phase 2 version: records the Won state. Phase 3 overrides this with the
- *  booking-handoff variant (it re-exports under the same name). */
-export async function markWon(id: string, input: { actualValue: number; eventDate: string; notes?: string }): Promise<ActionResult> {
+/**
+ * Mark Won → auto-create a tentative (draft) booking the Reservations team
+ * picks up. source_module='crm_handoff' + source_id on the booking is the
+ * authoritative link; crm_opportunities.linked_booking_id is the cache.
+ * Rolls the opportunity back if the booking insert fails.
+ */
+export async function markWon(
+  id: string,
+  input: { actualValue: number; eventDate: string; notes?: string },
+): Promise<ActionData<{ booking_id: string }>> {
   await requirePermission('crm', 'write')
   try {
     const db = dbc()
-    const { data: opp } = await db.from('crm_opportunities').select('account_id, stage').eq('id', id).maybeSingle()
+    const userId = await currentUserId()
+
+    const { data: opp } = await db.from('crm_opportunities').select(`
+      *, account:crm_accounts (id, company_name), primary_contact:crm_contacts (full_name, phone, email)
+    `).eq('id', id).maybeSingle()
     if (!opp) return { success: false, error: 'Opportunity not found' }
     if (opp.stage === 'won') return { success: false, error: 'Already won' }
-    const { error } = await db.from('crm_opportunities').update({
+
+    const prevStage = opp.stage as OpportunityStage
+    const prevProb  = opp.probability_pct as number
+
+    // 1. Flip opportunity to Won
+    const { error: oppErr } = await db.from('crm_opportunities').update({
       stage: 'won', probability_pct: 100, won_at: new Date().toISOString(),
-      actual_value: input.actualValue, expected_event_date: input.eventDate,
-      ...(input.notes ? { notes: input.notes } : {}), updated_at: new Date().toISOString(),
+      actual_value: input.actualValue, expected_event_date: input.eventDate, updated_at: new Date().toISOString(),
     }).eq('id', id)
-    if (error) return { success: false, error: error.message }
+    if (oppErr) return { success: false, error: oppErr.message }
+
+    // 2. Account → won_client
     await db.from('crm_accounts').update({ status: 'won_client', updated_at: new Date().toISOString() })
       .eq('id', opp.account_id).neq('status', 'won_client')
-    await logHistory('crm_opportunity', id, 'edited', { action: 'won', actual_value: input.actualValue })
+
+    // 3. Create the tentative (draft) booking — mapped to the real bookings schema
+    const bookingNumber = await generateBookingNumber(createClient())
+    const contact = opp.primary_contact
+    const { data: booking, error: bErr } = await db.from('bookings').insert({
+      booking_number:     bookingNumber,
+      customer_name:      opp.account?.company_name ?? opp.opportunity_name,
+      customer_phone:     contact?.phone ?? '',
+      customer_notes:     `Corporate event: ${opp.opportunity_name}.${input.notes ? ' ' + input.notes : ''}`.trim(),
+      package_type:       'daylong',                    // CRM events default to day-use; Reservations adjusts
+      visit_date:         input.eventDate,
+      check_out_date:     null,
+      adults:             opp.pax ?? 1,
+      children_paid:      0,
+      children_free:      0,
+      drivers:            0,
+      extra_beds:         0,
+      subtotal:           input.actualValue,
+      discount:           0,
+      discount_pct:       0,
+      service_charge_pct: 0,
+      advance_required:   0,
+      advance_paid:       0,
+      status:             'draft',                      // Reservations validates → confirmed
+      package_snapshot:   {},
+      line_items:         [],
+      extra_items:        [],
+      source_module:      'crm_handoff',
+      source_id:          id,
+    }).select('id, booking_number').single()
+
+    if (bErr || !booking) {
+      // Roll the opportunity back — never leave a Won opp without a booking.
+      await db.from('crm_opportunities').update({
+        stage: prevStage, probability_pct: prevProb, won_at: null, actual_value: null, updated_at: new Date().toISOString(),
+      }).eq('id', id)
+      return { success: false, error: `Booking creation failed: ${bErr?.message ?? 'unknown'}` }
+    }
+
+    // 4. Link opportunity → booking (cache)
+    await db.from('crm_opportunities').update({ linked_booking_id: booking.id }).eq('id', id)
+
+    // 5. History on both sides
+    await logHistory('crm_opportunity', id, 'edited', { action: 'won', actual_value: input.actualValue, booking_id: booking.id })
+    try {
+      await db.from('history_log').insert({
+        entity_type: 'booking', entity_id: booking.id, event: 'created', actor: 'system',
+        payload: { source: 'crm_handoff', opp_id: id, opp_code: opp.opp_code, created_by: userId },
+      })
+    } catch { /* non-fatal */ }
+
     revalidatePath('/crm/pipeline')
     revalidatePath(`/crm/opportunities/${id}`)
     revalidatePath(`/crm/accounts/${opp.account_id}`)
-    return { success: true }
+    revalidatePath('/bookings')
+    return { success: true, data: { booking_id: booking.id } }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }

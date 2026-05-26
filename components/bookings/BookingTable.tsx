@@ -78,7 +78,12 @@ export function BookingTable({ bookings }: BookingTableProps) {
 
                 {/* Customer + guest count */}
                 <td className="px-4 py-3">
-                  <p className="font-medium text-gray-900">{booking.customer_name}</p>
+                  <p className="font-medium text-gray-900">
+                    {booking.customer_name}
+                    {booking.source_module === 'crm_handoff' && (
+                      <span className="ml-1.5 inline-flex items-center rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 align-middle">From CRM</span>
+                    )}
+                  </p>
                   <div className="mt-0.5 flex items-center gap-1.5">
                     <p className="text-xs text-gray-500">{booking.customer_phone}</p>
                     <WhatsAppLink phone={booking.customer_phone} size="sm" />

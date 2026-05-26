@@ -160,6 +160,8 @@ export interface BookingRow {
   package_snapshot: PackageSnapshot
   line_items: LineItem[]
   extra_items: ExtraItem[]
+  source_module?: 'manual' | 'crm_handoff' | 'ota' | 'walk_in' | 'phone' | 'other'
+  source_id?: string | null
   created_at: string
   updated_at: string
 }
