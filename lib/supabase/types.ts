@@ -236,6 +236,10 @@ export interface ExpenseRow {
   notes: string | null
   is_draft: boolean
   recurring_template_id: string | null
+  // Source tracking — 'inventory' rows are auto-created by inventory receipts
+  // and are read-only in the expenses UI (managed from the inventory side).
+  source_module: 'manual' | 'payroll' | 'checkout_refund' | 'inventory'
+  source_id: string | null
   created_by: string | null
   created_at: string
   updated_at: string

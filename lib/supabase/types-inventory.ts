@@ -83,3 +83,57 @@ export interface InvItemWithStock extends InvItemWithRefs {
   isBelowReorder: boolean
   isBelowPar:     boolean
 }
+
+// ─── Movements (Phase 2) ──────────────────────────────────────────────────────
+
+export type MovementType        = 'receipt' | 'issue' | 'transfer' | 'adjustment'
+export type MovementStatus      = 'completed' | 'voided'
+export type AdjustmentDirection = 'increase' | 'decrease'
+export type AdjustmentReason    = 'breakage' | 'expired' | 'theft' | 'loss' | 'recount' | 'damage' | 'other'
+
+export interface InvMovement {
+  id:                   string
+  movement_number:      string
+  movement_type:        MovementType
+  movement_date:        string
+  store_id:             string
+  transfer_to_store_id: string | null
+  supplier_id:          string | null
+  invoice_number:       string | null
+  invoice_date:         string | null
+  expense_id:           string | null
+  adjustment_reason:    AdjustmentReason | null
+  issued_to_department: string | null
+  total_value:          number
+  notes:                string | null
+  status:               MovementStatus
+  voided_at:            string | null
+  voided_by:            string | null
+  void_reason:          string | null
+  created_by:           string | null
+  created_at:           string
+}
+
+export interface InvMovementLine {
+  id:                   string
+  movement_id:          string
+  item_id:              string
+  quantity:             number
+  unit_price:           number
+  line_value:           number    // generated
+  adjustment_direction: AdjustmentDirection | null
+  notes:                string | null
+  display_order:        number
+}
+
+/** A movement line joined with the item name/sku/unit for display. */
+export interface InvMovementLineWithItem extends InvMovementLine {
+  item: Pick<InvItem, 'name' | 'sku_code'> & { unit_abbr: string | null }
+}
+
+export interface InvMovementFull extends InvMovement {
+  lines:    InvMovementLineWithItem[]
+  store:    Pick<InvStore, 'slug' | 'display_name'> | null
+  to_store: Pick<InvStore, 'slug' | 'display_name'> | null
+  supplier: Pick<InvSupplier, 'id' | 'name'> | null
+}
