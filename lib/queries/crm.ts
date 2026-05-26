@@ -6,6 +6,8 @@ import type {
   OpportunityStage, PipelineColumn,
 } from '@/lib/supabase/types-crm'
 import { STAGE_ORDER } from '@/lib/crm/stage-probabilities'
+import { getKpiPeriods } from '@/lib/crm/kpi-dates'
+import { KPI_METRICS, kpiStatus, type KpiMetric, type KpiStatus } from '@/lib/crm/kpi-metrics'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = () => createClient() as any
@@ -301,4 +303,87 @@ export async function getNextStepsDue(daysAhead = 7): Promise<CrmActivityWithRel
   const { data, error } = await q
   if (error) throw new Error(`[crm.getNextStepsDue] ${error.message}`)
   return decorateActivities((data ?? []) as CrmActivityWithRelations[])
+}
+
+// ─── KPI tracker (Phase 4) ─────────────────────────────────────────────────────
+
+export interface KpiCell {
+  target: number
+  actual: number
+  status: KpiStatus
+}
+
+export interface KpiTracker {
+  userId:          string
+  userName:        string | null
+  salesStartDate:  string | null
+  periods:         { day30: { dayInPeriod: number }; day60: { dayInPeriod: number }; day90: { dayInPeriod: number } }
+  rows:            Array<{ metric: KpiMetric; day30: KpiCell; day60: KpiCell; day90: KpiCell }>
+}
+
+async function actualsForWindow(userId: string, from: string, to: string): Promise<Map<string, number>> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (createClient() as any).rpc('crm_compute_kpi_actuals', { p_user_id: userId, p_from: from, p_to: to })
+  if (error) throw new Error(`[crm.actualsForWindow] ${error.message}`)
+  const m = new Map<string, number>()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const r of (data ?? []) as any[]) m.set(r.metric, Number(r.actual_value ?? 0))
+  return m
+}
+
+export async function getKpiTrackerForUser(userId: string): Promise<KpiTracker> {
+  const [{ data: profile }, { data: targetRows }] = await Promise.all([
+    db().from('user_profiles').select('full_name, sales_start_date').eq('user_id', userId).maybeSingle(),
+    db().from('crm_kpi_targets').select('metric, period_days, target_value').eq('user_id', userId),
+  ])
+
+  const salesStartDate: string | null = profile?.sales_start_date ?? null
+  const targetMap = new Map<string, number>()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const t of (targetRows ?? []) as any[]) targetMap.set(`${t.metric}:${t.period_days}`, Number(t.target_value))
+
+  // No start date → empty pro-rating (everything NA), but still surface targets.
+  const periods = salesStartDate ? getKpiPeriods(salesStartDate) : {
+    day30: { from: '', to: '', dayInPeriod: 0, periodDays: 30 },
+    day60: { from: '', to: '', dayInPeriod: 0, periodDays: 60 },
+    day90: { from: '', to: '', dayInPeriod: 0, periodDays: 90 },
+  }
+
+  const [a30, a60, a90] = salesStartDate
+    ? await Promise.all([
+        actualsForWindow(userId, periods.day30.from, periods.day30.to),
+        actualsForWindow(userId, periods.day60.from, periods.day60.to),
+        actualsForWindow(userId, periods.day90.from, periods.day90.to),
+      ])
+    : [new Map<string, number>(), new Map<string, number>(), new Map<string, number>()]
+
+  const cell = (metric: KpiMetric, days: 30 | 60 | 90, actuals: Map<string, number>, dayInPeriod: number): KpiCell => {
+    const target = targetMap.get(`${metric}:${days}`) ?? 0
+    const actual = actuals.get(metric) ?? 0
+    return { target, actual, status: kpiStatus(actual, target, dayInPeriod, days) }
+  }
+
+  const rows = KPI_METRICS.map((metric) => ({
+    metric,
+    day30: cell(metric, 30, a30, periods.day30.dayInPeriod),
+    day60: cell(metric, 60, a60, periods.day60.dayInPeriod),
+    day90: cell(metric, 90, a90, periods.day90.dayInPeriod),
+  }))
+
+  return {
+    userId,
+    userName: profile?.full_name ?? null,
+    salesStartDate,
+    periods: { day30: { dayInPeriod: periods.day30.dayInPeriod }, day60: { dayInPeriod: periods.day60.dayInPeriod }, day90: { dayInPeriod: periods.day90.dayInPeriod } },
+    rows,
+  }
+}
+
+/** Users with the corporate_sales role (for the KPI user switcher). */
+export async function listSalesReps(): Promise<Array<{ user_id: string; full_name: string }>> {
+  const { data, error } = await db().from('user_profiles')
+    .select('user_id, full_name, role:roles!inner (slug)').eq('is_active', true)
+  if (error) throw new Error(`[crm.listSalesReps] ${error.message}`)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((data ?? []) as any[]).filter((u) => u.role?.slug === 'corporate_sales').map((u) => ({ user_id: u.user_id, full_name: u.full_name }))
 }

@@ -50,6 +50,12 @@ export default async function SettingsPage() {
             description="Pre-approved corporate discount % per account tier (A / B / C)"
           />
           <HubTile
+            href="/settings/crm-kpi"
+            icon={<Building2 size={18} />}
+            title="CRM KPI Targets"
+            description="Set 30/60/90-day targets per sales rep"
+          />
+          <HubTile
             href="/settings/duplicate-bookings"
             icon={<Copy size={18} />}
             title="Duplicate Bookings"

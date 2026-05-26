@@ -588,6 +588,27 @@ export async function deleteActivity(id: string): Promise<ActionResult> {
   }
 }
 
+// ─── KPI targets (Phase 4) ─────────────────────────────────────────────────────
+
+export async function setKpiTarget(
+  userId: string, metric: string, periodDays: 30 | 60 | 90, targetValue: number,
+): Promise<ActionResult> {
+  await requirePermission('settings', 'write')
+  try {
+    if (targetValue < 0) return { success: false, error: 'Target must be ≥ 0' }
+    const { error } = await dbc().from('crm_kpi_targets').upsert({
+      user_id: userId, metric, period_days: periodDays, target_value: targetValue, updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,metric,period_days' })
+    if (error) return { success: false, error: error.message }
+    revalidatePath('/settings/crm-kpi')
+    revalidatePath(`/crm/kpi/${userId}`)
+    revalidatePath('/crm/kpi')
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
 // ─── Settings: tiers + sales_start_date ────────────────────────────────────────
 
 export async function updateTier(
