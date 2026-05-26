@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Archive, Wrench, MapPin, ClipboardCheck } from 'lucide-react'
+import { Archive, Wrench, MapPin, ClipboardCheck, BarChart2 } from 'lucide-react'
 import { Topbar } from '@/components/layout/Topbar'
 import { requirePermission, hasPermission } from '@/lib/auth/permissions'
 import { getFixedAssetsHubKpis } from '@/lib/queries/fixed-assets'
@@ -34,6 +34,7 @@ export default async function FixedAssetsHubPage() {
               <Link href="/fixed-assets/maintenance" className="inline-flex items-center gap-1.5 text-sm font-medium text-zinc-700 hover:underline"><Wrench size={14} /> Maintenance</Link>
               <Link href="/fixed-assets/locations" className="inline-flex items-center gap-1.5 text-sm font-medium text-zinc-700 hover:underline"><MapPin size={14} /> Locations</Link>
               <Link href="/fixed-assets/audits" className="inline-flex items-center gap-1.5 text-sm font-medium text-zinc-700 hover:underline"><ClipboardCheck size={14} /> Audits</Link>
+              <Link href="/fixed-assets/reports" className="inline-flex items-center gap-1.5 text-sm font-medium text-zinc-700 hover:underline"><BarChart2 size={14} /> Reports</Link>
             </div>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               <Kpi label="Active assets" value={String(kpis?.total_assets ?? 0)} />

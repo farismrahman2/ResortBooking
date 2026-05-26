@@ -284,3 +284,63 @@ export async function getAuditById(id: string): Promise<FaAuditFull | null> {
 
   return { ...audit, lines: decorated } as FaAuditFull
 }
+
+// ─── Reports (Phase 4) ─────────────────────────────────────────────────────────
+
+export interface MaintenanceCostRow { label: string; count: number; total: number }
+
+export async function getMaintenanceCostByCategory(): Promise<MaintenanceCostRow[]> {
+  const { data: logs, error } = await db().from('fa_maintenance_log').select('asset_id, cost')
+  if (error) throw new Error(`[fa.getMaintenanceCostByCategory] ${error.message}`)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows = (logs ?? []) as any[]
+  const assetIds = [...new Set(rows.map((r) => r.asset_id))]
+  if (assetIds.length === 0) return []
+  const { data: assets } = await db().from('fa_assets').select('id, category:fa_categories (display_name)').in('id', assetIds)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const catByAsset = new Map((assets ?? []).map((a: any) => [a.id, a.category?.display_name ?? '—']))
+  const map = new Map<string, MaintenanceCostRow>()
+  for (const r of rows) {
+    const label = (catByAsset.get(r.asset_id) as string) ?? '—'
+    const m = map.get(label) ?? { label, count: 0, total: 0 }
+    m.count += 1; m.total += Number(r.cost ?? 0)
+    map.set(label, m)
+  }
+  return [...map.values()].map((m) => ({ ...m, total: Math.round(m.total) })).sort((a, b) => b.total - a.total)
+}
+
+export interface DisposalSummaryRow { year: number; count: number; proceeds: number; nbv: number; gain_loss: number }
+
+export async function getDisposalSummary(): Promise<DisposalSummaryRow[]> {
+  const { data, error } = await db().from('fa_assets').select('*').neq('status', 'active').not('disposal_date', 'is', null)
+  if (error) throw new Error(`[fa.getDisposalSummary] ${error.message}`)
+  const map = new Map<number, DisposalSummaryRow>()
+  for (const a of (data ?? []) as FaAsset[]) {
+    const year = Number((a.disposal_date as string).slice(0, 4))
+    const nbv = computeDepreciation({
+      acquisitionCost: Number(a.acquisition_cost), salvageValue: Number(a.salvage_value),
+      usefulLifeYears: a.useful_life_years, depreciationStartDate: new Date(a.depreciation_start_date + 'T00:00:00'),
+      asOfDate: new Date((a.disposal_date as string) + 'T00:00:00'),
+    }).netBookValue
+    const proceeds = Number(a.disposal_proceeds ?? 0)
+    const r = map.get(year) ?? { year, count: 0, proceeds: 0, nbv: 0, gain_loss: 0 }
+    r.count += 1; r.proceeds += proceeds; r.nbv += nbv; r.gain_loss += proceeds - nbv
+    map.set(year, r)
+  }
+  return [...map.values()].map((r) => ({
+    year: r.year, count: r.count, proceeds: Math.round(r.proceeds), nbv: Math.round(r.nbv), gain_loss: Math.round(r.gain_loss),
+  })).sort((a, b) => b.year - a.year)
+}
+
+export interface ReplacementRow { id: string; asset_tag: string; name: string; category: string; nbv: number; remaining_months: number }
+
+export async function getComingUpForReplacement(monthsThreshold = 12): Promise<ReplacementRow[]> {
+  const assets = await listAssets({ status: 'active', activeOnly: false })
+  return assets
+    .filter((a) => a.depreciation.remainingUsefulMonths <= monthsThreshold)
+    .map((a) => ({
+      id: a.id, asset_tag: a.asset_tag, name: a.name, category: a.category?.display_name ?? '—',
+      nbv: a.depreciation.netBookValue, remaining_months: a.depreciation.remainingUsefulMonths,
+    }))
+    .sort((x, y) => x.remaining_months - y.remaining_months)
+}
