@@ -29,7 +29,10 @@ export default async function CrmHubPage() {
         {migrationError ? <MigrationErrorBanner error={migrationError} /> : (
           <>
             <div className="flex flex-wrap items-center gap-4">
-              <Link href="/crm/accounts" className="text-sm font-medium text-amber-700 hover:underline">All accounts →</Link>
+              <Link href="/crm/accounts" className="text-sm font-medium text-amber-700 hover:underline">Accounts →</Link>
+              <Link href="/crm/pipeline" className="text-sm font-medium text-amber-700 hover:underline">Pipeline →</Link>
+              <Link href="/crm/opportunities" className="text-sm font-medium text-amber-700 hover:underline">Opportunities →</Link>
+              <Link href="/crm/activities" className="text-sm font-medium text-amber-700 hover:underline">Activities →</Link>
             </div>
 
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">

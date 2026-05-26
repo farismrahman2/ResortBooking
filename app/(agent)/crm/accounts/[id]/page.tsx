@@ -3,9 +3,11 @@ import Link from 'next/link'
 import { GitBranch, Plus } from 'lucide-react'
 import { Topbar } from '@/components/layout/Topbar'
 import { requirePermission, hasPermission } from '@/lib/auth/permissions'
-import { getAccountById, listContactsByAccount, listChildAccounts } from '@/lib/queries/crm'
+import { getAccountById, listContactsByAccount, listChildAccounts, listOpportunities, getActivitiesByAccount } from '@/lib/queries/crm'
 import { StatusBadge, TierBadge } from '@/components/crm/StatusBadge'
 import { ContactsList } from '@/components/crm/ContactsList'
+import { OpportunitiesTable } from '@/components/crm/OpportunitiesTable'
+import { AccountActivityPanel } from '@/components/crm/AccountActivityPanel'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,9 +18,11 @@ export default async function AccountDetailPage({ params }: { params: { id: stri
   const account = await getAccountById(params.id)
   if (!account) notFound()
 
-  const [contacts, children] = await Promise.all([
+  const [contacts, children, opportunities, activities] = await Promise.all([
     listContactsByAccount(account.id),
     listChildAccounts(account.id),
+    listOpportunities({ accountId: account.id, ownerView: 'all' }),
+    getActivitiesByAccount(account.id),
   ])
 
   return (
@@ -64,6 +68,30 @@ export default async function AccountDetailPage({ params }: { params: { id: stri
             <ContactsList contacts={contacts} accountId={account.id} canWrite={canWrite} />
           </div>
 
+          {/* Opportunities */}
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-gray-900">Opportunities</h3>
+              {canWrite && (
+                <Link href={`/crm/opportunities/new?account=${account.id}`}
+                  className="inline-flex items-center gap-1 text-sm font-medium text-amber-700 hover:underline">
+                  <Plus size={14} /> New opportunity
+                </Link>
+              )}
+            </div>
+            <OpportunitiesTable opportunities={opportunities} />
+          </div>
+
+          {/* Activities */}
+          <div>
+            <h3 className="mb-2 text-sm font-semibold text-gray-900">Activities</h3>
+            <AccountActivityPanel
+              accountId={account.id} contacts={contacts}
+              opportunities={opportunities.map((o) => ({ id: o.id, opportunity_name: o.opportunity_name }))}
+              activities={activities} canWrite={canWrite}
+            />
+          </div>
+
           {/* Branches */}
           {children.length > 0 && (
             <div>
@@ -87,7 +115,6 @@ export default async function AccountDetailPage({ params }: { params: { id: stri
             </Link>
           )}
 
-          <p className="text-xs text-gray-400">Opportunities & activities arrive in Phase 2.</p>
           <Link href="/crm/accounts" className="inline-block text-sm text-amber-700 hover:underline">← Back to accounts</Link>
         </div>
       </div>

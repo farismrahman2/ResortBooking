@@ -2,7 +2,10 @@ import { createClient } from '@/lib/supabase/server'
 import { getCrmVisibility, ownerFilterId } from '@/lib/crm/visibility'
 import type {
   CrmSector, CrmTier, CrmAccount, CrmContact, CrmAccountWithRelations, AccountStatus,
+  CrmOpportunity, CrmOpportunityWithRelations, CrmActivityWithRelations,
+  OpportunityStage, PipelineColumn,
 } from '@/lib/supabase/types-crm'
+import { STAGE_ORDER } from '@/lib/crm/stage-probabilities'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = () => createClient() as any
@@ -163,4 +166,139 @@ export async function getCrmHubKpis(): Promise<CrmHubKpis> {
     .slice(0, 5)
 
   return { total_accounts: (data ?? []).length, by_status, recent }
+}
+
+// ─── Opportunities (Phase 2) ───────────────────────────────────────────────────
+
+const OPP_SELECT = `
+  *,
+  account:crm_accounts (id, company_name, account_code),
+  primary_contact:crm_contacts (id, full_name, phone)
+`
+
+async function decorateOpps(rows: CrmOpportunity[]): Promise<CrmOpportunityWithRelations[]> {
+  if (rows.length === 0) return []
+  const ownerIds = [...new Set(rows.map((r) => r.owner_user_id).filter(Boolean))] as string[]
+  const { data: owners } = ownerIds.length
+    ? await db().from('user_profiles').select('user_id, full_name').in('user_id', ownerIds)
+    : { data: [] }
+  const ownerName = new Map<string, string>()
+  for (const o of owners ?? []) ownerName.set(o.user_id, o.full_name)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return rows.map((r: any) => ({ ...r, owner_name: r.owner_user_id ? (ownerName.get(r.owner_user_id) ?? null) : null }))
+}
+
+export interface OpportunityFilters {
+  stage?:     OpportunityStage
+  accountId?: string
+  ownerView?: 'mine' | 'all'
+  eventFrom?: string
+  eventTo?:   string
+  sectorId?:  string
+}
+
+export async function listOpportunities(filters: OpportunityFilters = {}): Promise<CrmOpportunityWithRelations[]> {
+  const vis = await getCrmVisibility()
+  let q = db().from('crm_opportunities').select(OPP_SELECT).eq('is_active', true)
+    .order('updated_at', { ascending: false })
+  if (vis) {
+    const ownerId = ownerFilterId(vis, filters.ownerView ?? 'mine')
+    if (ownerId) q = q.eq('owner_user_id', ownerId)
+  }
+  if (filters.stage)     q = q.eq('stage', filters.stage)
+  if (filters.accountId) q = q.eq('account_id', filters.accountId)
+  if (filters.eventFrom) q = q.gte('expected_event_date', filters.eventFrom)
+  if (filters.eventTo)   q = q.lte('expected_event_date', filters.eventTo)
+
+  const { data, error } = await q
+  if (error) throw new Error(`[crm.listOpportunities] ${error.message}`)
+  let rows = await decorateOpps((data ?? []) as CrmOpportunity[])
+  // Sector filter requires the account's sector — resolve client-side if asked.
+  if (filters.sectorId) {
+    const accIds = [...new Set(rows.map((r) => r.account_id))]
+    const { data: accs } = await db().from('crm_accounts').select('id, sector_id').in('id', accIds)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sectorByAcc = new Map((accs ?? []).map((a: any) => [a.id, a.sector_id]))
+    rows = rows.filter((r) => sectorByAcc.get(r.account_id) === filters.sectorId)
+  }
+  return rows
+}
+
+export async function getOpportunityById(id: string): Promise<CrmOpportunityWithRelations | null> {
+  const { data, error } = await db().from('crm_opportunities').select(OPP_SELECT).eq('id', id).maybeSingle()
+  if (error) throw new Error(`[crm.getOpportunityById] ${error.message}`)
+  if (!data) return null
+  const [d] = await decorateOpps([data as CrmOpportunity])
+  return d ?? null
+}
+
+export async function getPipelineByStage(ownerView: 'mine' | 'all' = 'mine', sectorId?: string): Promise<PipelineColumn[]> {
+  const opps = await listOpportunities({ ownerView, sectorId })
+  return STAGE_ORDER.map((stage) => {
+    const inStage = opps.filter((o) => o.stage === stage)
+    return {
+      stage,
+      opportunities:  inStage,
+      count:          inStage.length,
+      total_value:    inStage.reduce((s, o) => s + Number(o.est_value), 0),
+      weighted_value: inStage.reduce((s, o) => s + Number(o.weighted_value), 0),
+    }
+  })
+}
+
+// ─── Activities (Phase 2) ──────────────────────────────────────────────────────
+
+async function decorateActivities(rows: CrmActivityWithRelations[]): Promise<CrmActivityWithRelations[]> {
+  if (rows.length === 0) return []
+  const accIds = [...new Set(rows.map((r) => r.account_id))]
+  const userIds = [...new Set(rows.map((r) => r.logged_by))]
+  const contactIds = [...new Set(rows.map((r) => r.contact_id).filter(Boolean))] as string[]
+  const [{ data: accs }, { data: users }, { data: contacts }] = await Promise.all([
+    db().from('crm_accounts').select('id, company_name').in('id', accIds),
+    db().from('user_profiles').select('user_id, full_name').in('user_id', userIds),
+    contactIds.length ? db().from('crm_contacts').select('id, full_name').in('id', contactIds) : Promise.resolve({ data: [] }),
+  ])
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const accName = new Map((accs ?? []).map((a: any) => [a.id, a.company_name]))
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const userName = new Map((users ?? []).map((u: any) => [u.user_id, u.full_name]))
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const contactName = new Map((contacts ?? []).map((c: any) => [c.id, c.full_name]))
+  return rows.map((r) => ({
+    ...r,
+    account_name:   (accName.get(r.account_id) as string) ?? null,
+    logged_by_name: (userName.get(r.logged_by) as string) ?? null,
+    contact_name:   r.contact_id ? ((contactName.get(r.contact_id) as string) ?? null) : null,
+  }))
+}
+
+export async function listActivities(limit = 200): Promise<CrmActivityWithRelations[]> {
+  const vis = await getCrmVisibility()
+  let q = db().from('crm_activities').select('*')
+    .order('activity_date', { ascending: false }).order('created_at', { ascending: false }).limit(limit)
+  if (vis && !vis.elevated) q = q.eq('logged_by', vis.userId)
+  const { data, error } = await q
+  if (error) throw new Error(`[crm.listActivities] ${error.message}`)
+  return decorateActivities((data ?? []) as CrmActivityWithRelations[])
+}
+
+export async function getActivitiesByAccount(accountId: string): Promise<CrmActivityWithRelations[]> {
+  const { data, error } = await db().from('crm_activities').select('*').eq('account_id', accountId)
+    .order('activity_date', { ascending: false })
+  if (error) throw new Error(`[crm.getActivitiesByAccount] ${error.message}`)
+  return decorateActivities((data ?? []) as CrmActivityWithRelations[])
+}
+
+export async function getNextStepsDue(daysAhead = 7): Promise<CrmActivityWithRelations[]> {
+  const today = new Date().toISOString().slice(0, 10)
+  const end = new Date(); end.setDate(end.getDate() + daysAhead)
+  const endIso = end.toISOString().slice(0, 10)
+  const vis = await getCrmVisibility()
+  let q = db().from('crm_activities').select('*')
+    .not('next_step_date', 'is', null).gte('next_step_date', today).lte('next_step_date', endIso)
+    .order('next_step_date', { ascending: true })
+  if (vis && !vis.elevated) q = q.eq('logged_by', vis.userId)
+  const { data, error } = await q
+  if (error) throw new Error(`[crm.getNextStepsDue] ${error.message}`)
+  return decorateActivities((data ?? []) as CrmActivityWithRelations[])
 }

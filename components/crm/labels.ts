@@ -1,4 +1,4 @@
-import type { AccountStatus, Department, TierSlug } from '@/lib/supabase/types-crm'
+import type { AccountStatus, Department, TierSlug, EventType, ActivityType, LostReason, OpportunityStage } from '@/lib/supabase/types-crm'
 
 export const STATUS_LABELS: Record<AccountStatus, string> = {
   target:     'Target',
@@ -34,4 +34,50 @@ export const DEPARTMENT_LABELS: Record<Department, string> = {
   operations:  'Operations',
   finance:     'Finance',
   other:       'Other',
+}
+
+export const EVENT_TYPE_LABELS: Record<EventType, string> = {
+  training:    'Training',
+  conference:  'Conference',
+  retreat:     'Retreat',
+  day_use:     'Day Use',
+  agm:         'AGM',
+  team_outing: 'Team Outing',
+  other:       'Other',
+}
+
+export const ACTIVITY_TYPE_LABELS: Record<ActivityType, string> = {
+  call:          'Call',
+  email:         'Email',
+  whatsapp:      'WhatsApp',
+  meeting:       'Meeting',
+  site_visit:    'Site Visit',
+  proposal_sent: 'Proposal Sent',
+  field_visit:   'Field Visit',
+  linkedin:      'LinkedIn',
+  other:         'Other',
+}
+
+export const LOST_REASON_LABELS: Record<LostReason, string> = {
+  price:             'Price',
+  competition:       'Competition',
+  went_with_inhouse: 'Went in-house',
+  postponed:         'Postponed',
+  no_budget:         'No budget',
+  no_decision:       'No decision',
+  lost_contact:      'Lost contact',
+  other:             'Other',
+}
+
+export const STAGE_COLUMN_TINT: Record<OpportunityStage, string> = {
+  prospect:          'border-t-gray-300',
+  contacted:         'border-t-blue-300',
+  meeting_scheduled: 'border-t-blue-400',
+  meeting_done:      'border-t-indigo-400',
+  site_inspection:   'border-t-violet-400',
+  proposal_sent:     'border-t-amber-400',
+  negotiation:       'border-t-orange-400',
+  won:               'border-t-emerald-500',
+  lost:              'border-t-red-400',
+  on_hold:           'border-t-stone-400',
 }

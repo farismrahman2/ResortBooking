@@ -35,3 +35,37 @@ export const contactFormSchema = z.object({
 
 export type AccountFormInput = z.input<typeof accountFormSchema>
 export type ContactFormInput = z.input<typeof contactFormSchema>
+
+// ─── Opportunities + Activities (Phase 2) ─────────────────────────────────────
+
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date')
+
+export const opportunityFormSchema = z.object({
+  account_id:          z.string().uuid('Account required'),
+  primary_contact_id:  z.string().uuid().nullable().optional(),
+  owner_user_id:       z.string().uuid('Owner required'),
+  opportunity_name:    z.string().trim().min(1, 'Name required'),
+  event_type:          z.enum(['training', 'conference', 'retreat', 'day_use', 'agm', 'team_outing', 'other']),
+  pax:                 z.number().int().positive().nullable().optional(),
+  est_value:           z.number().min(0).default(0),
+  expected_event_date: isoDate.nullable().optional(),
+  next_action:         nullableStr,
+  notes:               nullableStr,
+})
+
+export const activityFormSchema = z.object({
+  account_id:       z.string().uuid('Account required'),
+  opportunity_id:   z.string().uuid().nullable().optional(),
+  contact_id:       z.string().uuid().nullable().optional(),
+  activity_type:    z.enum(['call', 'email', 'whatsapp', 'meeting', 'site_visit', 'proposal_sent', 'field_visit', 'linkedin', 'other']),
+  activity_date:    isoDate,
+  duration_minutes: z.number().int().min(0).nullable().optional(),
+  subject:          z.string().trim().min(1, 'Subject required'),
+  notes:            nullableStr,
+  outcome:          z.enum(['positive', 'neutral', 'negative']).nullable().optional(),
+  next_step:        nullableStr,
+  next_step_date:   isoDate.nullable().optional(),
+})
+
+export type OpportunityFormInput = z.input<typeof opportunityFormSchema>
+export type ActivityFormInput    = z.input<typeof activityFormSchema>
