@@ -11,7 +11,7 @@ export async function listUsers(opts: {
   let query = db
     .from('user_profiles')
     .select(`
-      user_id, full_name, email, role_id, is_active, phone,
+      user_id, full_name, email, role_id, is_active, phone, sales_start_date,
       created_by, created_at, updated_at, last_login_at,
       role:roles!inner (id, slug, display_name)
     `)
@@ -31,7 +31,7 @@ export async function getUserById(userId: string): Promise<UserProfileWithRole |
   const { data } = await db
     .from('user_profiles')
     .select(`
-      user_id, full_name, email, role_id, is_active, phone,
+      user_id, full_name, email, role_id, is_active, phone, sales_start_date,
       created_by, created_at, updated_at, last_login_at,
       role:roles!inner (id, slug, display_name)
     `)

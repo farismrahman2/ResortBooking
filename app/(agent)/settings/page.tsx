@@ -44,6 +44,12 @@ export default async function SettingsPage() {
             description="Restaurant menu and damage rates for guest checkout"
           />
           <HubTile
+            href="/settings/crm-tiers"
+            icon={<Building2 size={18} />}
+            title="CRM Tiers"
+            description="Pre-approved corporate discount % per account tier (A / B / C)"
+          />
+          <HubTile
             href="/settings/duplicate-bookings"
             icon={<Copy size={18} />}
             title="Duplicate Bookings"

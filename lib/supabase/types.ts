@@ -491,8 +491,8 @@ export type SalesEmployee = Pick<EmployeeRow,
 
 // ─── Auth & Roles ────────────────────────────────────────────────────────────
 
-export type RoleSlug       = 'admin' | 'manager' | 'front_desk' | 'accountant' | 'reservation'
-export type ModuleSlug     = 'bookings' | 'checkout' | 'expenses' | 'hr' | 'reports' | 'settings' | 'availability' | 'attendance' | 'coffee_shop' | 'inventory'
+export type RoleSlug       = 'admin' | 'manager' | 'front_desk' | 'accountant' | 'reservation' | 'corporate_sales' | 'operations_manager' | 'md'
+export type ModuleSlug     = 'bookings' | 'checkout' | 'expenses' | 'hr' | 'reports' | 'settings' | 'availability' | 'attendance' | 'coffee_shop' | 'inventory' | 'crm'
 export type PermissionLevel = 'none' | 'read' | 'write'
 
 export interface RoleRow {
@@ -529,6 +529,7 @@ export interface UserProfileRow {
   role_id: string
   is_active: boolean
   phone: string | null
+  sales_start_date: string | null   // CRM: rep onboarding "Day 1" for KPI tracking
   created_by: string | null
   created_at: string
   updated_at: string
