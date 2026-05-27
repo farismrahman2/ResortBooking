@@ -146,6 +146,14 @@ export async function deleteExpense(id: string): Promise<ActionResult> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const db = supabase as any
 
+    // Inventory-sourced expenses are owned by the inventory receipt — void the
+    // receipt instead, which deletes this row. Block direct deletion to keep
+    // the two sides in sync.
+    const { data: existing } = await db.from('expenses').select('source_module').eq('id', id).maybeSingle()
+    if (existing?.source_module === 'inventory') {
+      return { success: false, error: 'This expense was created by an inventory receipt. Void the receipt to remove it.' }
+    }
+
     // Phase 3 will delete storage objects too. For now, attachments cascade-delete via FK.
     const { error } = await db.from('expenses').delete().eq('id', id)
     if (error) return { success: false, error: error.message }

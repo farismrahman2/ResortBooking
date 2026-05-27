@@ -10,6 +10,20 @@ import { formatDate, formatDateRange } from './dates'
 
 const SEP = '━━━━━━━━━━━━━━━━━━'
 
+/** Convert a 24-hour "HH:MM" (or "HH:MM:SS") time to 12-hour "h:MM AM/PM". */
+function to12Hour(time: string): string {
+  if (!time) return time
+  const [hRaw, mRaw = '00'] = time.split(':')
+  let h = parseInt(hRaw, 10)
+  if (Number.isNaN(h)) return time
+  const minutes = mRaw.padStart(2, '0').slice(0, 2)
+  const period = h >= 12 ? 'PM' : 'AM'
+  h = h % 12
+  if (h === 0) h = 12
+  return `${h}:${minutes} ${period}`
+}
+
+
 export interface WhatsAppParams {
   type:                'quotation' | 'booking_confirmation'
   referenceNumber:     string        // Quote or booking number
@@ -115,7 +129,7 @@ export function formatWhatsApp(p: WhatsAppParams): string {
     `👤 *Name:* ${p.customerName}`,
     `📞 *Contact:* ${p.customerPhone}`,
     `📅 *Date:* ${dateLine}`,
-    `🕐 *Check-in:* ${p.checkIn}  |  *Check-out:* ${p.checkOut}`,
+    `🕐 *Check-in:* ${to12Hour(p.checkIn)}  |  *Check-out:* ${to12Hour(p.checkOut)}`,
     SEP,
     `🏨 *ROOMS*`,
     roomLines || (compRooms.length > 0 ? '  (no paid rooms)' : '  (no rooms selected)'),

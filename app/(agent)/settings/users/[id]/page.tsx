@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import { Mail, Phone, Calendar, Clock } from 'lucide-react'
 import { Topbar } from '@/components/layout/Topbar'
 import { UserDetailActions } from '@/components/settings/UserDetailActions'
+import { SalesStartDateEditor } from '@/components/crm/SalesStartDateEditor'
 import { getUserById } from '@/lib/queries/users'
 import { listRoles } from '@/lib/queries/roles'
 import { requirePermission, getCurrentUserContext } from '@/lib/auth/permissions'
@@ -76,6 +77,10 @@ export default async function UserDetailPage({ params }: PageProps) {
             <Field icon={<Clock size={12} />} label="Last login" value={user.last_login_at ? formatDate(user.last_login_at.slice(0, 10)) : 'Never'} />
           </Card>
         </div>
+
+        {user.role.slug === 'corporate_sales' && ctx?.profile.role.slug === 'admin' && (
+          <SalesStartDateEditor userId={user.user_id} initial={user.sales_start_date} />
+        )}
 
         <p className="text-xs text-gray-500">
           To edit which permissions this user&apos;s role has, go to{' '}

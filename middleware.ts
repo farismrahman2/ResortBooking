@@ -20,13 +20,16 @@ const ROLE_DENY: Array<{ prefix: string; roles: RoleSlug[] }> = [
   { prefix: '/packages', roles: ['reservation'] },
 ]
 
-const MODULE_PREFIX: Array<{ prefix: string; module: 'bookings' | 'checkout' | 'expenses' | 'hr' | 'reports' | 'settings' | 'availability' | 'attendance' | 'coffee_shop' }> = [
+const MODULE_PREFIX: Array<{ prefix: string; module: 'bookings' | 'checkout' | 'expenses' | 'hr' | 'reports' | 'settings' | 'availability' | 'attendance' | 'coffee_shop' | 'inventory' | 'crm' | 'fixed_assets' }> = [
   { prefix: '/bookings',      module: 'bookings'     },
   { prefix: '/quotes',        module: 'bookings'     },   // quotes live under the bookings module
   { prefix: '/packages',      module: 'bookings'     },   // packages too — operational/booking-side
   { prefix: '/availability',  module: 'availability' },
   { prefix: '/checkout',      module: 'checkout'     },
   { prefix: '/coffee-shop',   module: 'coffee_shop'  },
+  { prefix: '/inventory',     module: 'inventory'    },
+  { prefix: '/crm',           module: 'crm'          },
+  { prefix: '/fixed-assets',  module: 'fixed_assets' },
   { prefix: '/expenses',      module: 'expenses'     },
   { prefix: '/hr/attendance', module: 'attendance'   },   // MUST precede /hr — sub-permission
   { prefix: '/hr',            module: 'hr'           },

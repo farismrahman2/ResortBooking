@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation'
 import { Topbar } from '@/components/layout/Topbar'
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
-import { Pencil } from 'lucide-react'
+import { Pencil, Package } from 'lucide-react'
 import { getExpenseById } from '@/lib/queries/expenses'
 import { ReceiptThumbnails } from '@/components/expenses/ReceiptThumbnails'
 import { ReceiptUploader } from '@/components/expenses/ReceiptUploader'
@@ -150,15 +150,29 @@ export default async function ExpenseDetailPage({ params }: PageProps) {
             <Link href="/expenses">
               <Button variant="outline" size="md">← Back to list</Button>
             </Link>
-            <div className="flex items-center gap-2">
-              <DeleteExpenseButton id={expense.id} />
-              <Link href={`/expenses/${expense.id}/edit`}>
-                <Button variant="primary" size="md" className="gap-1.5">
-                  <Pencil size={14} />
-                  Edit
-                </Button>
-              </Link>
-            </div>
+            {expense.source_module === 'inventory' ? (
+              <div className="flex items-center gap-2 rounded-lg bg-teal-50 px-3 py-2 text-xs text-teal-800">
+                <Package size={14} />
+                <span>
+                  Auto-created from an inventory receipt.{' '}
+                  {expense.source_id && (
+                    <Link href={`/inventory/movements/${expense.source_id}`} className="font-medium underline">
+                      Manage it there
+                    </Link>
+                  )}
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <DeleteExpenseButton id={expense.id} />
+                <Link href={`/expenses/${expense.id}/edit`}>
+                  <Button variant="primary" size="md" className="gap-1.5">
+                    <Pencil size={14} />
+                    Edit
+                  </Button>
+                </Link>
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -1,4 +1,4 @@
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { Topbar } from '@/components/layout/Topbar'
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
 import { ExpenseForm } from '@/components/expenses/ExpenseForm'
@@ -41,6 +41,10 @@ export default async function EditExpensePage({ params }: PageProps) {
   }
 
   if (!expense) notFound()
+
+  // Inventory-sourced expenses are managed from the inventory side — editing
+  // here would desync the receipt. Bounce back to the read-only detail view.
+  if (expense.source_module === 'inventory') redirect(`/expenses/${expense.id}`)
 
   return (
     <div className="flex h-full flex-col">
