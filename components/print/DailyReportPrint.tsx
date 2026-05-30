@@ -77,7 +77,7 @@ export function DailyReportPrint({ date, lang, rows, free }: Props) {
         .rep-row-free { background: #dbeafe; font-weight: 500; }
         .rep-row-total { background: #dbeafe; font-weight: 600; }
         .rep-row-handover { background: #fef3c7; }
-        .rep-booking-no { font-family: monospace; font-size: 9px; color: #6b7280; margin-top: 1px; }
+        .rep-phone { font-family: monospace; font-size: 9px; color: #6b7280; margin-top: 1px; }
       `}</style>
 
       {/* Toolbar (not printed) */}
@@ -116,7 +116,9 @@ export function DailyReportPrint({ date, lang, rows, free }: Props) {
             <tr key={row.booking_number} className={isHandover(row) ? 'rep-row-handover' : ''}>
               <td>
                 <div>{row.customer_name}</div>
-                <div className="rep-booking-no">{row.booking_number}</div>
+                {row.customer_phone && (
+                  <div className="rep-phone">{fmtNum(row.customer_phone, lang)}</div>
+                )}
               </td>
               <td className="center">{packageLabel(row.package_type, lang)}</td>
               <td className="center">{renderGuests(row, lang, t)}</td>
