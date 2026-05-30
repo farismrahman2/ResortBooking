@@ -84,6 +84,57 @@ export default async function IncomeByPaymentMethodReport({ searchParams }: { se
           </table>
         </div>
 
+        {/* Settlements detail — every individual payment that rolled into the
+            method totals above. Grouped by method, with a subtotal that should
+            exactly match the corresponding row in the totals table. */}
+        <div>
+          <h3 className="mb-2 text-sm font-semibold text-gray-900">Settlements detail</h3>
+          {data.settlements.length === 0 ? (
+            <div className="rounded-xl border border-gray-200 bg-white p-6 text-center text-sm text-gray-500">No settlements on this day.</div>
+          ) : (
+            <div className="space-y-4">
+              {data.rows.filter((r) => r.total > 0).map((row) => {
+                const items = data.settlements.filter((s) => s.method === row.method)
+                if (items.length === 0) return null
+                return (
+                  <div key={row.method} className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+                    <div className="flex items-center justify-between border-b border-gray-200 bg-gray-50 px-4 py-2">
+                      <h4 className="text-sm font-semibold text-gray-800">{METHOD_LABEL[row.method as PaymentMethod]}</h4>
+                      <span className="text-sm font-bold tabular-nums text-gray-900">{formatBDT(row.total)}</span>
+                    </div>
+                    <table className="min-w-full text-sm">
+                      <thead className="text-left text-xs uppercase tracking-wide text-gray-500">
+                        <tr>
+                          <th className="px-4 py-1.5 font-medium">Time</th>
+                          <th className="px-4 py-1.5 font-medium">Source</th>
+                          <th className="px-4 py-1.5 font-medium">Reference / guest</th>
+                          <th className="px-4 py-1.5 font-medium">Notes</th>
+                          <th className="px-4 py-1.5 font-medium text-right">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {items.map((s, i) => (
+                          <tr key={i}>
+                            <td className="px-4 py-1.5 text-xs tabular-nums text-gray-500">{s.time || '—'}</td>
+                            <td className="px-4 py-1.5 text-xs text-gray-600">{s.source === 'checkout' ? 'Checkout' : 'Coffee shop'}</td>
+                            <td className="px-4 py-1.5 text-gray-800">{s.description}</td>
+                            <td className="px-4 py-1.5 text-xs text-gray-500">{s.reference ?? '—'}</td>
+                            <td className="px-4 py-1.5 text-right tabular-nums">{formatBDT(s.amount)}</td>
+                          </tr>
+                        ))}
+                        <tr className="bg-gray-50">
+                          <td colSpan={4} className="px-4 py-1.5 text-right text-xs font-semibold uppercase tracking-wide text-gray-600">Subtotal</td>
+                          <td className="px-4 py-1.5 text-right tabular-nums font-semibold">{formatBDT(items.reduce((sum, x) => sum + x.amount, 0))}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
         <p className="text-xs text-gray-400">
           Method-tagged income only — i.e. checkout receipts (per-payment method) and coffee-shop sales (split tender).
           Booking advances have no method recorded in this system and are excluded; most settle later via checkout, which is captured here.
