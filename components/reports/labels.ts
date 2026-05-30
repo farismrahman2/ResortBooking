@@ -1,7 +1,7 @@
 import type { LucideIcon } from 'lucide-react'
 import {
   Banknote, BarChart3, Briefcase, Calendar, Coins, Hammer,
-  Hotel, ListChecks, PieChart, Receipt, ScrollText, TrendingUp, Users,
+  Hotel, ListChecks, PieChart, Receipt, ScrollText, TrendingUp, Users, Wallet,
 } from 'lucide-react'
 
 export type ReportSection =
@@ -32,6 +32,7 @@ export const REPORTS: ReportMeta[] = [
   { id: 'income',                 title: 'Income overview',     description: 'Revenue trends across rooms + extras',           href: '/reports/income',                  section: 'income',        icon: TrendingUp, phase: 1 },
   { id: 'income-by-package',      title: 'Revenue by package',  description: 'Room type / package performance',                href: '/reports/income/by-package',       section: 'income',        icon: Hotel,      phase: 1 },
   { id: 'income-by-day-of-week',  title: 'Day-of-week pattern', description: 'Weekday vs weekend revenue + occupancy',         href: '/reports/income/by-day-of-week',   section: 'income',        icon: Calendar,   phase: 1 },
+  { id: 'income-by-payment-method', title: 'Income by payment method', description: 'Daily breakdown by cash / bKash / Nagad / Rocket / card / bank transfer', href: '/reports/income/by-payment-method', section: 'income', icon: Wallet, phase: 1 },
 
   // Expenses & P&L
   { id: 'expenses',               title: 'Expense overview',    description: 'Spend trends + category split',                  href: '/reports/expenses',                section: 'expenses',      icon: Receipt,    module: 'expenses', phase: 1 },
