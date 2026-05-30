@@ -34,6 +34,23 @@ export function DailyReportPrint({ date, lang, rows, free }: Props) {
   // serving listing. Matches the convention in the user's reference image.
   const listing = rows.filter((r) => !(r.is_checkout && r.package_type === 'night'))
 
+  // Rooms vacated by a pure night-stay checkout this morning — used to
+  // flag a same-day daylong arrival into one of those rooms (back-to-back
+  // handover, so the daylong guest gets the room only after noon).
+  const nightCheckoutRooms = new Set<string>()
+  for (const r of rows) {
+    if (r.is_checkout && r.package_type === 'night') {
+      for (const room of r.rooms) for (const num of room.room_numbers) nightCheckoutRooms.add(num)
+    }
+  }
+  function isHandover(row: typeof rows[number]): boolean {
+    if (row.package_type !== 'daylong') return false
+    for (const room of row.rooms) for (const num of room.room_numbers) {
+      if (nightCheckoutRooms.has(num)) return true
+    }
+    return false
+  }
+
   const totals = listing.reduce(
     (acc, r) => ({
       adults:   acc.adults   + r.adults,
@@ -59,6 +76,8 @@ export function DailyReportPrint({ date, lang, rows, free }: Props) {
         .rep-table td.center { text-align: center; }
         .rep-row-free { background: #dbeafe; font-weight: 500; }
         .rep-row-total { background: #dbeafe; font-weight: 600; }
+        .rep-row-handover { background: #fef3c7; }
+        .rep-booking-no { font-family: monospace; font-size: 9px; color: #6b7280; margin-top: 1px; }
       `}</style>
 
       {/* Toolbar (not printed) */}
@@ -94,8 +113,11 @@ export function DailyReportPrint({ date, lang, rows, free }: Props) {
         </thead>
         <tbody>
           {listing.map((row) => (
-            <tr key={row.booking_number}>
-              <td>{row.customer_name}</td>
+            <tr key={row.booking_number} className={isHandover(row) ? 'rep-row-handover' : ''}>
+              <td>
+                <div>{row.customer_name}</div>
+                <div className="rep-booking-no">{row.booking_number}</div>
+              </td>
               <td className="center">{packageLabel(row.package_type, lang)}</td>
               <td className="center">{renderGuests(row, lang, t)}</td>
               <td className="center">{renderMeals(row, t)}</td>
