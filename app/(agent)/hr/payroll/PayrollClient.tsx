@@ -19,7 +19,7 @@ interface Props {
 }
 
 const METHOD_OPTIONS: PaymentMethod[] = [
-  'cash', 'bkash', 'nagad', 'rocket', 'bank_transfer', 'cheque', 'other',
+  'cash', 'bkash', 'bank_transfer', 'cheque', 'other',
 ]
 
 export function PayrollControlBar({

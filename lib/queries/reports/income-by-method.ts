@@ -3,12 +3,11 @@ import { createClient } from '@/lib/supabase/server'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = () => createClient() as any
 
-export const PAYMENT_METHODS = ['cash', 'bkash', 'nagad', 'rocket', 'card', 'bank_transfer', 'other'] as const
+export const PAYMENT_METHODS = ['cash', 'bkash', 'card', 'bank_transfer', 'other'] as const
 export type PaymentMethod = typeof PAYMENT_METHODS[number]
 
 export const METHOD_LABEL: Record<PaymentMethod, string> = {
-  cash: 'Cash', bkash: 'bKash', nagad: 'Nagad', rocket: 'Rocket',
-  card: 'Card', bank_transfer: 'Bank transfer', other: 'Other',
+  cash: 'Cash', bkash: 'bKash', card: 'Card', bank_transfer: 'Bank transfer', other: 'Other',
 }
 
 export interface IncomeByMethodRow {

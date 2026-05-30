@@ -41,7 +41,7 @@ export type UpdateChargeInput = z.infer<typeof updateChargeSchema>
 
 // ── Payment ─────────────────────────────────────────────────────────────────
 export const paymentMethodSchema = z.enum([
-  'cash','bkash','nagad','rocket','card','bank_transfer','other',
+  'cash','bkash','card','bank_transfer','other',
 ])
 
 export const addPaymentSchema = z.object({

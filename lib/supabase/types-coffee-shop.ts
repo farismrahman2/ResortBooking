@@ -4,7 +4,7 @@
  */
 
 export type CoffeeShopSaleStatus  = 'completed' | 'voided'
-export type CoffeeShopPaymentMethod = 'cash' | 'bkash' | 'nagad' | 'rocket' | 'card' | 'bank_transfer' | 'other'
+export type CoffeeShopPaymentMethod = 'cash' | 'bkash' | 'card' | 'bank_transfer' | 'other'
 
 export interface CoffeeShopSaleRow {
   id:              string

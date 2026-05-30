@@ -1,6 +1,7 @@
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 import { Topbar } from '@/components/layout/Topbar'
-import { requirePermission } from '@/lib/auth/permissions'
+import { getCurrentUserContext } from '@/lib/auth/permissions'
 import { getDailyIncomeByMethod, METHOD_LABEL, type PaymentMethod } from '@/lib/queries/reports/income-by-method'
 import { formatBDT } from '@/lib/formatters/currency'
 import { formatDate } from '@/lib/formatters/dates'
@@ -21,7 +22,13 @@ function shiftDate(iso: string, days: number): string {
 }
 
 export default async function IncomeByPaymentMethodReport({ searchParams }: { searchParams: { date?: string } }) {
-  await requirePermission('reports', 'read')
+  // Permission gate: anyone with reports:read, plus front_desk (so they can
+  // reconcile shift takings). Mirrors the ROLE_ALLOW carve-out in middleware.
+  const ctx = await getCurrentUserContext()
+  if (!ctx) redirect('/login')
+  const hasReports = ctx.permissions.reports === 'read' || ctx.permissions.reports === 'write'
+  const isFrontDesk = ctx.profile.role.slug === 'front_desk'
+  if (!hasReports && !isFrontDesk) redirect('/403?from=reports')
   const date = searchParams.date && /^\d{4}-\d{2}-\d{2}$/.test(searchParams.date) ? searchParams.date : todayDhaka()
   const data = await getDailyIncomeByMethod(date)
   const today = todayDhaka()

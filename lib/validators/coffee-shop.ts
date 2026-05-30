@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 export const coffeeShopPaymentMethodSchema = z.enum([
-  'cash', 'bkash', 'nagad', 'rocket', 'card', 'bank_transfer', 'other',
+  'cash', 'bkash', 'card', 'bank_transfer', 'other',
 ])
 
 export const coffeeShopSaleItemSchema = z.object({

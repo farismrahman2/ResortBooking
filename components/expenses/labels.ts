@@ -3,15 +3,13 @@ import type { ExpenseCategoryGroup, PayeeType, PaymentMethod } from '@/lib/supab
 export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   cash:           'Cash',
   bkash:          'bKash',
-  nagad:          'Nagad',
-  rocket:         'Rocket',
   bank_transfer:  'Bank Transfer',
   cheque:         'Cheque',
   other:          'Other',
 }
 
 export const PAYMENT_METHOD_OPTIONS: { value: PaymentMethod; label: string }[] = (
-  ['cash', 'bkash', 'nagad', 'rocket', 'bank_transfer', 'cheque', 'other'] as PaymentMethod[]
+  ['cash', 'bkash', 'bank_transfer', 'cheque', 'other'] as PaymentMethod[]
 ).map((m) => ({ value: m, label: PAYMENT_METHOD_LABELS[m] }))
 
 export const PAYEE_TYPE_LABELS: Record<PayeeType, string> = {
