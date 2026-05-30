@@ -3,15 +3,13 @@ import type { CheckoutPaymentMethod, CheckoutStatus } from '@/lib/supabase/types
 export const CHECKOUT_PAYMENT_METHOD_LABELS: Record<CheckoutPaymentMethod, string> = {
   cash:           'Cash',
   bkash:          'bKash',
-  nagad:          'Nagad',
-  rocket:         'Rocket',
   card:           'Card',
   bank_transfer:  'Bank Transfer',
   other:          'Other',
 }
 
 export const CHECKOUT_PAYMENT_METHOD_OPTIONS: { value: CheckoutPaymentMethod; label: string }[] = (
-  ['cash','bkash','nagad','rocket','card','bank_transfer','other'] as CheckoutPaymentMethod[]
+  ['cash','bkash','card','bank_transfer','other'] as CheckoutPaymentMethod[]
 ).map((m) => ({ value: m, label: CHECKOUT_PAYMENT_METHOD_LABELS[m] }))
 
 export const CHECKOUT_STATUS_LABELS: Record<CheckoutStatus, string> = {

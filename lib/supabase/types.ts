@@ -198,7 +198,7 @@ export type PayeeType =
   | 'supplier' | 'contractor' | 'staff' | 'utility' | 'other'
 
 export type PaymentMethod =
-  | 'cash' | 'bkash' | 'nagad' | 'rocket'
+  | 'cash' | 'bkash'
   | 'bank_transfer' | 'cheque' | 'other'
 
 export type BudgetPeriodType = 'monthly' | 'yearly'
@@ -551,7 +551,7 @@ export interface RoleWithPermissions extends RoleRow {
 // ─── Checkout module ─────────────────────────────────────────────────────────
 
 export type CheckoutStatus       = 'draft' | 'finalized' | 'voided'
-export type CheckoutPaymentMethod = 'cash' | 'bkash' | 'nagad' | 'rocket' | 'card' | 'bank_transfer' | 'other'
+export type CheckoutPaymentMethod = 'cash' | 'bkash' | 'card' | 'bank_transfer' | 'other'
 
 export interface ChargeCategoryRow {
   id: string

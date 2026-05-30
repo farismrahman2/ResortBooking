@@ -7,7 +7,7 @@ import { createMiddlewareClient } from '@/lib/supabase/middleware'
  * before `/hr` so front_desk users (who have `attendance` but not `hr`) don't
  * get 403'd on the attendance page.
  */
-type RoleSlug = 'admin' | 'manager' | 'front_desk' | 'accountant' | 'reservation'
+type RoleSlug = 'admin' | 'manager' | 'front_desk' | 'accountant' | 'reservation' | 'corporate_sales' | 'operations_manager' | 'md'
 
 /**
  * Per-role route deny-list. Used when a role passes the module-level check
@@ -18,6 +18,16 @@ type RoleSlug = 'admin' | 'manager' | 'front_desk' | 'accountant' | 'reservation
  */
 const ROLE_DENY: Array<{ prefix: string; roles: RoleSlug[] }> = [
   { prefix: '/packages', roles: ['reservation'] },
+]
+
+/**
+ * Per-role route allow-list. Lets specific roles through a given prefix even
+ * when their module-level permission would otherwise be 'none'. Example:
+ * front_desk does not have reports access generally, but should see the
+ * daily income-by-method report so they can reconcile shift takings.
+ */
+const ROLE_ALLOW: Array<{ prefix: string; roles: RoleSlug[] }> = [
+  { prefix: '/reports/income/by-payment-method', roles: ['front_desk'] },
 ]
 
 const MODULE_PREFIX: Array<{ prefix: string; module: 'bookings' | 'checkout' | 'expenses' | 'hr' | 'reports' | 'settings' | 'availability' | 'attendance' | 'coffee_shop' | 'inventory' | 'crm' | 'fixed_assets' }> = [
@@ -140,7 +150,15 @@ export async function middleware(request: NextRequest) {
         for (const r of perms) permMap.set(r.module.slug, r.level)
 
         const lvl = permMap.get(mod) ?? 'none'
-        if (lvl === 'none') {
+        const roleSlug = profile.role?.slug as RoleSlug | undefined
+
+        // Per-role allow-list — lets specific roles through despite a 'none'
+        // module permission (e.g. front_desk on the daily income report).
+        const roleAllowed = roleSlug && ROLE_ALLOW.some((a) =>
+          (pathname === a.prefix || pathname.startsWith(a.prefix + '/')) && a.roles.includes(roleSlug),
+        )
+
+        if (lvl === 'none' && !roleAllowed) {
           if (isApiRoute) {
             return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
           }
@@ -150,7 +168,6 @@ export async function middleware(request: NextRequest) {
         }
 
         // Per-role deny-list — overrides a module-level allow
-        const roleSlug = profile.role?.slug as RoleSlug | undefined
         if (roleSlug) {
           for (const deny of ROLE_DENY) {
             const matches = pathname === deny.prefix || pathname.startsWith(deny.prefix + '/')

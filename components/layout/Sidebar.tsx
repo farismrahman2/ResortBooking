@@ -14,6 +14,7 @@ import {
   Building2,
   Archive,
   BarChart2,
+  Banknote,
   TrendingUp,
   Wallet,
   Settings,
@@ -35,6 +36,7 @@ interface NavItem {
   icon:   typeof LayoutDashboard
   module?: ModuleSlug          // when set, hides the link unless user has at least 'read'
   hideForRoles?: RoleSlug[]    // when set, hides the link from these specific roles
+  onlyForRoles?: RoleSlug[]    // when set, shows the link ONLY for these roles (bypasses module gate)
 }
 
 const navItems: NavItem[] = [
@@ -54,6 +56,8 @@ const navItems: NavItem[] = [
   { href: '/hr',              label: 'HR',           icon: Users,          module: 'hr' },
   { href: '/hr/attendance',   label: 'Attendance',   icon: ClipboardCheck, module: 'attendance' },
   { href: '/packages',        label: 'Packages',     icon: Package,        module: 'bookings', hideForRoles: ['reservation'] },
+  // Front-desk-only shortcut to the one report they need (shift takings)
+  { href: '/reports/income/by-payment-method', label: 'Daily Income', icon: Banknote, onlyForRoles: ['front_desk'] },
   { href: '/settings',     label: 'Settings',     icon: Settings,       module: 'settings' },
 ]
 
@@ -107,10 +111,13 @@ export function Sidebar({ userEmail, permissions, roleLabel, roleSlug, unreadAle
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto p-3">
         <ul className="space-y-1">
-          {navItems.map(({ href, label, icon: Icon, module, hideForRoles }) => {
+          {navItems.map(({ href, label, icon: Icon, module, hideForRoles, onlyForRoles }) => {
             // Permission-gate. If permissions haven't loaded yet (null), we
             // fail open and show the link — middleware still enforces server-side.
-            if (module && permissions && !canSee(permissions[module])) return null
+            if (onlyForRoles) {
+              if (!roleSlug || !onlyForRoles.includes(roleSlug)) return null
+              // role match → bypass the module gate
+            } else if (module && permissions && !canSee(permissions[module])) return null
             if (hideForRoles && roleSlug && hideForRoles.includes(roleSlug)) return null
             const isActive = href === '/' ? pathname === '/' : pathname.startsWith(href)
             const showBadge = href === '/settings' && unreadAlerts > 0

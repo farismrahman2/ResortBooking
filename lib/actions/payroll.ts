@@ -258,7 +258,7 @@ export async function previewPayrollRun(
  */
 export async function finalizePayrollRun(
   periodIso: string,
-  paymentMethod: 'cash' | 'bkash' | 'nagad' | 'rocket' | 'bank_transfer' | 'cheque' | 'other' = 'cash',
+  paymentMethod: 'cash' | 'bkash' | 'bank_transfer' | 'cheque' | 'other' = 'cash',
 ): Promise<ActionData<{ run_id: string; expenses_written: number }>> {
   await requirePermission('hr', 'write')
   try {
