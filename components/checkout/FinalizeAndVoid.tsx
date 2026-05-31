@@ -119,7 +119,7 @@ export function FinalizeAndVoid({ checkout, totals, isAdmin, canWrite }: Props) 
           </Button>
         )}
 
-        {isAdmin && isFinalized && (
+        {canWrite && isFinalized && (
           <Button variant="outline" size="md" onClick={handleReopen} className="gap-1.5">
             <Unlock size={14} /> Reopen for editing
           </Button>
