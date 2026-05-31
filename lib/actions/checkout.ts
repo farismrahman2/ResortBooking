@@ -295,10 +295,9 @@ export async function voidCheckout(
  */
 export async function reopenCheckout(checkoutId: string): Promise<ActionResult> {
   try {
+    // Anyone with checkout:write (admin, manager, front desk) can reopen.
+    // Voiding remains admin-only — see voidCheckout above.
     await requirePermission('checkout', 'write')
-    if (!(await isAdmin())) {
-      return { success: false, error: 'Only an admin can reopen a finalized checkout.' }
-    }
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const db = supabase as any
