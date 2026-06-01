@@ -218,6 +218,7 @@ export function ExpenseForm({ categories, payees, existing }: ExpenseFormProps) 
   }
 
   return (
+    <>
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Input
@@ -431,16 +432,21 @@ export function ExpenseForm({ categories, payees, existing }: ExpenseFormProps) 
         </Button>
       </div>
 
-      <QuickAddCategoryModal
-        open={quickCategoryOpen}
-        onClose={() => setQuickCategoryOpen(false)}
-        onCreated={handleCategoryCreated}
-      />
-      <QuickAddPayeeModal
-        open={quickPayeeOpen}
-        onClose={() => setQuickPayeeOpen(false)}
-        onCreated={handlePayeeCreated}
-      />
     </form>
+
+    {/* Modals MUST live outside the <form> above — they render their own
+        <form> internally, and nesting forms is illegal in HTML5, which made
+        the modal "Save" button submit the outer expense form by mistake. */}
+    <QuickAddCategoryModal
+      open={quickCategoryOpen}
+      onClose={() => setQuickCategoryOpen(false)}
+      onCreated={handleCategoryCreated}
+    />
+    <QuickAddPayeeModal
+      open={quickPayeeOpen}
+      onClose={() => setQuickPayeeOpen(false)}
+      onCreated={handlePayeeCreated}
+    />
+    </>
   )
 }
