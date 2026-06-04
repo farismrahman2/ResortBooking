@@ -19,8 +19,11 @@ export default async function DashboardPage() {
   // The reservation role has bookings:write but is scoped to the
   // quote→booking funnel — Dashboard surfaces revenue/expense widgets that
   // they aren't supposed to see. Send them straight to /quotes.
+  // Corporate sales has crm:write but no bookings access — land them on /crm
+  // instead of falling through to /403.
   const ctx = await getCurrentUserContext()
-  if (ctx?.profile.role.slug === 'reservation') redirect('/quotes')
+  if (ctx?.profile.role.slug === 'reservation')     redirect('/quotes')
+  if (ctx?.profile.role.slug === 'corporate_sales') redirect('/crm')
 
   // Dashboard surfaces booking + revenue widgets — gate by bookings:read.
   // Roles without that (e.g. front_desk) get bounced to whatever they can use.
