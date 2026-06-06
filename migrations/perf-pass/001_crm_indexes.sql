@@ -57,9 +57,9 @@ CREATE INDEX IF NOT EXISTS idx_crm_contacts_primary
   ON crm_contacts(account_id, is_primary)
   WHERE is_primary = true;
 
--- crm_kpi_targets — KPI dashboard lookup by user + period
-CREATE INDEX IF NOT EXISTS idx_crm_kpi_targets_user_period
-  ON crm_kpi_targets(user_id, period_start);
+-- crm_kpi_targets — the UNIQUE constraint (user_id, metric, period_days)
+-- already creates a covering index for the lookup pattern, no extra index
+-- needed. (period_days is an integer 30/60/90, not a date.)
 
 -- Refresh planner stats so the indexes get picked up immediately
 ANALYZE crm_opportunities;
