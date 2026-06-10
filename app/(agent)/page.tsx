@@ -8,7 +8,7 @@ import { QuickActions } from '@/components/dashboard/QuickActions'
 import { RevenueWidget } from '@/components/dashboard/RevenueWidget'
 import { ExpensesThisMonth } from '@/components/dashboard/ExpensesThisMonth'
 import { MonthlyPnLWidget } from '@/components/dashboard/MonthlyPnLWidget'
-import { getCurrentUserContext, hasPermission } from '@/lib/auth/permissions'
+import { getCurrentUserContext } from '@/lib/auth/permissions'
 import { formatDate } from '@/lib/formatters/dates'
 import { formatBDT } from '@/lib/formatters/currency'
 import Link from 'next/link'
@@ -27,12 +27,16 @@ export default async function DashboardPage() {
 
   // Dashboard surfaces booking + revenue widgets — gate by bookings:read.
   // Roles without that (e.g. front_desk) get bounced to whatever they can use.
-  if (!(await hasPermission('bookings', 'read'))) {
-    if (await hasPermission('checkout', 'read'))     redirect('/checkout')
-    if (await hasPermission('availability', 'read')) redirect('/availability')
-    if (await hasPermission('expenses', 'read'))     redirect('/expenses')
-    if (await hasPermission('hr', 'read'))           redirect('/hr')
-    if (await hasPermission('settings', 'read'))     redirect('/settings')
+  // ctx is already fetched above — read the permissions map directly rather
+  // than six awaited hasPermission() calls.
+  const canRead = (m: keyof NonNullable<typeof ctx>['permissions']) =>
+    ctx?.permissions[m] === 'read' || ctx?.permissions[m] === 'write'
+  if (!canRead('bookings')) {
+    if (canRead('checkout'))     redirect('/checkout')
+    if (canRead('availability')) redirect('/availability')
+    if (canRead('expenses'))     redirect('/expenses')
+    if (canRead('hr'))           redirect('/hr')
+    if (canRead('settings'))     redirect('/settings')
     redirect('/403?from=dashboard')
   }
 
