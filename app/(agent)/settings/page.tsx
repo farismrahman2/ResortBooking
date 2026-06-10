@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Users, ShieldCheck, ListChecks, Settings as SettingsIcon, Calendar, ArrowRight, Copy, Bell, Building2 } from 'lucide-react'
+import { Users, ShieldCheck, ListChecks, Settings as SettingsIcon, Calendar, ArrowRight, Copy, Bell, Building2, Phone } from 'lucide-react'
 import { getSettings, getHolidayDates } from '@/lib/queries/settings'
 import { getUnreadAlertCount } from '@/lib/auth/alerts'
 import { Topbar } from '@/components/layout/Topbar'
@@ -60,6 +60,12 @@ export default async function SettingsPage() {
             icon={<SettingsIcon size={18} />}
             title="Asset Categories"
             description="Default useful life & salvage % for fixed-asset depreciation"
+          />
+          <HubTile
+            href="/settings/guest-numbers"
+            icon={<Phone size={18} />}
+            title="Guest Phone Numbers"
+            description="Export every unique guest number from quotes & bookings — copy or CSV"
           />
           <HubTile
             href="/settings/duplicate-bookings"
