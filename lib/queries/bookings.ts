@@ -84,13 +84,31 @@ export async function getUpcomingBookings(limit = 5): Promise<BookingWithRooms[]
  *  `pending_advance` correctly accounts for checkout-time payments + checkout
  *  discounts via the same per-booking math as `lib/checkout/totals.ts::calcNetDue`,
  *  rather than summing the DB-generated `bookings.remaining` (which is just
- *  `total - advance_paid` and doesn't see checkout payments). */
+ *  `total - advance_paid` and doesn't see checkout payments).
+ *
+ *  Aggregation happens in the get_booking_stats() RPC (single row back,
+ *  immune to the PostgREST 1000-row response cap). Falls back to the legacy
+ *  app-side aggregation if the RPC migration hasn't been run yet. */
 export async function getBookingStats(): Promise<{
   total_bookings: number
   total_revenue: number
   pending_advance: number
 }> {
   const supabase = createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: rpcData, error: rpcError } = await (supabase as any).rpc('get_booking_stats')
+  if (!rpcError && rpcData) {
+    const row = Array.isArray(rpcData) ? rpcData[0] : rpcData
+    if (row) {
+      return {
+        total_bookings:  Number(row.total_bookings ?? 0),
+        total_revenue:   Number(row.total_revenue ?? 0),
+        pending_advance: Number(row.pending_advance ?? 0),
+      }
+    }
+  }
+
+  // Legacy fallback — only correct below the 1000-row PostgREST cap.
   const { data } = await supabase
     .from('bookings')
     .select(`
