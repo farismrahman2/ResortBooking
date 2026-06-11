@@ -28,9 +28,12 @@ export function AccountsTable({ accounts }: { accounts: CrmAccountWithRelations[
         </thead>
         <tbody className="divide-y divide-gray-100">
           {accounts.map((a) => (
-            <tr key={a.id} className="hover:bg-gray-50">
+            <tr key={a.id} className={a.is_active ? 'hover:bg-gray-50' : 'bg-gray-50/60 opacity-60 hover:opacity-100'}>
               <td className="px-4 py-2.5">
                 <Link href={`/crm/accounts/${a.id}`} className="font-medium text-gray-900 hover:underline">{a.company_name}</Link>
+                {!a.is_active && (
+                  <span className="ml-2 rounded-full bg-gray-200 px-1.5 py-0.5 text-[10px] font-semibold text-gray-600">Inactive</span>
+                )}
                 <div className="flex items-center gap-1.5 text-xs text-gray-400">
                   <span className="font-mono">{a.account_code}</span>
                   {a.parent && <span className="inline-flex items-center gap-0.5 text-violet-600"><GitBranch size={11} /> branch</span>}

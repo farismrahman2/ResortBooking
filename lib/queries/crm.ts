@@ -35,6 +35,8 @@ export interface AccountFilters {
   tierId?:    string
   search?:    string
   ownerView?: 'mine' | 'all'
+  /** When true, inactive (soft-deleted) accounts are included. */
+  includeInactive?: boolean
 }
 
 const ACCOUNT_SELECT = `
@@ -96,8 +98,9 @@ async function decorateAccounts(rows: CrmAccount[]): Promise<CrmAccountWithRelat
 
 export async function listAccounts(filters: AccountFilters = {}): Promise<CrmAccountWithRelations[]> {
   const vis = await getCrmVisibility()
-  let q = db().from('crm_accounts').select(ACCOUNT_SELECT).eq('is_active', true)
+  let q = db().from('crm_accounts').select(ACCOUNT_SELECT)
     .order('company_name', { ascending: true })
+  if (!filters.includeInactive) q = q.eq('is_active', true)
 
   if (vis) {
     const ownerId = ownerFilterId(vis, filters.ownerView ?? 'mine')
@@ -130,6 +133,57 @@ export async function getAccountById(id: string): Promise<CrmAccountWithRelation
   if (!data) return null
   const [decorated] = await decorateAccounts([data as CrmAccount])
   return decorated ?? null
+}
+
+export interface AccountDeleteImpact {
+  companyName:            string
+  contactsCount:          number
+  opportunitiesCount:     number
+  wonOpportunitiesCount:  number
+  activitiesCount:        number
+  linkedBookings:         { id: string; booking_number: string; status: string }[]
+}
+
+/** Everything a hard delete would destroy or orphan — for the confirmation
+ *  modal and the pre-delete audit payload. Bookings are linked two ways:
+ *  the linked_booking_id cache on opportunities AND bookings.source_id =
+ *  opportunity id (authoritative, set by the Won handoff). Union both. */
+export async function getAccountDeleteImpact(id: string): Promise<AccountDeleteImpact> {
+  const [accountRes, contactsRes, oppsRes, activitiesRes] = await Promise.all([
+    db().from('crm_accounts').select('company_name').eq('id', id).maybeSingle(),
+    db().from('crm_contacts').select('id', { count: 'exact', head: true }).eq('account_id', id),
+    db().from('crm_opportunities').select('id, stage, linked_booking_id').eq('account_id', id),
+    db().from('crm_activities').select('id', { count: 'exact', head: true }).eq('account_id', id),
+  ])
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const oppRows = (oppsRes.data ?? []) as any[]
+  const oppIds = oppRows.map((o) => o.id)
+  const cachedBookingIds = oppRows.map((o) => o.linked_booking_id).filter(Boolean) as string[]
+
+  const bookingIds = new Set<string>(cachedBookingIds)
+  if (oppIds.length > 0) {
+    const { data: sourced } = await db().from('bookings').select('id')
+      .eq('source_module', 'crm_handoff').in('source_id', oppIds)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const b of (sourced ?? []) as any[]) bookingIds.add(b.id)
+  }
+
+  let linkedBookings: AccountDeleteImpact['linkedBookings'] = []
+  if (bookingIds.size > 0) {
+    const { data } = await db().from('bookings').select('id, booking_number, status')
+      .in('id', [...bookingIds])
+    linkedBookings = (data ?? []) as AccountDeleteImpact['linkedBookings']
+  }
+
+  return {
+    companyName:           accountRes.data?.company_name ?? '(unknown)',
+    contactsCount:         contactsRes.count ?? 0,
+    opportunitiesCount:    oppRows.length,
+    wonOpportunitiesCount: oppRows.filter((o) => o.stage === 'won').length,
+    activitiesCount:       activitiesRes.count ?? 0,
+    linkedBookings,
+  }
 }
 
 export async function listChildAccounts(parentId: string): Promise<CrmAccount[]> {

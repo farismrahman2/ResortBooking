@@ -12,7 +12,7 @@ import type { AccountStatus } from '@/lib/supabase/types-crm'
 export const dynamic = 'force-dynamic'
 
 interface PageProps {
-  searchParams: { view?: string; status?: string; sector?: string; tier?: string; search?: string }
+  searchParams: { view?: string; status?: string; sector?: string; tier?: string; search?: string; inactive?: string }
 }
 
 export default async function AccountsPage({ searchParams }: PageProps) {
@@ -25,11 +25,12 @@ export default async function AccountsPage({ searchParams }: PageProps) {
     const vis = await getCrmVisibility()
     const [accounts, counts, sectors, tiers] = await Promise.all([
       listAccounts({
-        ownerView: view,
-        status:    searchParams.status as AccountStatus | undefined,
-        sectorId:  searchParams.sector,
-        tierId:    searchParams.tier,
-        search:    searchParams.search,
+        ownerView:       view,
+        status:          searchParams.status as AccountStatus | undefined,
+        sectorId:        searchParams.sector,
+        tierId:          searchParams.tier,
+        search:          searchParams.search,
+        includeInactive: searchParams.inactive === '1',
       }),
       getAccountCounts(),
       listSectors(),

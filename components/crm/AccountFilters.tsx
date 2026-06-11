@@ -42,6 +42,15 @@ export function AccountFilters({ sectors, tiers }: Props) {
         <option value="">All tiers</option>
         {tiers.map((t) => <option key={t.id} value={t.id}>{t.display_name}</option>)}
       </select>
+      <label className="flex cursor-pointer items-center gap-1.5 text-sm text-gray-600">
+        <input
+          type="checkbox"
+          defaultChecked={params.get('inactive') === '1'}
+          onChange={(e) => setParam('inactive', e.target.checked ? '1' : '')}
+          className="h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+        />
+        Show inactive
+      </label>
     </div>
   )
 }
