@@ -8,8 +8,17 @@
 -- reporting treats it like cancelled for the room total, but adds back the
 -- advance as actual income — see lib/queries/bookings.ts::getBookingStats
 -- and migrations/perf-pass/002_booking_stats_rpc.sql.
+--
+-- ⚠️ RUN IN TWO PASSES. Postgres rejects same-transaction use of a newly
+-- added enum value ("unsafe use of new value"). Supabase SQL Editor wraps
+-- each Run in one transaction, so:
+--   • Pass 1: section 1 (extend the enum) alone — Run.
+--   • Pass 2: sections 2–4 — Run.
+-- The function body uses b.status::text so the planner never has to resolve
+-- the enum literal against an uncommitted catalog version.
 -- ============================================================================
 
+-- ─── PASS 1 ─────────────────────────────────────────────────────────────────
 -- 1. Extend booking_status — same enum-or-CHECK detection used to add
 -- 'checked_out' in 000_create_checkout_tables.sql.
 DO $$
@@ -51,6 +60,7 @@ BEGIN
   END IF;
 END $$;
 
+-- ─── PASS 2 (run separately after pass 1 commits) ───────────────────────────
 -- 2. No-show audit columns — when + who. Advance amount lives in
 -- bookings.advance_paid already; we don't duplicate it.
 ALTER TABLE bookings
@@ -84,6 +94,9 @@ END $$;
 -- amount the guest actually paid), NOT the full booking total. pending_advance
 -- becomes 0 (the desk isn't going to chase a no-show for the balance).
 -- For cancelled: still excluded entirely (advances are refunded).
+--
+-- b.status::text avoids the same-transaction enum-literal trap if this whole
+-- file is replayed in one shot on a fresh DB.
 CREATE OR REPLACE FUNCTION get_booking_stats()
 RETURNS TABLE (
   total_bookings  BIGINT,
@@ -97,13 +110,13 @@ AS $$
     COUNT(*)                                       AS total_bookings,
     COALESCE(SUM(
       CASE
-        WHEN b.status = 'no_show' THEN COALESCE(b.advance_paid, 0)
+        WHEN b.status::text = 'no_show' THEN COALESCE(b.advance_paid, 0)
         ELSE b.total
       END
     ), 0)                                          AS total_revenue,
     COALESCE(SUM(
       CASE
-        WHEN b.status = 'no_show' THEN 0
+        WHEN b.status::text = 'no_show' THEN 0
         ELSE GREATEST(0,
           b.total
           - CASE WHEN c.status = 'finalized' THEN COALESCE(c.discount_amount, 0) ELSE 0 END
@@ -119,7 +132,7 @@ AS $$
       FROM checkout_payments cp
      WHERE cp.checkout_id = c.id
   ) p ON true
-  WHERE b.status <> 'cancelled';
+  WHERE b.status::text <> 'cancelled';
 $$;
 
 SELECT * FROM get_booking_stats();
