@@ -1,23 +1,25 @@
 import Link from 'next/link'
-import { Users, ShieldCheck, ListChecks, Settings as SettingsIcon, Calendar, ArrowRight, Copy, Bell, Building2, Phone } from 'lucide-react'
+import { Users, ShieldCheck, ListChecks, Settings as SettingsIcon, Calendar, ArrowRight, Copy, Bell, Building2, Phone, Download } from 'lucide-react'
 import { getSettings, getHolidayDates } from '@/lib/queries/settings'
 import { getUnreadAlertCount } from '@/lib/auth/alerts'
 import { Topbar } from '@/components/layout/Topbar'
 import { SettingsForm } from '@/components/settings/SettingsForm'
 import { HolidayManager } from '@/components/settings/HolidayManager'
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
-import { requirePermission } from '@/lib/auth/permissions'
+import { requirePermission, getCurrentUserContext } from '@/lib/auth/permissions'
 
 export const dynamic = 'force-dynamic'
 
 export default async function SettingsPage() {
   await requirePermission('settings', 'read')
 
-  const [settings, holidays, unreadAlerts] = await Promise.all([
+  const [settings, holidays, unreadAlerts, ctx] = await Promise.all([
     getSettings(),
     getHolidayDates(),
     getUnreadAlertCount(),
+    getCurrentUserContext(),
   ])
+  const isAdmin = ctx?.profile.role.slug === 'admin'
 
   return (
     <div className="flex flex-col">
@@ -67,6 +69,14 @@ export default async function SettingsPage() {
             title="Guest Phone Numbers"
             description="Export every unique guest number from quotes & bookings — copy or CSV"
           />
+          {isAdmin && (
+            <HubTile
+              href="/settings/data-export"
+              icon={<Download size={18} />}
+              title="Data Export"
+              description="Bookings & expenses CSV for AI analytics — sanitized, admin only"
+            />
+          )}
           <HubTile
             href="/settings/duplicate-bookings"
             icon={<Copy size={18} />}
