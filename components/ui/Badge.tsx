@@ -12,6 +12,7 @@ const statusConfig: Record<BookingStatus, { label: string; className: string }> 
   confirmed:   { label: 'Confirmed',   className: 'bg-green-50 text-green-700 border-green-200' },
   cancelled:   { label: 'Cancelled',   className: 'bg-red-50 text-red-700 border-red-200' },
   checked_out: { label: 'Checked Out', className: 'bg-violet-50 text-violet-700 border-violet-200' },
+  no_show:     { label: 'No-Show',     className: 'bg-amber-50 text-amber-800 border-amber-200' },
 }
 
 export function StatusBadge({ status, className }: BadgeProps) {
