@@ -112,7 +112,7 @@ export async function getBookingStats(): Promise<{
   const { data } = await supabase
     .from('bookings')
     .select(`
-      total, advance_paid,
+      total, advance_paid, status,
       checkout:checkouts (
         status, discount_amount,
         payments:checkout_payments (amount)
@@ -124,8 +124,15 @@ export async function getBookingStats(): Promise<{
   let total_revenue = 0
   let pending_advance = 0
   for (const row of (data ?? []) as any[]) {  // eslint-disable-line @typescript-eslint/no-explicit-any
-    total_revenue += Number(row.total ?? 0)
     const advance     = Number(row.advance_paid ?? 0)
+    // No-show: the guest never came, so the room total is uncollectible —
+    // only the non-refundable advance counts as revenue, and there's no
+    // pending balance to chase. Mirrors the RPC math.
+    if (row.status === 'no_show') {
+      total_revenue += advance
+      continue
+    }
+    total_revenue += Number(row.total ?? 0)
     const co          = Array.isArray(row.checkout) ? row.checkout[0] : row.checkout
     const isFinal     = co?.status === 'finalized'
     const coDiscount  = isFinal ? Number(co.discount_amount ?? 0) : 0

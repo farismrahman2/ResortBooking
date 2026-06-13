@@ -7,6 +7,7 @@ import { MigrationErrorBanner } from '@/components/checkout/MigrationErrorBanner
 import { CheckoutSummary } from '@/components/checkout/CheckoutSummary'
 import { PaymentForm } from '@/components/checkout/PaymentForm'
 import { FinalizeAndVoid } from '@/components/checkout/FinalizeAndVoid'
+import { NoShowButton } from '@/components/checkout/NoShowButton'
 import { DiscountButton } from '@/components/checkout/DiscountButton'
 import { GuestCountAdjustButton } from '@/components/checkout/GuestCountAdjustButton'
 import { StartCheckoutButton } from '@/components/checkout/StartCheckoutButton'
@@ -284,6 +285,15 @@ export default async function CheckoutDetailPage({ params }: PageProps) {
               <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">
                 No checkout has been started for this booking yet.
               </div>
+            )}
+
+            {canWrite && (booking.status === 'confirmed' || booking.status === 'no_show') && (
+              <NoShowButton
+                bookingId={booking.id}
+                bookingStatus={booking.status}
+                advancePaid={advance}
+                customerName={booking.customer_name}
+              />
             )}
 
             {checkout?.refund_expense_id && (

@@ -33,6 +33,7 @@ const EVENT_BADGE: Record<AdminAlertEvent, string> = {
   checkout_voided:   'bg-red-50 text-red-800 border-red-200',
   refund_recorded:   'bg-teal-50 text-teal-800 border-teal-200',
   booking_cancelled: 'bg-rose-50 text-rose-800 border-rose-200',
+  booking_no_show:   'bg-amber-50 text-amber-800 border-amber-200',
   user_deactivated:  'bg-gray-100 text-gray-700 border-gray-200',
 }
 
@@ -42,6 +43,7 @@ const EVENT_LABELS: Record<AdminAlertEvent, string> = {
   checkout_voided:   'Checkout Voided',
   refund_recorded:   'Refund Recorded',
   booking_cancelled: 'Booking Cancelled',
+  booking_no_show:   'Booking No-Show',
   user_deactivated:  'User Deactivated',
 }
 

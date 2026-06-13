@@ -8,6 +8,7 @@ import {
   type AccountFormInput, type ContactFormInput, type OpportunityFormInput, type ActivityFormInput,
 } from '@/lib/validators/crm'
 import { formatAccountCode } from '@/lib/crm/account-code'
+import { getAccountDeleteImpact, type AccountDeleteImpact } from '@/lib/queries/crm'
 import { generateBookingNumber } from '@/lib/utils'
 import { formatOpportunityCode } from '@/lib/crm/opportunity-code'
 import { DEFAULT_PROBABILITY_BY_STAGE, getProbabilityForStage } from '@/lib/crm/stage-probabilities'
@@ -24,7 +25,7 @@ async function currentUserId(): Promise<string | null> {
 
 type CrmEntity = 'crm_account' | 'crm_contact' | 'crm_opportunity' | 'crm_activity'
 
-async function logHistory(entity: CrmEntity, id: string, event: 'created' | 'edited', payload: Record<string, unknown> = {}) {
+async function logHistory(entity: CrmEntity, id: string, event: 'created' | 'edited' | 'hard_deleted', payload: Record<string, unknown> = {}) {
   try {
     const { error } = await dbc().from('history_log').insert({
       entity_type: entity, entity_id: id, event, actor: 'system', payload,
@@ -154,6 +155,98 @@ export async function deactivateAccount(id: string): Promise<ActionResult> {
     await logHistory('crm_account', id, 'edited', { action: 'deactivated' })
     revalidatePath('/crm/accounts')
     return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+export async function reactivateAccount(id: string): Promise<ActionResult> {
+  await requirePermission('crm', 'write')
+  try {
+    const db = dbc()
+    const now = new Date().toISOString()
+    const { error } = await db.from('crm_accounts').update({ is_active: true, updated_at: now }).eq('id', id)
+    if (error) return { success: false, error: error.message }
+    // Mirror of deactivateAccount's contact cascade — bring contacts back too,
+    // otherwise a reactivated account looks like it lost its rolodex.
+    await db.from('crm_contacts').update({ is_active: true, updated_at: now }).eq('account_id', id)
+    await logHistory('crm_account', id, 'edited', { action: 'reactivated' })
+    revalidatePath('/crm')
+    revalidatePath('/crm/accounts')
+    revalidatePath(`/crm/accounts/${id}`)
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/** Read-only bridge so the hard-delete modal can fetch impact lazily on open. */
+export async function getAccountDeleteImpactAction(id: string): Promise<ActionData<AccountDeleteImpact>> {
+  await requirePermission('crm', 'write')
+  try {
+    const impact = await getAccountDeleteImpact(id)
+    return { success: true, data: impact }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/** Permanently destroy an account + contacts/opportunities/activities (FK
+ *  cascade). Linked bookings survive — their CRM linkage is nulled first.
+ *  Admin-only, with server-side type-to-confirm. Irreversible. */
+export async function hardDeleteAccount(id: string, confirmName: string): Promise<ActionData<{ orphanedBookings: number }>> {
+  await requirePermission('crm', 'write')
+  try {
+    // Defence in depth: permission gate above + explicit role check here.
+    const ctx = await getCurrentUserContext()
+    if (!ctx || ctx.profile.role.slug !== 'admin') {
+      return { success: false, error: 'Only an Admin can permanently delete an account.' }
+    }
+    const db = dbc()
+
+    const { data: account } = await db.from('crm_accounts').select('company_name').eq('id', id).maybeSingle()
+    if (!account) return { success: false, error: 'Account not found' }
+    if (confirmName.trim() !== account.company_name.trim()) {
+      return { success: false, error: 'Confirmation name does not match. Deletion aborted.' }
+    }
+
+    // Gather impact BEFORE destroying anything — the audit payload and the
+    // booking-orphaning step both need it, and the rows vanish after delete.
+    const impact = await getAccountDeleteImpact(id)
+
+    // 1. Orphan (never delete) linked bookings: null the CRM linkage so the
+    //    Reservations side keeps clean, self-contained records. Must happen
+    //    before the cascade — once opportunities are gone, the source_id /
+    //    linked_booking_id references are unrecoverable.
+    const bookingIds = impact.linkedBookings.map((b) => b.id)
+    if (bookingIds.length > 0) {
+      const { error: orphanErr } = await db.from('bookings')
+        .update({ source_module: 'manual', source_id: null })
+        .in('id', bookingIds)
+      if (orphanErr) return { success: false, error: `Could not unlink bookings: ${orphanErr.message}` }
+      await db.from('crm_opportunities').update({ linked_booking_id: null }).eq('account_id', id)
+    }
+
+    // 2. Audit BEFORE the destructive operation.
+    await logHistory('crm_account', id, 'hard_deleted', {
+      company_name:              impact.companyName,
+      deleted_contacts:          impact.contactsCount,
+      deleted_opportunities:     impact.opportunitiesCount,
+      deleted_won_opportunities: impact.wonOpportunitiesCount,
+      deleted_activities:        impact.activitiesCount,
+      orphaned_bookings:         impact.linkedBookings.map((b) => b.booking_number),
+      deleted_by:                ctx.user_id,
+    })
+
+    // 3. Delete — crm_contacts / crm_opportunities / crm_activities cascade
+    //    via ON DELETE CASCADE; child branch accounts get parent SET NULL.
+    const { error } = await db.from('crm_accounts').delete().eq('id', id)
+    if (error) return { success: false, error: error.message }
+
+    revalidatePath('/crm')
+    revalidatePath('/crm/accounts')
+    revalidatePath('/bookings')
+    return { success: true, data: { orphanedBookings: bookingIds.length } }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }

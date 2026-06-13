@@ -1,7 +1,7 @@
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
 export type PackageType = 'daylong' | 'night'
-export type BookingStatus = 'draft' | 'sent' | 'confirmed' | 'cancelled' | 'checked_out'
+export type BookingStatus = 'draft' | 'sent' | 'confirmed' | 'cancelled' | 'checked_out' | 'no_show'
 export type HistoryEvent = 'created' | 'edited' | 'status_changed' | 'converted_to_booking'
 export type RoomType =
   | 'cottage'
@@ -612,7 +612,7 @@ export interface CheckoutRow {
 
 export type AdminAlertEvent =
   | 'discount_applied' | 'guest_reduced' | 'checkout_voided'
-  | 'refund_recorded'  | 'booking_cancelled' | 'user_deactivated'
+  | 'refund_recorded'  | 'booking_cancelled' | 'booking_no_show' | 'user_deactivated'
 
 export interface AdminAlertRow {
   id: string

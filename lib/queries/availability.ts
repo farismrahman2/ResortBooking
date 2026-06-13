@@ -76,8 +76,9 @@ export async function checkAvailabilityConflict(
       // Defensive guard: the embedded .neq('bookings.status', 'cancelled')
       // filter doesn't reliably cascade to the parent rows under !inner in
       // every PostgREST version, so cancelled bookings can slip through.
-      // Filter them out explicitly here.
-      if (!b || b.status === 'cancelled') continue
+      // no_show frees the room same as cancelled — the advance was paid but
+      // the guest never arrived, so the inventory is back on the market.
+      if (!b || b.status === 'cancelled' || b.status === 'no_show') continue
       const blocks = b.check_out_date ? b.check_out_date > date : b.visit_date === date
       if (blocks) {
         occupied.set(row.room_type, (occupied.get(row.room_type) ?? 0) + row.qty)
@@ -136,6 +137,7 @@ export async function getRoomAvailability(
 
   for (const row of bookingOccupied ?? []) {
     const booking = (row as any).bookings
+    if (!booking || booking.status === 'cancelled' || booking.status === 'no_show') continue
     const checkOut = booking.check_out_date ?? booking.visit_date
     // Inclusive of visit_date, exclusive of check_out_date
     if (booking.visit_date <= date && (booking.check_out_date ? booking.check_out_date > date : booking.visit_date === date)) {
@@ -220,6 +222,7 @@ export async function getBookedRoomNumbers(
   const taken: string[] = []
   for (const row of data ?? []) {
     const b = (row as any).bookings
+    if (!b || b.status === 'cancelled' || b.status === 'no_show') continue
     const bStart = b.visit_date
     const bEnd   = b.check_out_date ?? nextDay(b.visit_date)
     // Overlap check: [aStart, aEnd) ∩ [bStart, bEnd) ≠ ∅

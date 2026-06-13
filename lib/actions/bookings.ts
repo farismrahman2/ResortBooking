@@ -273,6 +273,122 @@ export async function cancelBooking(bookingId: string): Promise<ActionResult> {
   }
 }
 
+/** Mark a confirmed booking as a no-show.
+ *
+ * The advance is non-refundable, so no money moves — the booking's advance_paid
+ * stands as earned revenue and total_revenue accounting handles it (see
+ * lib/queries/bookings.ts::getBookingStats and the get_booking_stats RPC).
+ * The room is freed for resale (availability skips no_show like cancelled).
+ * Any draft checkout is voided — the guest never incurred charges. */
+export async function markNoShow(
+  bookingId: string,
+  input: { notes?: string } = {},
+): Promise<ActionResult> {
+  await requirePermission('checkout', 'write')
+  try {
+    const supabase = createClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = supabase as any
+    const { getCurrentUserContext } = await import('@/lib/auth/permissions')
+    const ctx = await getCurrentUserContext()
+
+    const { data: booking } = await db
+      .from('bookings')
+      .select('booking_number, customer_name, status, advance_paid')
+      .eq('id', bookingId)
+      .maybeSingle()
+    if (!booking) return { success: false, error: 'Booking not found' }
+    if (booking.status !== 'confirmed') {
+      return { success: false, error: `Cannot mark as no-show — booking is ${booking.status}.` }
+    }
+
+    const now = new Date().toISOString()
+    const { error } = await db
+      .from('bookings')
+      .update({ status: 'no_show', no_show_at: now, no_show_by: ctx?.user_id ?? null })
+      .eq('id', bookingId)
+    if (error) return { success: false, error: error.message }
+
+    // Void any draft checkout — the guest never came, no charges to settle.
+    const { data: draftCheckout } = await db
+      .from('checkouts').select('id, status').eq('booking_id', bookingId).maybeSingle()
+    if (draftCheckout?.status === 'draft') {
+      await db.from('checkouts')
+        .update({ status: 'voided', voided_at: now, voided_by: ctx?.user_id ?? null, void_reason: 'Guest did not arrive (no-show)' })
+        .eq('id', draftCheckout.id)
+    }
+
+    await db.from('history_log').insert({
+      entity_type: 'booking',
+      entity_id:   bookingId,
+      event:       'status_changed',
+      actor:       'system',
+      payload:     { from: 'confirmed', to: 'no_show', advance_retained: Number(booking.advance_paid ?? 0), notes: input.notes ?? null, by: ctx?.user_id ?? null },
+    })
+
+    const { flagAlert } = await import('@/lib/auth/alerts')
+    await flagAlert({
+      event_type:  'booking_no_show',
+      entity_type: 'booking',
+      entity_id:   bookingId,
+      summary:     `Booking ${booking.booking_number} marked no-show — ${booking.customer_name}`,
+      payload:     { advance_retained: Number(booking.advance_paid ?? 0) },
+      created_by:  ctx?.user_id ?? null,
+    })
+
+    revalidatePath('/bookings')
+    revalidatePath(`/bookings/${bookingId}`)
+    revalidatePath('/checkout')
+    revalidatePath(`/checkout/${bookingId}`)
+    revalidatePath('/settings/audit-log')
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: String(err) }
+  }
+}
+
+/** Reverse a no-show back to confirmed (mis-marks happen). Symmetric with
+ *  reopenCheckout — undo only, doesn't auto-restart anything else. */
+export async function reverseNoShow(bookingId: string): Promise<ActionResult> {
+  await requirePermission('checkout', 'write')
+  try {
+    const supabase = createClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = supabase as any
+    const { getCurrentUserContext } = await import('@/lib/auth/permissions')
+    const ctx = await getCurrentUserContext()
+
+    const { data: booking } = await db
+      .from('bookings').select('booking_number, status').eq('id', bookingId).maybeSingle()
+    if (!booking) return { success: false, error: 'Booking not found' }
+    if (booking.status !== 'no_show') {
+      return { success: false, error: `Cannot reverse — booking is ${booking.status}, not no_show.` }
+    }
+
+    const { error } = await db
+      .from('bookings')
+      .update({ status: 'confirmed', no_show_at: null, no_show_by: null })
+      .eq('id', bookingId)
+    if (error) return { success: false, error: error.message }
+
+    await db.from('history_log').insert({
+      entity_type: 'booking',
+      entity_id:   bookingId,
+      event:       'status_changed',
+      actor:       'system',
+      payload:     { from: 'no_show', to: 'confirmed', reversed_by: ctx?.user_id ?? null },
+    })
+
+    revalidatePath('/bookings')
+    revalidatePath(`/bookings/${bookingId}`)
+    revalidatePath('/checkout')
+    revalidatePath(`/checkout/${bookingId}`)
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: String(err) }
+  }
+}
+
 /** Update a booking with recalculation (last-minute changes including rooms/guests) */
 export async function updateBooking(
   bookingId: string,

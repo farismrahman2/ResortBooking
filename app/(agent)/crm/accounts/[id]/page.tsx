@@ -4,7 +4,9 @@ import { GitBranch, Plus } from 'lucide-react'
 import { Topbar } from '@/components/layout/Topbar'
 import { requirePermission, hasPermission } from '@/lib/auth/permissions'
 import { getAccountById, listContactsByAccount, listChildAccounts, listOpportunities, getActivitiesByAccount } from '@/lib/queries/crm'
+import { getCurrentUserContext } from '@/lib/auth/permissions'
 import { StatusBadge, TierBadge } from '@/components/crm/StatusBadge'
+import { AccountDangerZone } from '@/components/crm/AccountDangerZone'
 import { ContactsList } from '@/components/crm/ContactsList'
 import { OpportunitiesTable } from '@/components/crm/OpportunitiesTable'
 import { AccountActivityPanel } from '@/components/crm/AccountActivityPanel'
@@ -14,6 +16,8 @@ export const dynamic = 'force-dynamic'
 export default async function AccountDetailPage({ params }: { params: { id: string } }) {
   await requirePermission('crm', 'read')
   const canWrite = await hasPermission('crm', 'write')
+  const ctx = await getCurrentUserContext()
+  const isAdmin = ctx?.profile.role.slug === 'admin'
 
   const account = await getAccountById(params.id)
   if (!account) notFound()
@@ -40,6 +44,9 @@ export default async function AccountDetailPage({ params }: { params: { id: stri
 
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge status={account.status} />
+            {!account.is_active && (
+              <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-600">Inactive</span>
+            )}
             {account.tier && <TierBadge tier={account.tier.slug} label={account.tier.display_name} />}
             {account.sector && <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">{account.sector.display_name}</span>}
           </div>
@@ -113,6 +120,15 @@ export default async function AccountDetailPage({ params }: { params: { id: stri
               className="inline-flex items-center gap-1 text-sm font-medium text-violet-700 hover:underline">
               <GitBranch size={14} /> Create a branch under this account
             </Link>
+          )}
+
+          {canWrite && (
+            <AccountDangerZone
+              accountId={account.id}
+              companyName={account.company_name}
+              isActive={account.is_active}
+              isAdmin={isAdmin}
+            />
           )}
 
           <Link href="/crm/accounts" className="inline-block text-sm text-amber-700 hover:underline">← Back to accounts</Link>
