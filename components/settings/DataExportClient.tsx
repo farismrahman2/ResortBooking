@@ -48,11 +48,16 @@ export function DataExportClient() {
   async function download(kind: 'bookings' | 'expenses') {
     setError(null)
     setDownloading(kind)
+    // Abort if the server is silent for too long — better than a forever spinner.
+    // 75s gives the route's maxDuration=60 a buffer for cold start + network.
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 75_000)
     try {
-      const res = await fetch(`/api/data-export/${kind}?${params}`, { credentials: 'include' })
+      const res = await fetch(`/api/data-export/${kind}?${params}`, {
+        credentials: 'include',
+        signal:      controller.signal,
+      })
       if (!res.ok) {
-        // Server returned JSON error — read and show it instead of saving a
-        // useless little file. Falls back to status text if body isn't JSON.
         const ctype = res.headers.get('content-type') ?? ''
         const message = ctype.includes('json')
           ? ((await res.json().catch(() => null))?.error ?? `HTTP ${res.status}`)
@@ -69,8 +74,13 @@ export function DataExportClient() {
       a.click()
       URL.revokeObjectURL(url)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      if (err instanceof Error && err.name === 'AbortError') {
+        setError('Server took too long to respond (>75s). Try a shorter date range, or check the Vercel logs for the failing query.')
+      } else {
+        setError(err instanceof Error ? err.message : String(err))
+      }
     } finally {
+      clearTimeout(timer)
       setDownloading(null)
     }
   }

@@ -4,6 +4,12 @@ import { getBookingsForExport } from '@/lib/queries/data-export'
 import { toCsv } from '@/lib/data-export/csv'
 
 export const dynamic = 'force-dynamic'
+// Lift the serverless timeout from the 10s hobby default. CSV generation for
+// multi-year ranges with the history_log + decoration joins can comfortably
+// exceed 10s on cold start. Vercel honors up to this many seconds on Pro;
+// hobby silently caps at its own ceiling, which is still better than the
+// default for this kind of one-off admin job.
+export const maxDuration = 60
 
 export async function GET(req: Request) {
   // Defence in depth: admin role only — both settings:read AND explicit slug.
