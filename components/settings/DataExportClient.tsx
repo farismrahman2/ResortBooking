@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import { Button } from '@/components/ui/Button'
-import { Calendar, Download, ShieldCheck } from 'lucide-react'
+import { AlertCircle, Calendar, Download, Loader2, ShieldCheck } from 'lucide-react'
 
 type Preset = '12m' | '24m' | 'all' | 'custom'
 
@@ -29,6 +29,8 @@ export function DataExportClient() {
   const [preset, setPreset] = useState<Preset>('12m')
   const [customFrom, setCustomFrom] = useState(shiftMonths(today, -12))
   const [customTo, setCustomTo] = useState(today)
+  const [downloading, setDownloading] = useState<'bookings' | 'expenses' | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   // Resolve preset → actual {from, to}. "All time" uses 2020-01-01 as a
   // reasonable lower bound (the property predates this PMS by a lot, but
@@ -42,6 +44,36 @@ export function DataExportClient() {
 
   const params = `from=${from}&to=${to}`
   const valid = /^\d{4}-\d{2}-\d{2}$/.test(from) && /^\d{4}-\d{2}-\d{2}$/.test(to) && from <= to
+
+  async function download(kind: 'bookings' | 'expenses') {
+    setError(null)
+    setDownloading(kind)
+    try {
+      const res = await fetch(`/api/data-export/${kind}?${params}`, { credentials: 'include' })
+      if (!res.ok) {
+        // Server returned JSON error — read and show it instead of saving a
+        // useless little file. Falls back to status text if body isn't JSON.
+        const ctype = res.headers.get('content-type') ?? ''
+        const message = ctype.includes('json')
+          ? ((await res.json().catch(() => null))?.error ?? `HTTP ${res.status}`)
+          : `HTTP ${res.status} ${res.statusText}`
+        setError(message)
+        return
+      }
+      const blob = await res.blob()
+      const filename = `${kind}_${from}_to_${to}.csv`
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setDownloading(null)
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -92,9 +124,9 @@ export function DataExportClient() {
         <DownloadCard
           title="Bookings CSV"
           subtitle="One row per booking — timing, guests, money, outcome"
-          href={`/api/data-export/bookings?${params}`}
-          filename={`bookings_${from}_to_${to}.csv`}
-          disabled={!valid}
+          busy={downloading === 'bookings'}
+          disabled={!valid || downloading !== null}
+          onClick={() => download('bookings')}
           rows={[
             'Excludes draft and sent bookings',
             'PII sanitized: customer_name dropped, customer_phone hashed → stable guest_id',
@@ -105,9 +137,9 @@ export function DataExportClient() {
         <DownloadCard
           title="Expenses CSV"
           subtitle="One row per expense — for profit / loss analysis"
-          href={`/api/data-export/expenses?${params}`}
-          filename={`expenses_${from}_to_${to}.csv`}
-          disabled={!valid}
+          busy={downloading === 'expenses'}
+          disabled={!valid || downloading !== null}
+          onClick={() => download('expenses')}
           rows={[
             'Excludes drafts',
             'Category slug + group, payee, payment method, source module',
@@ -115,6 +147,16 @@ export function DataExportClient() {
           ]}
         />
       </div>
+
+      {error && (
+        <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+          <div>
+            <p className="font-semibold">Download failed</p>
+            <p className="font-mono text-xs">{error}</p>
+          </div>
+        </div>
+      )}
 
       <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
         <ShieldCheck size={14} className="mt-0.5 flex-shrink-0" />
@@ -129,9 +171,9 @@ export function DataExportClient() {
 }
 
 function DownloadCard({
-  title, subtitle, href, filename, disabled, rows,
+  title, subtitle, disabled, busy, onClick, rows,
 }: {
-  title: string; subtitle: string; href: string; filename: string; disabled: boolean; rows: string[]
+  title: string; subtitle: string; disabled: boolean; busy: boolean; onClick: () => void; rows: string[]
 }) {
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
@@ -142,18 +184,19 @@ function DownloadCard({
       <ul className="space-y-1 text-xs text-gray-600">
         {rows.map((r, i) => <li key={i}>• {r}</li>)}
       </ul>
-      <a
-        href={disabled ? undefined : href}
-        download={filename}
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onClick}
         className={`inline-flex w-full items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
           disabled
             ? 'cursor-not-allowed bg-gray-100 text-gray-400'
             : 'bg-gray-900 text-white hover:bg-gray-700'
         }`}
-        onClick={(e) => { if (disabled) e.preventDefault() }}
       >
-        <Download size={14} /> Download
-      </a>
+        {busy ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+        {busy ? 'Preparing…' : 'Download'}
+      </button>
     </div>
   )
 }

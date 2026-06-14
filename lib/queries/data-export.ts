@@ -95,11 +95,15 @@ export async function getBookingsForExport(params: {
   const db = supabase as any
   const exclude = params.excludeStatuses ?? ['draft', 'sent']
 
-  // 1. Paginate bookings
+  // 1. Paginate bookings.
+  // Note: we DON'T select no_show_at here — the column lives on bookings only
+  // after migration 003 is fully applied, and exporting must work even on
+  // older schemas. no_show_at is reconstructed from history_log below alongside
+  // cancelled_at.
   const bookings: any[] = []  // eslint-disable-line @typescript-eslint/no-explicit-any
   for (let from = 0; ; from += PAGE) {
     let q = db.from('bookings')
-      .select('id, booking_number, customer_phone, customer_name, package_type, package_snapshot, visit_date, check_out_date, nights, adults, children_paid, children_free, drivers, extra_beds, subtotal, discount, service_charge_pct, total, advance_paid, remaining, status, source_module, no_show_at, sales_employee_id, created_at, created_by')
+      .select('id, booking_number, customer_phone, customer_name, package_type, package_snapshot, visit_date, check_out_date, nights, adults, children_paid, children_free, drivers, extra_beds, subtotal, discount, service_charge_pct, total, advance_paid, remaining, status, source_module, sales_employee_id, created_at, created_by')
       .gte('created_at', `${params.from}T00:00:00+06:00`)
       .lt('created_at', `${params.to}T23:59:59+06:00`)
       .order('created_at', { ascending: true })
@@ -120,13 +124,13 @@ export async function getBookingsForExport(params: {
     checkoutsRes,
     holidayDates,
     salesRepsRes,
-    cancelHistoryRes,
+    statusHistoryRes,
   ] = await Promise.all([
     db.from('booking_rooms').select('booking_id, room_type, qty').in('booking_id', bookingIds),
     db.from('checkouts').select('booking_id, charges_total, payments_total, discount_amount, refund_amount, status').in('booking_id', bookingIds),
     getHolidayDateStrings(),
     db.from('employees').select('id, full_name'),
-    // Cancellation timestamps live in history_log (status_changed → cancelled)
+    // status_changed events → cancelled_at and no_show_at timestamps in one shot
     db.from('history_log').select('entity_id, created_at, payload')
       .eq('entity_type', 'booking')
       .eq('event', 'status_changed')
@@ -150,12 +154,17 @@ export async function getBookingsForExport(params: {
   const repNameById = new Map<string, string>()
   for (const u of (salesRepsRes.data ?? []) as any[]) repNameById.set(u.id, u.full_name)
 
-  // For each booking, take the latest history event whose payload.to === 'cancelled'
+  // For each booking, pull the latest cancelled / no_show timestamp.
   const cancelledAtByBooking = new Map<string, string>()
-  for (const h of (cancelHistoryRes.data ?? []) as any[]) {
-    if (h.payload?.to !== 'cancelled') continue
-    const prev = cancelledAtByBooking.get(h.entity_id)
-    if (!prev || h.created_at > prev) cancelledAtByBooking.set(h.entity_id, h.created_at)
+  const noShowAtByBooking    = new Map<string, string>()
+  for (const h of (statusHistoryRes.data ?? []) as any[]) {
+    const to = h.payload?.to
+    const map = to === 'cancelled' ? cancelledAtByBooking
+              : to === 'no_show'   ? noShowAtByBooking
+              : null
+    if (!map) continue
+    const prev = map.get(h.entity_id)
+    if (!prev || h.created_at > prev) map.set(h.entity_id, h.created_at)
   }
 
   // 4. Project rows
@@ -225,7 +234,7 @@ export async function getBookingsForExport(params: {
       status:                      b.status ?? '',
       cancelled_at:                cancelledAt,
       days_before_visit_cancelled: cancelledAt ? daysBetween(visit, cancelledAt) : '',
-      no_show_at:                  b.no_show_at ?? '',
+      no_show_at:                  noShowAtByBooking.get(b.id) ?? '',
       source_module:               b.source_module ?? 'manual',
       sales_rep_name:              repNameById.get(b.sales_employee_id) ?? '',
     })
