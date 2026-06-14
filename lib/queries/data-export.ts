@@ -96,17 +96,16 @@ export async function getBookingsForExport(params: {
   const exclude = params.excludeStatuses ?? ['draft', 'sent']
 
   // 1. Paginate bookings.
-  // Notes:
-  //  - No `package_snapshot` in the select. It's a fat JSON column per row
-  //    and we only need a name from it; we extract just that via PostgREST
-  //    arrow notation (`package_snapshot->>name`) and a fallback alias for
-  //    older rows that used `title` instead. Saves megabytes on the wire.
-  //  - No `no_show_at` either — that column only exists after migration
-  //    003 Pass 2; no_show timestamps come from history_log below.
+  // Select only columns actually used in the CSV — keeps the response light
+  // AND avoids referencing columns that may not exist on every schema.
+  //  - No `package_snapshot` (fat JSON); we extract just the name via
+  //    PostgREST arrow notation (`package_snapshot->>name`).
+  //  - No `no_show_at` (added by migration 003 only); pulled from history_log.
+  //  - No `created_by` (not in every install) or `remaining` (unused).
   const bookings: any[] = []  // eslint-disable-line @typescript-eslint/no-explicit-any
   for (let from = 0; ; from += PAGE) {
     let q = db.from('bookings')
-      .select('id, booking_number, customer_phone, customer_name, package_type, package_name:package_snapshot->>name, package_title:package_snapshot->>title, visit_date, check_out_date, nights, adults, children_paid, children_free, drivers, extra_beds, subtotal, discount, service_charge_pct, total, advance_paid, remaining, status, source_module, sales_employee_id, created_at, created_by')
+      .select('id, booking_number, customer_phone, customer_name, package_type, package_name:package_snapshot->>name, package_title:package_snapshot->>title, visit_date, check_out_date, nights, adults, children_paid, children_free, drivers, extra_beds, subtotal, discount, service_charge_pct, total, advance_paid, status, source_module, sales_employee_id, created_at')
       .gte('created_at', `${params.from}T00:00:00+06:00`)
       .lt('created_at', `${params.to}T23:59:59+06:00`)
       .order('created_at', { ascending: true })
