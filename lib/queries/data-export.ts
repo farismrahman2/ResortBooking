@@ -96,14 +96,17 @@ export async function getBookingsForExport(params: {
   const exclude = params.excludeStatuses ?? ['draft', 'sent']
 
   // 1. Paginate bookings.
-  // Note: we DON'T select no_show_at here — the column lives on bookings only
-  // after migration 003 is fully applied, and exporting must work even on
-  // older schemas. no_show_at is reconstructed from history_log below alongside
-  // cancelled_at.
+  // Notes:
+  //  - No `package_snapshot` in the select. It's a fat JSON column per row
+  //    and we only need a name from it; we extract just that via PostgREST
+  //    arrow notation (`package_snapshot->>name`) and a fallback alias for
+  //    older rows that used `title` instead. Saves megabytes on the wire.
+  //  - No `no_show_at` either — that column only exists after migration
+  //    003 Pass 2; no_show timestamps come from history_log below.
   const bookings: any[] = []  // eslint-disable-line @typescript-eslint/no-explicit-any
   for (let from = 0; ; from += PAGE) {
     let q = db.from('bookings')
-      .select('id, booking_number, customer_phone, customer_name, package_type, package_snapshot, visit_date, check_out_date, nights, adults, children_paid, children_free, drivers, extra_beds, subtotal, discount, service_charge_pct, total, advance_paid, remaining, status, source_module, sales_employee_id, created_at, created_by')
+      .select('id, booking_number, customer_phone, customer_name, package_type, package_name:package_snapshot->>name, package_title:package_snapshot->>title, visit_date, check_out_date, nights, adults, children_paid, children_free, drivers, extra_beds, subtotal, discount, service_charge_pct, total, advance_paid, remaining, status, source_module, sales_employee_id, created_at, created_by')
       .gte('created_at', `${params.from}T00:00:00+06:00`)
       .lt('created_at', `${params.to}T23:59:59+06:00`)
       .order('created_at', { ascending: true })
@@ -211,7 +214,7 @@ export async function getBookingsForExport(params: {
       month_of_visit:              ym(visit ?? ''),
       month_of_booking:            ym(b.created_at ?? ''),
       package_type:                b.package_type ?? '',
-      package_name:                b.package_snapshot?.name ?? b.package_snapshot?.title ?? '',
+      package_name:                b.package_name ?? b.package_title ?? '',
       room_types:                  rooms ? [...rooms.types].sort().join('|') : '',
       room_count:                  rooms?.count ?? 0,
       adults:                      Number(b.adults ?? 0),
