@@ -10,6 +10,7 @@ import type { WhatsAppParams } from '@/lib/formatters/whatsapp'
 interface BookingWhatsAppOutputProps {
   booking:                BookingWithRooms
   settings:               SettingsMap
+  salesRepName?:          string | null
   roomAvailableAfterNoon?: boolean
 }
 
@@ -24,7 +25,7 @@ const ROOM_LABELS: Record<RoomType, string> = {
   tree_house:     'Tree House',
 }
 
-export function BookingWhatsAppOutput({ booking, settings, roomAvailableAfterNoon }: BookingWhatsAppOutputProps) {
+export function BookingWhatsAppOutput({ booking, settings, salesRepName, roomAvailableAfterNoon }: BookingWhatsAppOutputProps) {
   const [copied, setCopied]           = useState(false)
   const [showPreview, setShowPreview] = useState(false)
 
@@ -66,11 +67,12 @@ export function BookingWhatsAppOutput({ booking, settings, roomAvailableAfterNoo
       contactNumbers:        settings['contact_numbers']      ?? '',
       paymentInstructions:   settings['payment_instructions'] ?? '',
       footerText:            settings['whatsapp_footer_text'] ?? '',
+      salesRepName:          salesRepName ?? null,
       roomAvailableAfterNoon: roomAvailableAfterNoon ?? false,
     }
 
     return formatWhatsApp(params)
-  }, [booking, settings, roomAvailableAfterNoon])
+  }, [booking, settings, salesRepName, roomAvailableAfterNoon])
 
   const handleCopy = async () => {
     try {

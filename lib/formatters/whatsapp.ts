@@ -63,6 +63,7 @@ export interface WhatsAppParams {
   contactNumbers:         string
   paymentInstructions:    string
   footerText:             string
+  salesRepName?:          string | null   // shown at the bottom of booking confirmations
   roomAvailableAfterNoon?: boolean  // true when room has a night stay checking out on visit date
 }
 
@@ -171,8 +172,16 @@ export function formatWhatsApp(p: WhatsAppParams): string {
     SEP,
     `📞 ${p.contactNumbers}`,
     p.footerText,
-    SEP,
   )
+
+  // Booking confirmations get a sales-rep attribution line so the guest
+  // knows who handled their booking. Quotes skip this — they're often sent
+  // before the rep is locked in.
+  if (isBooking && p.salesRepName) {
+    lines.push(`🤝 *Booking by:* ${p.salesRepName}`)
+  }
+
+  lines.push(SEP)
 
   return lines.join('\n')
 }
