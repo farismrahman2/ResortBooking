@@ -381,7 +381,7 @@ export default async function BookingDetailPage({ params }: PageProps) {
 
             {/* WhatsApp output */}
             <Card>
-              <BookingWhatsAppOutput booking={booking} settings={settings} roomAvailableAfterNoon={roomAvailableAfterNoon} />
+              <BookingWhatsAppOutput booking={booking} settings={settings} salesRepName={currentRep?.full_name ?? null} roomAvailableAfterNoon={roomAvailableAfterNoon} />
             </Card>
           </div>
         </div>
