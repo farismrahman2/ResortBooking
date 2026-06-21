@@ -5,6 +5,8 @@ import { getQuoteById } from '@/lib/queries/quotes'
 import { getActivePackagesWithPrices } from '@/lib/queries/packages'
 import { getRoomInventory, getSettings, getHolidayDates } from '@/lib/queries/settings'
 import { listSalesEmployees } from '@/lib/queries/employees'
+import { listAccounts } from '@/lib/queries/crm'
+import type { CorporateAccountOption } from '@/components/quotes/CorporateBookingFields'
 import type { SalesEmployee } from '@/lib/supabase/types'
 
 export const dynamic = 'force-dynamic'
@@ -76,12 +78,21 @@ export default async function EditQuotePage({ params }: PageProps) {
     advance_required:   quote.advance_required,
     advance_paid:       quote.advance_paid,
     sales_employee_id:  (quote as any).sales_employee_id ?? null,
+    is_corporate:         (quote as any).is_corporate ?? false,
+    company_name:         (quote as any).company_name ?? null,
+    corporate_account_id: (quote as any).corporate_account_id ?? null,
   }
 
   const initialExtraItems = (quote as any).extra_items ?? []
 
   let salesEmployees: SalesEmployee[] = []
   try { salesEmployees = await listSalesEmployees() } catch { salesEmployees = [] }
+
+  let corporateAccounts: CorporateAccountOption[] = []
+  try {
+    const accs = await listAccounts({ ownerView: 'all' })
+    corporateAccounts = accs.map((a) => ({ id: a.id, company_name: a.company_name, account_code: a.account_code }))
+  } catch { corporateAccounts = [] }
 
   return (
     <div className="flex h-full flex-col">
@@ -96,6 +107,7 @@ export default async function EditQuotePage({ params }: PageProps) {
           holidayDates={holidayDates}
           settings={settings}
           salesEmployees={salesEmployees}
+          corporateAccounts={corporateAccounts}
           quoteId={params.id}
           initialValues={initialValues}
           initialExtraItems={initialExtraItems}

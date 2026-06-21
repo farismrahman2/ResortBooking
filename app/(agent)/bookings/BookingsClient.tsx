@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { Search, ArrowUpDown } from 'lucide-react'
+import { Search, ArrowUpDown, Building2 } from 'lucide-react'
 import { Tabs } from '@/components/ui/Tabs'
 import { BookingTable } from '@/components/bookings/BookingTable'
 import type { BookingWithRooms } from '@/lib/supabase/types'
@@ -20,6 +20,7 @@ export function BookingsClient({ bookings }: BookingsClientProps) {
   const [sortDir,        setSortDir]        = useState<SortDir>('asc')
   const [dateFrom,       setDateFrom]       = useState('')
   const [dateTo,         setDateTo]         = useState('')
+  const [corporateOnly,  setCorporateOnly]  = useState(false)
 
   // Derive unique package names from snapshot
   const packageNames = useMemo(() => {
@@ -44,6 +45,9 @@ export function BookingsClient({ bookings }: BookingsClientProps) {
 
     // Tab filter
     if (activeTab !== 'all') list = list.filter((b) => b.status === activeTab)
+
+    // Corporate-only filter
+    if (corporateOnly) list = list.filter((b) => (b as any).is_corporate === true)
 
     // Package filter
     if (packageFilter) list = list.filter((b) => b.package_snapshot?.name === packageFilter)
@@ -71,7 +75,7 @@ export function BookingsClient({ bookings }: BookingsClientProps) {
     )
 
     return list
-  }, [bookings, activeTab, packageFilter, dateFrom, dateTo, search, sortDir])
+  }, [bookings, activeTab, packageFilter, dateFrom, dateTo, search, sortDir, corporateOnly])
 
   return (
     <div className="flex flex-col gap-4">
@@ -131,6 +135,20 @@ export function BookingsClient({ bookings }: BookingsClientProps) {
             >✕</button>
           )}
         </div>
+
+        {/* Corporate-only toggle */}
+        <button
+          onClick={() => setCorporateOnly((v) => !v)}
+          className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+            corporateOnly
+              ? 'border-indigo-500 bg-indigo-50 text-indigo-800'
+              : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+          }`}
+          title={corporateOnly ? 'Showing corporate bookings only — click to clear' : 'Show corporate bookings only'}
+        >
+          <Building2 size={13} className={corporateOnly ? 'text-indigo-600' : 'text-gray-500'} />
+          Corporate only
+        </button>
 
         {/* Date sort toggle */}
         <button

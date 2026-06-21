@@ -21,6 +21,7 @@ import { RoomSelector } from '@/components/quotes/RoomSelector'
 import { GuestInputs, type GuestValues } from '@/components/quotes/GuestInputs'
 import { PricingBreakdown } from '@/components/quotes/PricingBreakdown'
 import { DuplicateConfirmModal } from '@/components/quotes/DuplicateConfirmModal'
+import { CorporateBookingFields, type CorporateAccountOption } from '@/components/quotes/CorporateBookingFields'
 import { ROOM_NUMBERS } from '@/lib/config/rooms'
 import type { PackageWithPrices, RoomInventoryRow, SettingsMap, ExtraItem, RoomType } from '@/lib/supabase/types'
 import type { DuplicateMatch } from '@/lib/queries/duplicate-bookings'
@@ -33,6 +34,9 @@ interface QuoteFormProps {
   settings: SettingsMap
   /** Active employees with is_sales=true. Empty array hides the dropdown. */
   salesEmployees?: SalesEmployee[]
+  /** Active CRM corporate accounts. Empty array hides the picker (but the
+   *  corporate-booking checkbox + free-text company name still work). */
+  corporateAccounts?: CorporateAccountOption[]
   // Edit mode — when provided, form pre-fills and calls updateQuote
   quoteId?: string
   initialValues?: Partial<CreateQuoteInput>
@@ -45,7 +49,7 @@ const DAY_LABELS = {
   weekday: { label: 'Weekday Rate', variant: 'default' as const },
 }
 
-export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmployees, quoteId, initialValues, initialExtraItems }: QuoteFormProps) {
+export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmployees, corporateAccounts, quoteId, initialValues, initialExtraItems }: QuoteFormProps) {
   const router = useRouter()
   const isEditMode = !!quoteId
   const [submitting,         setSubmitting]         = useState(false)
@@ -103,6 +107,9 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
       advance_paid:        0,
       extra_items:         [],
       sales_employee_id:   null,
+      is_corporate:         false,
+      company_name:         null,
+      corporate_account_id: null,
       // Spread initialValues last; rooms always overridden to paid-only list
       ...{ ...initialValues, rooms: paidInitialRooms },
     },
@@ -390,6 +397,18 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
               )}
             </div>
           </div>
+
+          <CorporateBookingFields
+            control={control}
+            setValue={setValue}
+            watched={{
+              is_corporate:         watchedValues.is_corporate,
+              company_name:         watchedValues.company_name,
+              corporate_account_id: watchedValues.corporate_account_id,
+            }}
+            accounts={corporateAccounts ?? []}
+            errorMessage={errors.company_name?.message}
+          />
 
           {/* Sales rep — only renders if any sales-eligible employees exist */}
           {salesEmployees && salesEmployees.length > 0 && (

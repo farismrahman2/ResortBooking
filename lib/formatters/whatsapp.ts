@@ -64,6 +64,7 @@ export interface WhatsAppParams {
   paymentInstructions:    string
   footerText:             string
   salesRepName?:          string | null   // shown at the bottom of booking confirmations
+  companyName?:           string | null   // when set, renders a 🏢 Company line above the guest name
   roomAvailableAfterNoon?: boolean  // true when room has a night stay checking out on visit date
 }
 
@@ -127,6 +128,7 @@ export function formatWhatsApp(p: WhatsAppParams): string {
     `✨ *${typeLabel}* ${refLabel}`,
     SEP,
     `📌 *Package:* ${p.packageName}`,
+    ...(p.companyName ? [`🏢 *Company:* ${p.companyName}`] : []),
     `👤 *Name:* ${p.customerName}`,
     `📞 *Contact:* ${p.customerPhone}`,
     `📅 *Date:* ${dateLine}`,

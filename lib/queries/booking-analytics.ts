@@ -98,6 +98,12 @@ export interface DowRow           { dow: number; label: string; count: number }
 export interface LeadTimeRow      { bin: string; count: number }
 export interface SalesRepRow      { rep_id: string; rep_name: string; bookings: number; revenue: number }
 
+export interface CorporateBucket { bookings: number; revenue: number }
+export interface CorporateBreakdown {
+  corporate: CorporateBucket
+  retail:    CorporateBucket
+}
+
 export interface BookingAnalyticsData {
   totals:        BookingAnalyticsTotals
   bookingsDaily: DailyBookingsRow[]
@@ -105,6 +111,7 @@ export interface BookingAnalyticsData {
   dowBreakdown:  DowRow[]
   leadTimeBins:  LeadTimeRow[]
   salesReps:     SalesRepRow[]
+  corporateBreakdown: CorporateBreakdown
 }
 
 // ─── Query ────────────────────────────────────────────────────────────────────
@@ -118,7 +125,7 @@ export async function getBookingAnalytics(
 
   let bookingsQ = supabase
     .from('bookings')
-    .select('id, created_at, visit_date, total, package_type, sales_employee_id, status')
+    .select('id, created_at, visit_date, total, package_type, sales_employee_id, is_corporate, status')
     .gte('created_at', fromUtc)
     .lt('created_at',  toUtc)
     .neq('status', 'cancelled')
@@ -143,6 +150,7 @@ export async function getBookingAnalytics(
     total:             number | null
     package_type:      string
     sales_employee_id: string | null
+    is_corporate?:     boolean | null
   }>
   const quotes = (quotesRes.data ?? []) as Array<{ id: string; created_at: string }>
 
@@ -168,12 +176,18 @@ export async function getBookingAnalytics(
   const dowCounts      = new Array(7).fill(0) as number[]
   const leadTimeCounts = new Map<string, number>(LEAD_TIME_BINS.map((b) => [b.bin, 0]))
   const repAgg         = new Map<string, { bookings: number; revenue: number }>()
+  const corporateBucket: CorporateBucket = { bookings: 0, revenue: 0 }
+  const retailBucket:    CorporateBucket = { bookings: 0, revenue: 0 }
   let revenueTotal     = 0
 
   for (const b of bookings) {
     const dhakaDate = toDhakaDate(b.created_at)
     const rev       = Number(b.total ?? 0)
     revenueTotal   += rev
+
+    const bucket = b.is_corporate ? corporateBucket : retailBucket
+    bucket.bookings += 1
+    bucket.revenue  += rev
 
     const row = bookingsByDate.get(dhakaDate)
     if (row) { row.count += 1; row.revenue += rev }
@@ -228,5 +242,9 @@ export async function getBookingAnalytics(
         revenue:  v.revenue,
       }))
       .sort((a, b) => b.bookings - a.bookings || b.revenue - a.revenue),
+    corporateBreakdown: {
+      corporate: corporateBucket,
+      retail:    retailBucket,
+    },
   }
 }

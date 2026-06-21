@@ -68,6 +68,7 @@ export function BookingWhatsAppOutput({ booking, settings, salesRepName, roomAva
       paymentInstructions:   settings['payment_instructions'] ?? '',
       footerText:            settings['whatsapp_footer_text'] ?? '',
       salesRepName:          salesRepName ?? null,
+      companyName:           (booking as any).is_corporate ? ((booking as any).company_name ?? null) : null,
       roomAvailableAfterNoon: roomAvailableAfterNoon ?? false,
     }
 

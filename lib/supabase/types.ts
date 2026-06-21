@@ -113,6 +113,11 @@ export interface QuoteRow {
   converted_to_booking_id: string | null
   /** Sales rep who referred this customer (FK → employees.id), nullable. */
   sales_employee_id: string | null
+  /** Corporate-booking flag. When true, company_name must be non-empty. */
+  is_corporate: boolean
+  company_name: string | null
+  /** Optional FK to crm_accounts when the company already exists in CRM. */
+  corporate_account_id: string | null
   package_snapshot: PackageSnapshot
   line_items: LineItem[]
   extra_items: ExtraItem[]
@@ -157,6 +162,11 @@ export interface BookingRow {
   status: BookingStatus
   /** Sales rep who referred this customer (FK → employees.id), nullable. */
   sales_employee_id: string | null
+  /** Corporate-booking flag. When true, company_name must be non-empty. */
+  is_corporate: boolean
+  company_name: string | null
+  /** Optional FK to crm_accounts when the company already exists in CRM. */
+  corporate_account_id: string | null
   package_snapshot: PackageSnapshot
   line_items: LineItem[]
   extra_items: ExtraItem[]

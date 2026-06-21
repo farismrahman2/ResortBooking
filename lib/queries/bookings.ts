@@ -6,6 +6,7 @@ export interface BookingFilters {
   search?:    string
   from_date?: string
   to_date?:   string
+  corporate?: boolean   // when true, returns only corporate bookings
   limit?:     number
   offset?:    number
 }
@@ -24,7 +25,8 @@ const BOOKING_LIST_COLUMNS = `
   adults, children_paid, children_free, drivers, extra_beds,
   subtotal, discount, discount_pct, service_charge_pct,
   total, advance_required, advance_paid, due_advance, remaining,
-  status, sales_employee_id, package_snapshot,
+  status, sales_employee_id, is_corporate, company_name, corporate_account_id,
+  package_snapshot,
   created_at, updated_at,
   booking_rooms(*)
 `
@@ -42,6 +44,7 @@ export async function getBookings(filters: BookingFilters = {}): Promise<Booking
     .order('booking_number', { ascending: true })
 
   if (filters.status) query = query.eq('status', filters.status)
+  if (filters.corporate) query = query.eq('is_corporate', true)
   if (filters.from_date) query = query.gte('visit_date', filters.from_date)
   if (filters.to_date) query = query.lte('visit_date', filters.to_date)
   if (filters.search) {

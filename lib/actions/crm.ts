@@ -532,6 +532,10 @@ export async function markWon(
       extra_items:        [],
       source_module:      'crm_handoff',
       source_id:          id,
+      // CRM-originated bookings are corporate by definition.
+      is_corporate:         true,
+      company_name:         opp.account?.company_name ?? null,
+      corporate_account_id: opp.account_id ?? null,
     }).select('id, booking_number').single()
 
     if (bErr || !booking) {
