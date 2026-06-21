@@ -52,6 +52,9 @@ export interface BookingExportRow {
   no_show_at:                  string       // ISO or ''
   source_module:               string
   sales_rep_name:              string
+  is_corporate:                0 | 1
+  company_name:                string
+  corporate_account_code:      string
 }
 
 export interface ExpenseExportRow {
@@ -105,7 +108,7 @@ export async function getBookingsForExport(params: {
   const bookings: any[] = []  // eslint-disable-line @typescript-eslint/no-explicit-any
   for (let from = 0; ; from += PAGE) {
     let q = db.from('bookings')
-      .select('id, booking_number, customer_phone, customer_name, package_type, package_name:package_snapshot->>name, package_title:package_snapshot->>title, visit_date, check_out_date, nights, adults, children_paid, children_free, drivers, extra_beds, subtotal, discount, service_charge_pct, total, advance_paid, status, source_module, sales_employee_id, created_at')
+      .select('id, booking_number, customer_phone, customer_name, package_type, package_name:package_snapshot->>name, package_title:package_snapshot->>title, visit_date, check_out_date, nights, adults, children_paid, children_free, drivers, extra_beds, subtotal, discount, service_charge_pct, total, advance_paid, status, source_module, sales_employee_id, is_corporate, company_name, corporate_account_id, created_at')
       .gte('created_at', `${params.from}T00:00:00+06:00`)
       .lt('created_at', `${params.to}T23:59:59+06:00`)
       .order('created_at', { ascending: true })
@@ -120,6 +123,13 @@ export async function getBookingsForExport(params: {
 
   const bookingIds = bookings.map((b) => b.id)
 
+  // Distinct CRM account ids referenced by the in-window bookings (skip empty
+  // batches — db.from('crm_accounts').in() with an empty array would return
+  // everything, which is wrong here).
+  const corporateAccountIds = [
+    ...new Set(bookings.map((b) => b.corporate_account_id).filter(Boolean) as string[]),
+  ]
+
   // 2. Decorations — all in parallel
   const [
     roomsRes,
@@ -127,6 +137,7 @@ export async function getBookingsForExport(params: {
     holidayDates,
     salesRepsRes,
     statusHistoryRes,
+    crmAccountsRes,
   ] = await Promise.all([
     db.from('booking_rooms').select('booking_id, room_type, qty').in('booking_id', bookingIds),
     db.from('checkouts').select('booking_id, charges_total, payments_total, discount_amount, refund_amount, status').in('booking_id', bookingIds),
@@ -137,6 +148,9 @@ export async function getBookingsForExport(params: {
       .eq('entity_type', 'booking')
       .eq('event', 'status_changed')
       .in('entity_id', bookingIds),
+    corporateAccountIds.length > 0
+      ? db.from('crm_accounts').select('id, account_code').in('id', corporateAccountIds)
+      : Promise.resolve({ data: [] }),
   ])
 
   // 3. Build lookup maps
@@ -155,6 +169,9 @@ export async function getBookingsForExport(params: {
 
   const repNameById = new Map<string, string>()
   for (const u of (salesRepsRes.data ?? []) as any[]) repNameById.set(u.id, u.full_name)
+
+  const accountCodeById = new Map<string, string>()
+  for (const a of (crmAccountsRes.data ?? []) as any[]) accountCodeById.set(a.id, a.account_code)
 
   // For each booking, pull the latest cancelled / no_show timestamp.
   const cancelledAtByBooking = new Map<string, string>()
@@ -239,6 +256,9 @@ export async function getBookingsForExport(params: {
       no_show_at:                  noShowAtByBooking.get(b.id) ?? '',
       source_module:               b.source_module ?? 'manual',
       sales_rep_name:              repNameById.get(b.sales_employee_id) ?? '',
+      is_corporate:                b.is_corporate ? 1 : 0,
+      company_name:                b.company_name ?? '',
+      corporate_account_code:      b.corporate_account_id ? (accountCodeById.get(b.corporate_account_id) ?? '') : '',
     })
   }
   return rows

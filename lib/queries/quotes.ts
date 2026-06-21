@@ -13,6 +13,7 @@ export interface QuoteFilters {
   search?:       string    // customer name or phone
   from_date?:    string
   to_date?:      string
+  corporate?:    boolean   // when true, returns only corporate quotes
   limit?:        number
   offset?:       number
 }
@@ -30,6 +31,7 @@ const QUOTE_LIST_COLUMNS = `
   subtotal, discount, discount_pct, service_charge_pct,
   total, advance_required, advance_paid, due_advance, remaining,
   status, converted_to_booking_id, sales_employee_id,
+  is_corporate, company_name, corporate_account_id,
   created_at, updated_at
 `
 
@@ -42,6 +44,7 @@ export async function getQuotes(filters: QuoteFilters = {}): Promise<QuoteRow[]>
     .order('created_at', { ascending: false })
 
   if (filters.status) query = query.eq('status', filters.status)
+  if (filters.corporate) query = query.eq('is_corporate', true)
   if (filters.from_date) query = query.gte('visit_date', filters.from_date)
   if (filters.to_date) query = query.lte('visit_date', filters.to_date)
   if (filters.search) {

@@ -74,6 +74,9 @@ export function PrintLayout({ quote, booking, settings }: PrintLayoutProps) {
 
       {/* ── CUSTOMER ───────────────────────────────────────── */}
       <div className="mb-6 grid grid-cols-2 gap-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
+        {(record as any).is_corporate && (record as any).company_name && (
+          <InfoRow label="Company" value={(record as any).company_name} className="col-span-2" />
+        )}
         <InfoRow label="Customer Name" value={record.customer_name} />
         <InfoRow label="Phone"         value={record.customer_phone} />
         <InfoRow label="Package"       value={record.package_snapshot.name} />

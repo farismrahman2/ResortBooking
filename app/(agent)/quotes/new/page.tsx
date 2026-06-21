@@ -3,6 +3,8 @@ import { QuoteForm } from '@/components/quotes/QuoteForm'
 import { getActivePackagesWithPrices } from '@/lib/queries/packages'
 import { getRoomInventory, getSettings, getHolidayDates } from '@/lib/queries/settings'
 import { listSalesEmployees } from '@/lib/queries/employees'
+import { listAccounts } from '@/lib/queries/crm'
+import type { CorporateAccountOption } from '@/components/quotes/CorporateBookingFields'
 import type { SalesEmployee } from '@/lib/supabase/types'
 
 export const dynamic = 'force-dynamic'
@@ -19,6 +21,14 @@ export default async function NewQuotePage() {
   let salesEmployees: SalesEmployee[] = []
   try { salesEmployees = await listSalesEmployees() } catch { salesEmployees = [] }
 
+  // Best-effort — CRM module may not be installed; the dropdown gracefully
+  // hides when corporateAccounts is empty.
+  let corporateAccounts: CorporateAccountOption[] = []
+  try {
+    const accs = await listAccounts({ ownerView: 'all' })
+    corporateAccounts = accs.map((a) => ({ id: a.id, company_name: a.company_name, account_code: a.account_code }))
+  } catch { corporateAccounts = [] }
+
   const holidayDates = holidays.map((h) => h.date)
 
   return (
@@ -31,6 +41,7 @@ export default async function NewQuotePage() {
           holidayDates={holidayDates}
           settings={settings}
           salesEmployees={salesEmployees}
+          corporateAccounts={corporateAccounts}
         />
       </div>
     </div>

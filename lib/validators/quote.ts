@@ -69,6 +69,12 @@ const BaseQuoteSchema = z.object({
 
   // Sales attribution — optional FK to employees(id) where is_sales = true
   sales_employee_id: z.string().uuid().nullable().optional(),
+
+  // Corporate-booking flag + company. company_name is required-when-corporate
+  // (enforced in the superRefine below + a DB CHECK constraint).
+  is_corporate:         z.boolean().default(false),
+  company_name:         z.string().trim().max(120).nullable().optional(),
+  corporate_account_id: z.string().uuid().nullable().optional(),
 })
 
 export const CreateQuoteSchema = BaseQuoteSchema
@@ -102,6 +108,18 @@ export const CreateQuoteSchema = BaseQuoteSchema
     { message: 'Tree House is available for daylong bookings only', path: ['rooms'] },
   )
   .superRefine((data, ctx) => {
+    // Corporate booking → company_name required and non-empty (matches the
+    // DB CHECK constraint added by migrations/crm-module/004_quote_corporate_flag.sql).
+    if (data.is_corporate) {
+      const name = (data.company_name ?? '').trim()
+      if (!name) {
+        ctx.addIssue({
+          code:    z.ZodIssueCode.custom,
+          path:    ['company_name'],
+          message: 'Company name is required for a corporate booking',
+        })
+      }
+    }
     // Every selected room type with fixed room numbers must have exactly qty
     // specific room numbers picked. Prevents "ghost" rooms where the booking
     // has a room type but no physical room assigned.

@@ -59,7 +59,18 @@ export function QuoteTable({ quotes }: QuoteTableProps) {
 
               {/* Customer */}
               <td className="px-4 py-3">
-                <p className="font-medium text-gray-900">{quote.customer_name}</p>
+                <p className="font-medium text-gray-900">
+                  {quote.customer_name}
+                  {(quote as any).is_corporate && (
+                    <span
+                      className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 align-middle"
+                      title={(quote as any).company_name ?? 'Corporate quote'}
+                    >🏢 Corporate</span>
+                  )}
+                </p>
+                {(quote as any).is_corporate && (quote as any).company_name && (
+                  <p className="text-xs font-medium text-indigo-700">{(quote as any).company_name}</p>
+                )}
                 <div className="mt-0.5 flex items-center gap-1.5">
                   <p className="text-xs text-gray-500">{quote.customer_phone}</p>
                   <WhatsAppLink phone={quote.customer_phone} size="sm" />

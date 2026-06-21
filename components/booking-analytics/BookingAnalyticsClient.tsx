@@ -33,7 +33,7 @@ export function BookingAnalyticsClient({ from, to, packageType, data }: Props) {
     router.push(`/booking-analytics?${params.toString()}`)
   }
 
-  const { totals, bookingsDaily, quotesDaily, dowBreakdown, leadTimeBins, salesReps } = data
+  const { totals, bookingsDaily, quotesDaily, dowBreakdown, leadTimeBins, salesReps, corporateBreakdown } = data
   const hasAnyActivity = totals.bookings_created > 0 || totals.quotes_created > 0
 
   // Merge daily series for the overlay chart, and add a short day label for the x-axis.
@@ -156,6 +156,14 @@ export function BookingAnalyticsClient({ from, to, packageType, data }: Props) {
             </p>
           </Section>
 
+          {/* Corporate vs Retail */}
+          <Section title="🏢 Corporate vs Retail">
+            <CorporateVsRetailCards breakdown={corporateBreakdown} />
+            <p className="mt-2 text-[10px] italic text-gray-400">
+              Corporate bookings are those marked as such on the quote/booking. Cancelled bookings are excluded.
+            </p>
+          </Section>
+
           {/* Sales rep table */}
           {salesReps.length > 0 && (
             <Section title="🧑‍💼 Sales Rep Attribution">
@@ -224,6 +232,83 @@ function Section({ title, children }: { title: string; children: React.ReactNode
     <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm print:shadow-none print:border-gray-300 print:break-inside-avoid">
       <h2 className="mb-4 text-sm font-semibold text-gray-800">{title}</h2>
       {children}
+    </div>
+  )
+}
+
+function CorporateVsRetailCards({
+  breakdown,
+}: { breakdown: BookingAnalyticsData['corporateBreakdown'] }) {
+  const { corporate, retail } = breakdown
+  const totalRevenue  = corporate.revenue  + retail.revenue
+  const totalBookings = corporate.bookings + retail.bookings
+  if (totalBookings === 0) {
+    return <p className="text-sm text-gray-500">No bookings in this period.</p>
+  }
+  return (
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <CvRBucketCard
+        label="Corporate"
+        sublabel="Marked as corporate on the quote"
+        bookings={corporate.bookings}
+        revenue={corporate.revenue}
+        totalRevenue={totalRevenue}
+        totalBookings={totalBookings}
+        accent="indigo"
+      />
+      <CvRBucketCard
+        label="Retail"
+        sublabel="Individual / leisure guests"
+        bookings={retail.bookings}
+        revenue={retail.revenue}
+        totalRevenue={totalRevenue}
+        totalBookings={totalBookings}
+        accent="slate"
+      />
+    </div>
+  )
+}
+
+function CvRBucketCard({
+  label, sublabel, bookings, revenue, totalRevenue, totalBookings, accent,
+}: {
+  label:         string
+  sublabel:      string
+  bookings:      number
+  revenue:       number
+  totalRevenue:  number
+  totalBookings: number
+  accent:        'slate' | 'indigo'
+}) {
+  const revenuePct = totalRevenue  > 0 ? (revenue  / totalRevenue)  * 100 : 0
+  const countPct   = totalBookings > 0 ? (bookings / totalBookings) * 100 : 0
+  const avgTicket  = bookings > 0 ? Math.round(revenue / bookings) : 0
+  const headerTone = accent === 'indigo'
+    ? 'bg-indigo-50 text-indigo-800 border-indigo-200'
+    : 'bg-slate-100 text-slate-700 border-slate-200'
+  return (
+    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+      <div className={`flex items-baseline justify-between border-b px-4 py-2.5 ${headerTone}`}>
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wide">{label}</p>
+          <p className="text-[10px] opacity-75">{sublabel}</p>
+        </div>
+        <p className="text-xs font-semibold tabular-nums">{revenuePct.toFixed(1)}% of revenue</p>
+      </div>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-2 px-4 py-3 text-sm">
+        <CvRRow label="Total revenue" value={formatBDT(revenue)} emphasis />
+        <CvRRow label="Bookings"      value={`${bookings} (${countPct.toFixed(0)}%)`} />
+        <CvRRow label="Avg ticket"    value={formatBDT(avgTicket)} emphasis />
+      </div>
+    </div>
+  )
+}
+
+function CvRRow({ label, value, emphasis }: { label: string; value: string; emphasis?: boolean }) {
+  return (
+    <div className="flex items-baseline justify-between gap-2 border-b border-gray-50 py-1 last:border-0">
+      <span className="text-xs text-gray-500">{label}</span>
+      <span className={`tabular-nums ${emphasis ? 'font-semibold text-gray-900' : 'text-gray-700'}`}>{value}</span>
     </div>
   )
 }

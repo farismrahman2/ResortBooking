@@ -60,11 +60,12 @@ export function WhatsAppOutput({ quote, settings, roomAvailableAfterNoon }: What
       contactNumbers:         settings['contact_numbers']      ?? '',
       paymentInstructions:    settings['payment_instructions'] ?? '',
       footerText:             settings['whatsapp_footer_text'] ?? '',
+      companyName:            (quote as any).is_corporate ? ((quote as any).company_name ?? null) : null,
       roomAvailableAfterNoon: roomAvailableAfterNoon ?? false,
     }
 
     return formatWhatsApp(params)
-  }, [quote, settings])
+  }, [quote, settings, roomAvailableAfterNoon])
 
   const handleCopy = async () => {
     try {
