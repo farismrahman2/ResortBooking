@@ -233,3 +233,67 @@ export async function getBookedRoomNumbers(
 
   return taken
 }
+
+/**
+ * Room-number availability split into two buckets for the quote/booking UI.
+ *
+ *  - `taken`: rooms occupied for the whole requested period (render red — not selectable).
+ *  - `noon`:  rooms whose previous night guest checks out ON the visit date, so the
+ *             room is free only after the ~noon checkout. Daylong visits only
+ *             (checkOutDate == null). Render yellow — selectable, with a caveat.
+ *
+ * `taken` reuses getBookedRoomNumbers so it stays identical to the rest of the app.
+ * `noon` additionally considers confirmed (unconverted) quotes, mirroring the
+ * /api/room-noon-notice logic.
+ */
+export async function getRoomNumberAvailability(
+  visitDate:        string,
+  checkOutDate:     string | null,
+  excludeBookingId?: string,
+): Promise<{ taken: string[]; noon: string[] }> {
+  const taken = await getBookedRoomNumbers(visitDate, checkOutDate, excludeBookingId)
+
+  // Noon turnover only applies to daylong visits. For a night range the previous
+  // guest's same-day checkout is already handled by the exclusive overlap check.
+  if (checkOutDate) return { taken, noon: [] }
+
+  const supabase = createClient()
+  const takenSet = new Set(taken)
+  const noon: string[] = []
+
+  // Night bookings checking out on the visit date — previous guest leaves at noon.
+  let bookingQuery = supabase
+    .from('booking_rooms')
+    .select('room_numbers, bookings!inner(id, check_out_date, status)')
+    .eq('bookings.check_out_date', visitDate)
+    .neq('bookings.status', 'cancelled')
+
+  if (excludeBookingId) {
+    bookingQuery = bookingQuery.neq('bookings.id', excludeBookingId)
+  }
+
+  const { data: bookingRows } = await bookingQuery
+  for (const row of bookingRows ?? []) {
+    const b = (row as any).bookings
+    if (!b || b.status === 'cancelled' || b.status === 'no_show') continue
+    for (const n of (row as any).room_numbers ?? []) {
+      if (!takenSet.has(n)) noon.push(n)
+    }
+  }
+
+  // Confirmed, not-yet-converted quotes checking out on the visit date.
+  const { data: quoteRows } = await supabase
+    .from('quote_rooms')
+    .select('room_numbers, quotes!inner(check_out_date, status, converted_to_booking_id)')
+    .eq('quotes.check_out_date', visitDate)
+    .eq('quotes.status', 'confirmed')
+    .is('quotes.converted_to_booking_id', null)
+
+  for (const row of quoteRows ?? []) {
+    for (const n of (row as any).room_numbers ?? []) {
+      if (!takenSet.has(n)) noon.push(n)
+    }
+  }
+
+  return { taken, noon: [...new Set(noon)] }
+}

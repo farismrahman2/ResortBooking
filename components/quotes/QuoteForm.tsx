@@ -56,6 +56,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
   const [errorMsg,           setErrorMsg]           = useState<string | null>(null)
   const [calcResult,         setCalcResult]         = useState<CalculationResult | null>(null)
   const [bookedRoomNumbers,    setBookedRoomNumbers]    = useState<string[]>([])
+  const [noonRoomNumbers,      setNoonRoomNumbers]      = useState<string[]>([])
   const [extraItems,           setExtraItems]           = useState<ExtraItem[]>(initialExtraItems ?? [])
   const [roomAvailableAfterNoon, setRoomAvailableAfterNoon] = useState(false)
   // Duplicate detection — when set, the modal prompts for override
@@ -235,13 +236,16 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
 
   // Fetch booked room numbers whenever dates change
   useEffect(() => {
-    if (!visitDate) { setBookedRoomNumbers([]); return }
+    if (!visitDate) { setBookedRoomNumbers([]); setNoonRoomNumbers([]); return }
     const params = new URLSearchParams({ visitDate })
     if (checkOutDate) params.set('checkOutDate', checkOutDate)
     fetch(`/api/booked-room-numbers?${params}`)
       .then((r) => r.json())
-      .then((d) => setBookedRoomNumbers(d.takenRoomNumbers ?? []))
-      .catch(() => setBookedRoomNumbers([]))
+      .then((d) => {
+        setBookedRoomNumbers(d.takenRoomNumbers ?? [])
+        setNoonRoomNumbers(d.noonRoomNumbers ?? [])
+      })
+      .catch(() => { setBookedRoomNumbers([]); setNoonRoomNumbers([]) })
   }, [visitDate, checkOutDate])
 
 
@@ -515,6 +519,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
                 value={field.value as RoomSelection[]}
                 onChange={(r) => field.onChange(r)}
                 bookedRoomNumbers={bookedRoomNumbers}
+                noonRoomNumbers={noonRoomNumbers}
               />
             )}
           />
@@ -638,6 +643,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
                                 const isTakenByLocalPaid = locallyTakenByPaid.has(num) && !isPickedHere
                                 const isTakenByOtherComp = otherCompTaken.has(num) && !isPickedHere
                                 const isTaken = isTakenByBooked || isTakenByLocalPaid || isTakenByOtherComp
+                                const isNoon = !isTaken && noonRoomNumbers.includes(num) && !isPickedHere
                                 return (
                                   <button
                                     key={num}
@@ -654,13 +660,15 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
                                       return { ...prev, [inv.room_type]: { ...cur, room_numbers: newNums } }
                                     })}
                                     disabled={isTaken}
-                                    title={isTakenByBooked ? `Room ${num} is taken by another booking` : isTakenByLocalPaid ? `Room ${num} is assigned to a paid row in this booking` : isTakenByOtherComp ? `Room ${num} is assigned to another comp row` : undefined}
+                                    title={isTakenByBooked ? `Room ${num} is taken by another booking` : isTakenByLocalPaid ? `Room ${num} is assigned to a paid row in this booking` : isTakenByOtherComp ? `Room ${num} is assigned to another comp row` : isNoon ? `Room ${num} is available after 12:00 PM (previous guest checking out)` : undefined}
                                     className={[
                                       'rounded-md border px-2.5 py-1 text-xs font-mono font-semibold transition-colors',
                                       isPickedHere
                                         ? 'border-emerald-500 bg-emerald-600 text-white'
                                         : isTaken
                                         ? 'border-gray-200 bg-gray-100 text-gray-300 cursor-not-allowed'
+                                        : isNoon
+                                        ? 'border-amber-300 bg-amber-50 text-amber-700 hover:border-amber-400 hover:bg-amber-100'
                                         : 'border-gray-300 bg-white text-gray-700 hover:border-emerald-400 hover:bg-emerald-50',
                                     ].join(' ')}
                                   >

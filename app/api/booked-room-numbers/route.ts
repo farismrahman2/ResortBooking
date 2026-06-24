@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getBookedRoomNumbers } from '@/lib/queries/availability'
+import { getRoomNumberAvailability } from '@/lib/queries/availability'
 
 export async function GET(req: NextRequest) {
   const visitDate    = req.nextUrl.searchParams.get('visitDate')
@@ -11,8 +11,9 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const taken = await getBookedRoomNumbers(visitDate, checkOutDate, excludeId)
-    return NextResponse.json({ takenRoomNumbers: taken })
+    const { taken, noon } = await getRoomNumberAvailability(visitDate, checkOutDate, excludeId)
+    // `takenRoomNumbers` kept for back-compat; `noonRoomNumbers` are free after ~noon.
+    return NextResponse.json({ takenRoomNumbers: taken, noonRoomNumbers: noon })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }
