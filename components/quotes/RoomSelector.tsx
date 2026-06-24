@@ -13,6 +13,7 @@ interface RoomSelectorProps {
   value: RoomSelection[]
   onChange: (rooms: RoomSelection[]) => void
   bookedRoomNumbers?: string[]   // room numbers already taken (shown in red)
+  noonRoomNumbers?: string[]     // free only after ~noon checkout (shown in yellow)
 }
 
 export function RoomSelector({
@@ -22,6 +23,7 @@ export function RoomSelector({
   value,
   onChange,
   bookedRoomNumbers = [],
+  noonRoomNumbers = [],
 }: RoomSelectorProps) {
   const visibleRooms = rooms.filter((room) => {
     if (packageType === 'night' && room.room_type === 'tree_house') return false
@@ -92,21 +94,43 @@ export function RoomSelector({
         const fixedNums  = ROOM_NUMBERS[room.room_type as RoomType] ?? []
         const selectedNums = getSelectedNums(room.room_type)
 
+        // Per-category availability. Only room types with fixed numbers can be
+        // classified per-room; others (e.g. tree_house) fall back to total_units.
+        const takenCount    = fixedNums.filter((n) => bookedRoomNumbers.includes(n)).length
+        const availableUnits = Math.max(0, room.total_units - takenCount)
+        const isFullyBooked  = fixedNums.length > 0 && availableUnits === 0
+        const maxSelectable  = fixedNums.length > 0 ? availableUnits : room.total_units
+
         return (
           <div
             key={room.room_type}
             className={cn(
               'rounded-lg border px-4 py-3 transition-colors',
-              isSelected ? 'border-forest-300 bg-forest-50' : 'border-gray-200 bg-white',
+              isFullyBooked
+                ? 'border-red-300 bg-red-50'
+                : isSelected
+                ? 'border-forest-300 bg-forest-50'
+                : 'border-gray-200 bg-white',
             )}
           >
             {/* Qty row */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3 min-w-0">
                 <div>
-                  <p className="text-sm font-medium text-gray-900">{room.display_name}</p>
-                  <p className="text-xs text-gray-500">
-                    {room.total_units} unit{room.total_units !== 1 ? 's' : ''} available
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-gray-900">{room.display_name}</p>
+                    {isFullyBooked && (
+                      <span className="rounded-full border border-red-300 bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700">
+                        Fully booked
+                      </span>
+                    )}
+                  </div>
+                  <p className={cn('text-xs', isFullyBooked ? 'text-red-600 font-medium' : 'text-gray-500')}>
+                    {isFullyBooked
+                      ? 'No rooms available'
+                      : takenCount > 0
+                      ? `${availableUnits} of ${room.total_units} available`
+                      : `${room.total_units} unit${room.total_units !== 1 ? 's' : ''} available`}
                   </p>
                 </div>
               </div>
@@ -142,11 +166,11 @@ export function RoomSelector({
                   </span>
                   <button
                     type="button"
-                    disabled={qty >= room.total_units || noPackage}
-                    onClick={() => setQty(room, Math.min(room.total_units, qty + 1))}
+                    disabled={qty >= maxSelectable || noPackage || isFullyBooked}
+                    onClick={() => setQty(room, Math.min(maxSelectable, qty + 1))}
                     className={cn(
                       'h-7 w-7 rounded border flex items-center justify-center text-sm font-medium transition-colors',
-                      qty < room.total_units
+                      qty < maxSelectable && !isFullyBooked
                         ? 'border-forest-400 bg-forest-100 text-forest-700 hover:bg-forest-200'
                         : 'border-gray-200 bg-gray-50 text-gray-300 cursor-not-allowed',
                     )}
@@ -165,21 +189,31 @@ export function RoomSelector({
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {fixedNums.map((num) => {
-                    const isTaken    = bookedRoomNumbers.includes(num) && !selectedNums.includes(num)
                     const isPicked   = selectedNums.includes(num)
+                    const isTaken    = bookedRoomNumbers.includes(num) && !isPicked
+                    // Free only after the previous guest's ~noon checkout — selectable.
+                    const isNoon     = !isTaken && noonRoomNumbers.includes(num)
                     return (
                       <button
                         key={num}
                         type="button"
                         onClick={() => !isTaken && toggleRoomNumber(room.room_type, num, qty)}
                         disabled={isTaken}
-                        title={isTaken ? `Room ${num} is already booked` : undefined}
+                        title={
+                          isTaken
+                            ? `Room ${num} is already booked`
+                            : isNoon
+                            ? `Room ${num} is available after 12:00 PM (previous guest checking out)`
+                            : undefined
+                        }
                         className={cn(
                           'rounded-md border px-2.5 py-1 text-xs font-mono font-semibold transition-colors',
                           isPicked
                             ? 'border-forest-500 bg-forest-600 text-white'
                             : isTaken
                             ? 'border-red-300 bg-red-50 text-red-400 cursor-not-allowed'
+                            : isNoon
+                            ? 'border-amber-300 bg-amber-50 text-amber-700 hover:border-amber-400 hover:bg-amber-100'
                             : 'border-gray-300 bg-white text-gray-700 hover:border-forest-400 hover:bg-forest-50',
                         )}
                       >
@@ -188,6 +222,11 @@ export function RoomSelector({
                     )
                   })}
                 </div>
+                {fixedNums.some((n) => noonRoomNumbers.includes(n) && !bookedRoomNumbers.includes(n)) && (
+                  <p className="mt-1.5 text-[10px] text-amber-600">
+                    Yellow rooms are available after 12:00 PM (previous guest checking out).
+                  </p>
+                )}
                 {selectedNums.length < qty && (
                   <p className="mt-1.5 text-[10px] text-amber-600">
                     Select {qty - selectedNums.length} more room{qty - selectedNums.length !== 1 ? 's' : ''}
