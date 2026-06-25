@@ -114,13 +114,13 @@ export function RoomSelector({
             )}
           >
             {/* Qty row */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3 min-w-0">
-                <div>
-                  <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900">{room.display_name}</p>
                     {isFullyBooked && (
-                      <span className="rounded-full border border-red-300 bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700">
+                      <span className="rounded-full border border-red-300 bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700 whitespace-nowrap flex-shrink-0">
                         Fully booked
                       </span>
                     )}
