@@ -1,10 +1,11 @@
 import type { LucideIcon } from 'lucide-react'
 import {
-  Banknote, BarChart3, Briefcase, Calendar, Coins, Hammer,
+  Banknote, BarChart3, Briefcase, Building2, Calendar, Coins, Hammer,
   Hotel, ListChecks, PieChart, Receipt, ScrollText, TrendingUp, Users, Wallet,
 } from 'lucide-react'
 
 export type ReportSection =
+  | 'corporate'
   | 'income'
   | 'expenses'
   | 'profitability'
@@ -28,6 +29,9 @@ export interface ReportMeta {
 }
 
 export const REPORTS: ReportMeta[] = [
+  // Corporate
+  { id: 'corporate',              title: 'Corporate summary',   description: 'Daily corporate bookings, dues, CRM activity — one place, archived per day', href: '/reports/corporate', section: 'corporate', icon: Building2, phase: 1 },
+
   // Income
   { id: 'income',                 title: 'Income overview',     description: 'Revenue trends across rooms + extras',           href: '/reports/income',                  section: 'income',        icon: TrendingUp, phase: 1 },
   { id: 'income-by-package',      title: 'Revenue by package',  description: 'Room type / package performance',                href: '/reports/income/by-package',       section: 'income',        icon: Hotel,      phase: 1 },
@@ -62,6 +66,7 @@ export const REPORTS: ReportMeta[] = [
 ]
 
 export const SECTION_LABELS: Record<ReportSection, string> = {
+  corporate:     'Corporate',
   income:        'Income',
   expenses:      'Expenses & P&L',
   profitability: 'Profitability',
@@ -73,5 +78,5 @@ export const SECTION_LABELS: Record<ReportSection, string> = {
 }
 
 export const SECTION_ORDER: ReportSection[] = [
-  'income', 'expenses', 'profitability', 'operations', 'hr', 'checkout', 'coffee_shop', 'weekly',
+  'corporate', 'income', 'expenses', 'profitability', 'operations', 'hr', 'checkout', 'coffee_shop', 'weekly',
 ]
