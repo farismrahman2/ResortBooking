@@ -9,6 +9,7 @@ import {
   listCorporateSnapshots,
   todayDhaka,
   shiftDhakaDate,
+  isValidDhakaDate,
   type CorporateDailySummary,
 } from '@/lib/queries/reports/corporate-daily'
 
@@ -23,8 +24,11 @@ export default async function CorporateSummaryReport({ searchParams }: PageProps
 
   const today = todayDhaka()
   const yesterday = shiftDhakaDate(today, -1)
-  const date = searchParams.date && /^\d{4}-\d{2}-\d{2}$/.test(searchParams.date)
-    ? searchParams.date
+  // Clamp anything impossible (e.g. 2025-13-45) or in the future back to today
+  // so a hand-edited ?date= can't crash dhakaDateToUtcBounds().
+  const requested = searchParams.date
+  const date = requested && isValidDhakaDate(requested) && requested <= today
+    ? requested
     : today
 
   // Prefer the archived snapshot (the "report made everyday"); fall back to a

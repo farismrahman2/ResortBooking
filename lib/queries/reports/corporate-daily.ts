@@ -77,6 +77,17 @@ export function shiftDhakaDate(date: string, days: number): string {
   return d.toISOString().slice(0, 10)
 }
 
+/**
+ * True only for a real calendar date in YYYY-MM-DD form. The bare regex used
+ * elsewhere accepts impossible dates (e.g. 2025-13-45) which would later blow
+ * up dhakaDateToUtcBounds() with a RangeError, so callers must use this.
+ */
+export function isValidDhakaDate(s: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false
+  const d = new Date(s + 'T00:00:00Z')
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s
+}
+
 const round2 = (n: number) => Math.round(n * 100) / 100
 
 /**
@@ -112,6 +123,15 @@ export async function computeCorporateDailySummary(
       .eq('activity_date', date),
   ])
 
+  // Surface query failures instead of silently archiving a false zero day.
+  const queryErrors: Array<[string, { error?: { message: string } | null }]> = [
+    ['bookings', bookingsRes], ['quotes', quotesRes], ['opportunities won', wonRes],
+    ['open pipeline', openRes], ['activities', actsRes],
+  ]
+  for (const [name, res] of queryErrors) {
+    if (res.error) throw new Error(`computeCorporateDailySummary: ${name} query failed: ${res.error.message}`)
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const bookings = (bookingsRes.data ?? []) as any[]
 
@@ -121,7 +141,8 @@ export async function computeCorporateDailySummary(
   ) as string[]
   const accountName = new Map<string, string>()
   if (accountIds.length > 0) {
-    const { data: accs } = await db.from('crm_accounts').select('id, company_name').in('id', accountIds)
+    const { data: accs, error: accErr } = await db.from('crm_accounts').select('id, company_name').in('id', accountIds)
+    if (accErr) throw new Error(`computeCorporateDailySummary: crm_accounts lookup failed: ${accErr.message}`)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const a of (accs ?? []) as any[]) accountName.set(a.id, a.company_name)
   }
@@ -199,7 +220,14 @@ export async function computeCorporateDailySummary(
       .map(([type, count]) => ({ type, count }))
       .sort((a, b) => b.count - a.count),
     open_pipeline_weighted: round2(openPipeline),
-    by_company: Array.from(byCompany.values()).sort((a, b) => b.revenue - a.revenue),
+    by_company: Array.from(byCompany.values())
+      .map((r) => ({
+        ...r,
+        revenue:     round2(r.revenue),
+        collected:   round2(r.collected),
+        outstanding: round2(r.outstanding),
+      }))
+      .sort((a, b) => b.revenue - a.revenue),
   }
 }
 
@@ -215,11 +243,12 @@ export async function getCorporateSnapshot(
 ): Promise<{ summary: CorporateDailySummary; meta: CorporateSnapshotMeta } | null> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = createClient() as any
-  const { data } = await db
+  const { data, error } = await db
     .from('corporate_daily_snapshots')
     .select('snapshot_date, generated_at, generated_by, payload')
     .eq('snapshot_date', date)
     .maybeSingle()
+  if (error) throw new Error(`getCorporateSnapshot: ${error.message}`)
   if (!data) return null
   return {
     summary: data.payload as CorporateDailySummary,
@@ -243,11 +272,12 @@ export interface CorporateSnapshotListRow {
 export async function listCorporateSnapshots(limit = 30): Promise<CorporateSnapshotListRow[]> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = createClient() as any
-  const { data } = await db
+  const { data, error } = await db
     .from('corporate_daily_snapshots')
     .select('snapshot_date, corporate_bookings, corporate_revenue, collected, outstanding, companies_count, opportunities_won, opportunities_won_value, activities_logged')
     .order('snapshot_date', { ascending: false })
     .limit(limit)
+  if (error) throw new Error(`listCorporateSnapshots: ${error.message}`)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return ((data ?? []) as any[]).map((r) => ({
     date:                    r.snapshot_date,
