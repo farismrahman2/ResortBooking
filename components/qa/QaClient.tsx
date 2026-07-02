@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button'
 import { WhatsAppLink } from '@/components/ui/WhatsAppLink'
 import { StarsInline } from './StarRating'
 import { FeedbackFormModal } from './FeedbackFormModal'
+import { AiReportExport } from './AiReportExport'
 import { markQaCallSkipped } from '@/lib/actions/qa'
 import { formatDate } from '@/lib/formatters/dates'
 import { cn } from '@/lib/utils'
@@ -52,15 +53,21 @@ export function QaClient({ pending, reviews, trends, canWrite, canViewBookings }
 
   return (
     <div className="space-y-4">
-      <Tabs
-        items={[
-          { id: 'pending',   label: 'Pending Calls', count: pending.length },
-          { id: 'completed', label: 'Collected Feedback', count: reviews.filter((r) => r.status === 'completed').length },
-          { id: 'trends',    label: 'Trends' },
-        ]}
-        active={tab}
-        onChange={setTab}
-      />
+      <div className="flex items-end gap-3">
+        <Tabs
+          className="min-w-0 flex-1"
+          items={[
+            { id: 'pending',   label: 'Pending Calls', count: pending.length },
+            { id: 'completed', label: 'Collected Feedback', count: reviews.filter((r) => r.status === 'completed').length },
+            { id: 'trends',    label: 'Trends' },
+          ]}
+          active={tab}
+          onChange={setTab}
+        />
+        <div className="pb-1.5 flex-shrink-0">
+          <AiReportExport reviews={reviews} />
+        </div>
+      </div>
 
       {tab === 'pending'   && <PendingTab pending={pending} canWrite={canWrite} canViewBookings={canViewBookings} onRecord={setActive} />}
       {tab === 'completed' && <CompletedTab reviews={reviews} canViewBookings={canViewBookings} />}
