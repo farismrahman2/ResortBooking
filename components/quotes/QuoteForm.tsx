@@ -22,6 +22,7 @@ import { GuestInputs, type GuestValues } from '@/components/quotes/GuestInputs'
 import { PricingBreakdown } from '@/components/quotes/PricingBreakdown'
 import { DuplicateConfirmModal } from '@/components/quotes/DuplicateConfirmModal'
 import { CorporateBookingFields, type CorporateAccountOption } from '@/components/quotes/CorporateBookingFields'
+import { ReturningGuestBadge } from '@/components/qa/ReturningGuestBadge'
 import { ROOM_NUMBERS } from '@/lib/config/rooms'
 import type { PackageWithPrices, RoomInventoryRow, SettingsMap, ExtraItem, RoomType } from '@/lib/supabase/types'
 import type { DuplicateMatch } from '@/lib/queries/duplicate-bookings'
@@ -399,6 +400,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
                   <WhatsAppLink phone={watchedValues.customer_phone} />
                 </div>
               )}
+              <ReturningGuestBadge phone={watchedValues.customer_phone} />
             </div>
           </div>
 

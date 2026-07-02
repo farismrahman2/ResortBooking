@@ -7,6 +7,7 @@ import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
 import { BookingActions } from '@/components/bookings/BookingActions'
 import { BookingWhatsAppOutput } from '@/components/bookings/BookingWhatsAppOutput'
 import { BookingChargesTab } from '@/components/checkout/BookingChargesTab'
+import { GuestFeedbackPanel } from '@/components/qa/GuestFeedbackPanel'
 import { SalesRepEditor } from '@/components/bookings/SalesRepEditor'
 import { getExtraGuestUnitPrice } from '@/lib/checkout/extras-pricing'
 import { getBookingById } from '@/lib/queries/bookings'
@@ -138,6 +139,9 @@ export default async function BookingDetailPage({ params }: PageProps) {
             </Link>
           </div>
         </div>
+
+        {/* Cross-stay QA feedback for this guest (renders only when history exists) */}
+        <GuestFeedbackPanel phone={booking.customer_phone} excludeBookingId={booking.id} />
 
         {/* Two-column layout */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
