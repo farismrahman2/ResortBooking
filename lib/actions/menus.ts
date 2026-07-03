@@ -431,7 +431,111 @@ export async function removeSpecialNote(id: string): Promise<ActionResult> {
   return { success: true }
 }
 
-// ─── Templates (actions land in Phase 3; schema + validator ready) ────────────
+// ─── Copy previous day ────────────────────────────────────────────────────────
+
+/** Deep-copy an entire menu day (meals, items, notes) to a new date.
+ *  Status resets to draft, booking link is NOT copied, headcounts come
+ *  across for review. Rollback: if any child insert fails the new day is
+ *  deleted (coffee-shop precedent) — cascades clean up children. */
+export async function copyMenuDay(sourceId: string, newDate: string): Promise<ActionData<{ id: string }>> {
+  const perm = await checkPermission('menus', 'write')
+  if (!perm.success) return { success: false, error: perm.error }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) return { success: false, error: 'Invalid date' }
+
+  const db = dbc()
+  const ctx = await getCurrentUserContext()
+
+  const { data: source } = await db
+    .from('menu_days')
+    .select(`
+      *,
+      menu_meals (*, items:menu_meal_items (*)),
+      notes:menu_special_notes (*)
+    `)
+    .eq('id', sourceId)
+    .maybeSingle()
+  if (!source) return { success: false, error: 'Source menu day not found' }
+
+  const { data: newDay, error: dayErr } = await db
+    .from('menu_days')
+    .insert({
+      menu_date:     newDate,
+      occasion_note: source.occasion_note,
+      booking_id:    null,            // booking link intentionally not copied
+      status:        'draft',
+      created_by:    ctx?.user_id ?? null,
+    })
+    .select('id')
+    .single()
+  if (dayErr) return { success: false, error: dayErr.message }
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sourceMeals = ((source.menu_meals ?? []) as any[]).sort((a, b) => a.display_order - b.display_order)
+    const mealIdMap = new Map<string, string>()   // old meal id → new meal id
+
+    for (const meal of sourceMeals) {
+      const { data: newMeal, error: mealErr } = await db
+        .from('menu_meals')
+        .insert({
+          menu_day_id:        newDay.id,
+          meal_type_id:       meal.meal_type_id,
+          serving_time:       meal.serving_time,
+          headcount_total:    meal.headcount_total,
+          headcount_adults:   meal.headcount_adults,
+          headcount_children: meal.headcount_children,
+          headcount_drivers:  meal.headcount_drivers,
+          display_order:      meal.display_order,
+        })
+        .select('id')
+        .single()
+      if (mealErr) throw new Error(mealErr.message)
+      mealIdMap.set(meal.id, newMeal.id)
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const items = ((meal.items ?? []) as any[]).sort((a, b) => a.display_order - b.display_order)
+      if (items.length > 0) {
+        const { error: itemsErr } = await db.from('menu_meal_items').insert(
+          items.map((i) => ({
+            meal_id:         newMeal.id,
+            text:            i.text,
+            dish_catalog_id: i.dish_catalog_id,
+            display_order:   i.display_order,
+          })),
+        )
+        if (itemsErr) throw new Error(itemsErr.message)
+      }
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const notes = ((source.notes ?? []) as any[]).sort((a, b) => a.display_order - b.display_order)
+    if (notes.length > 0) {
+      const { error: notesErr } = await db.from('menu_special_notes').insert(
+        notes.map((n) => ({
+          menu_day_id:   newDay.id,
+          // Meal-level notes remap to the copied meal; a lost meal degrades
+          // the note to day-level rather than silently dropping it
+          meal_id:       n.meal_id ? (mealIdMap.get(n.meal_id) ?? null) : null,
+          text:          n.text,
+          color:         n.color,
+          display_order: n.display_order,
+        })),
+      )
+      if (notesErr) throw new Error(notesErr.message)
+    }
+
+    await logHistory(newDay.id, 'created', { copied_from: sourceId, menu_date: newDate })
+    revalidateMenus()
+    return { success: true, data: { id: newDay.id } }
+  } catch (err) {
+    // Rollback — cascades remove any children already inserted
+    await db.from('menu_days').delete().eq('id', newDay.id)
+    return { success: false, error: err instanceof Error ? err.message : 'Copy failed — nothing was created' }
+  }
+}
+
+// ─── Templates ────────────────────────────────────────────────────────────────
 
 export async function saveMealTemplate(raw: TemplateInput): Promise<ActionResult> {
   const perm = await checkPermission('menus', 'write')

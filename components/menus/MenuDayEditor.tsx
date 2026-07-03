@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { CheckCircle2, Unlock, Plus, Trash2 } from 'lucide-react'
+import { CheckCircle2, Unlock, Plus, Printer, Trash2 } from 'lucide-react'
 import { MealBlock } from './MealBlock'
 import { NotesList } from './NotesList'
 import {
@@ -14,14 +14,15 @@ import { cn } from '@/lib/utils'
 import type { MenuBookingPrefill, MenuDayFull, MenuMealTypeRow } from '@/lib/supabase/types-menus'
 
 interface Props {
-  day:       MenuDayFull
-  mealTypes: MenuMealTypeRow[]
-  prefill:   MenuBookingPrefill | null
-  canWrite:  boolean
-  isAdmin:   boolean
+  day:        MenuDayFull
+  mealTypes:  MenuMealTypeRow[]
+  prefill:    MenuBookingPrefill | null
+  canWrite:   boolean
+  isAdmin:    boolean
+  justCopied?: boolean
 }
 
-export function MenuDayEditor({ day, mealTypes, prefill, canWrite, isAdmin }: Props) {
+export function MenuDayEditor({ day, mealTypes, prefill, canWrite, isAdmin, justCopied }: Props) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -80,6 +81,13 @@ export function MenuDayEditor({ day, mealTypes, prefill, canWrite, isAdmin }: Pr
             {day.status === 'finalized' ? 'Finalized' : 'খসড়া · Draft'}
           </span>
 
+          <Link
+            href={`/menus/${day.id}/print`}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-orange-300 bg-white px-3 py-2 text-xs font-medium text-orange-700 hover:bg-orange-50"
+          >
+            <Printer size={14} /> Preview / Print
+          </Link>
+
           {canWrite && day.status === 'draft' && (
             <button
               onClick={() => { if (confirm('Finalize this menu? Editing will be locked (admin can reopen).')) run(() => finalizeMenuDay(day.id)) }}
@@ -102,6 +110,13 @@ export function MenuDayEditor({ day, mealTypes, prefill, canWrite, isAdmin }: Pr
       </div>
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+
+      {justCopied && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          Copied from a previous day — <span className="font-semibold">review the headcounts</span> (they came
+          across unchanged) before finalizing.
+        </div>
+      )}
 
       {day.status === 'finalized' && (
         <p className="rounded-lg bg-green-50 px-3 py-2 text-xs text-green-800">

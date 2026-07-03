@@ -9,9 +9,10 @@ export const dynamic = 'force-dynamic'
 
 interface PageProps {
   params: { id: string }
+  searchParams: { copied?: string }
 }
 
-export default async function MenuDayPage({ params }: PageProps) {
+export default async function MenuDayPage({ params, searchParams }: PageProps) {
   const ctx = await requirePermission('menus', 'read')
   const canWrite = await hasPermission('menus', 'write')
   const isAdminUser = ctx.profile.role.slug === 'admin'
@@ -40,6 +41,7 @@ export default async function MenuDayPage({ params }: PageProps) {
           prefill={prefill}
           canWrite={canWrite}
           isAdmin={isAdminUser}
+          justCopied={searchParams.copied === '1'}
         />
       </div>
     </div>

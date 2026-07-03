@@ -2,10 +2,11 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowDown, ArrowUp, BookmarkPlus, Trash2, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, BookmarkPlus, FolderOpen, Save, Trash2, X } from 'lucide-react'
 import { DishPicker } from './DishPicker'
 import { NotesList } from './NotesList'
-import { setMealItems, updateMeal, removeMeal, addDishToCatalog } from '@/lib/actions/menus'
+import { setMealItems, updateMeal, removeMeal, addDishToCatalog, saveMealTemplate } from '@/lib/actions/menus'
+import type { MenuTemplateRow } from '@/lib/supabase/types-menus'
 import { headcountLine } from '@/lib/menus/headcount-line'
 import { cn } from '@/lib/utils'
 import type { MenuMealFull } from '@/lib/supabase/types-menus'
@@ -26,6 +27,7 @@ export function MealBlock({ meal, editable, onError }: Props) {
     meal.items.map((i) => ({ text: i.text, dish_catalog_id: i.dish_catalog_id })),
   )
   const [servingTime, setServingTime] = useState(meal.serving_time ?? '')
+  const [templates, setTemplates] = useState<MenuTemplateRow[] | null>(null)  // null = picker closed
   const [counts, setCounts] = useState({
     total:    meal.headcount_total,
     adults:   meal.headcount_adults,
@@ -83,6 +85,38 @@ export function MealBlock({ meal, editable, onError }: Props) {
       next[index] = { ...item, dish_catalog_id: res.data.id }
       saveItems(next)
     })
+  }
+
+  function saveAsTemplate() {
+    const name = prompt('Template name (e.g. স্ট্যান্ডার্ড সকালের নাস্তা):')
+    if (!name?.trim()) return
+    startTransition(async () => {
+      const res = await saveMealTemplate({
+        name:         name.trim(),
+        meal_type_id: meal.meal_type_id,
+        serving_time: servingTime.trim() || null,
+        items:        items.filter((i) => i.text.trim()).map((i) => ({ text: i.text })),
+      })
+      if (!res.success) { onError(res.error); return }
+    })
+  }
+
+  async function openTemplatePicker() {
+    try {
+      const res = await fetch(`/api/menus/templates?mealTypeId=${meal.meal_type_id}`)
+      const json = res.ok ? await res.json() : { templates: [] }
+      setTemplates(json.templates ?? [])
+    } catch {
+      setTemplates([])
+    }
+  }
+
+  function loadTemplate(t: MenuTemplateRow) {
+    const incoming: ItemDraft[] = (t.items ?? []).map((i) => ({ text: i.text, dish_catalog_id: null }))
+    // Append by default; offer replace when the meal already has dishes
+    const replace = items.length > 0 && confirm('Replace the current dishes with the template?\nOK = replace · Cancel = append after them')
+    setTemplates(null)
+    saveItems(replace ? incoming : [...items, ...incoming])
   }
 
   const previewLine = headcountLine(meal.meal_type.display_name, servingTime.trim() || null, counts)
@@ -193,10 +227,49 @@ export function MealBlock({ meal, editable, onError }: Props) {
         </div>
 
         {editable && (
-          <DishPicker
-            disabled={pending}
-            onAdd={(text, dishCatalogId) => saveItems([...items, { text, dish_catalog_id: dishCatalogId }])}
-          />
+          <>
+            <DishPicker
+              disabled={pending}
+              onAdd={(text, dishCatalogId) => saveItems([...items, { text, dish_catalog_id: dishCatalogId }])}
+            />
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={openTemplatePicker}
+                disabled={pending}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:bg-orange-50 hover:text-orange-700"
+              >
+                <FolderOpen size={13} /> Load template
+              </button>
+              <button
+                onClick={saveAsTemplate}
+                disabled={pending || items.length === 0}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:bg-orange-50 hover:text-orange-700 disabled:opacity-40"
+              >
+                <Save size={13} /> Save as template
+              </button>
+            </div>
+            {templates !== null && (
+              <div className="rounded-lg border border-orange-200 p-2 space-y-1">
+                {templates.length === 0 ? (
+                  <p className="px-2 py-1.5 text-xs text-gray-400">No templates saved for {meal.meal_type.display_name} yet.</p>
+                ) : (
+                  templates.map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => loadTemplate(t)}
+                      className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-orange-50"
+                    >
+                      <span className="font-medium text-gray-900">{t.name}</span>
+                      <span className="ml-2 text-xs text-gray-400">{(t.items ?? []).length} dishes</span>
+                    </button>
+                  ))
+                )}
+                <button onClick={() => setTemplates(null)} className="block w-full rounded-lg px-3 py-1.5 text-left text-xs text-gray-400 hover:bg-gray-50">
+                  Close
+                </button>
+              </div>
+            )}
+          </>
         )}
 
         {/* Meal-level notes */}
