@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Plus } from 'lucide-react'
 import type { MenuDishRow } from '@/lib/supabase/types-menus'
 
@@ -10,9 +10,10 @@ interface Props {
 }
 
 /**
- * Catalog + free-text dish entry. Typing searches the catalog (usage-ranked);
- * tapping a suggestion inserts it, pressing Enter adds whatever was typed as
- * free text. Mobile-first: one input, big touch targets.
+ * Catalog + free-text dish entry. Tapping the field opens the dropdown
+ * immediately with the most-used dishes (empty query → usage-ranked list);
+ * typing filters it. Pressing Enter adds whatever was typed as free text.
+ * Mobile-first: one input, big touch targets.
  */
 export function DishPicker({ onAdd, disabled }: Props) {
   const [query, setQuery] = useState('')
@@ -20,20 +21,23 @@ export function DishPicker({ onAdd, disabled }: Props) {
   const [open, setOpen] = useState(false)
   const boxRef = useRef<HTMLDivElement>(null)
 
+  const fetchSuggestions = useCallback(async (q: string, signal?: AbortSignal) => {
+    try {
+      const res = await fetch(`/api/menus/dishes?q=${encodeURIComponent(q.trim())}`, { signal })
+      if (!res.ok) return
+      const json = await res.json()
+      setSuggestions(json.dishes ?? [])
+    } catch { /* aborted or offline — keep last suggestions */ }
+  }, [])
+
+  // Fetch whenever the dropdown is open. Empty query (fresh tap) fires
+  // instantly and returns the top dishes; typing debounces to 200ms.
   useEffect(() => {
-    if (!query.trim()) { setSuggestions([]); return }
+    if (!open) return
     const controller = new AbortController()
-    const timer = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/menus/dishes?q=${encodeURIComponent(query.trim())}`, { signal: controller.signal })
-        if (!res.ok) return
-        const json = await res.json()
-        setSuggestions(json.dishes ?? [])
-        setOpen(true)
-      } catch { /* aborted or offline — keep last suggestions */ }
-    }, 250)
+    const timer = setTimeout(() => fetchSuggestions(query, controller.signal), query.trim() ? 200 : 0)
     return () => { clearTimeout(timer); controller.abort() }
-  }, [query])
+  }, [query, open, fetchSuggestions])
 
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
@@ -67,10 +71,10 @@ export function DishPicker({ onAdd, disabled }: Props) {
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          onFocus={() => suggestions.length > 0 && setOpen(true)}
+          onFocus={() => setOpen(true)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addFreeText() } }}
           disabled={disabled}
-          placeholder="খাবার লিখুন বা খুঁজুন… (dish name)"
+          placeholder="খাবার বাছুন বা লিখুন… (tap to pick / type)"
           className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm placeholder:text-gray-400 focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-200 disabled:bg-gray-50"
         />
         <button
@@ -85,7 +89,12 @@ export function DishPicker({ onAdd, disabled }: Props) {
       </div>
 
       {open && suggestions.length > 0 && (
-        <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg">
+        <div className="absolute z-20 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+          {query.trim() === '' && (
+            <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+              জনপ্রিয় খাবার · Most used
+            </p>
+          )}
           {suggestions.map((s) => (
             <button
               key={s.id}
