@@ -22,8 +22,10 @@ export default async function DashboardPage() {
   // Corporate sales has crm:write but no bookings access — land them on /crm
   // instead of falling through to /403.
   const ctx = await getCurrentUserContext()
-  if (ctx?.profile.role.slug === 'reservation')     redirect('/quotes')
-  if (ctx?.profile.role.slug === 'corporate_sales') redirect('/crm')
+  if (ctx?.profile.role.slug === 'reservation')      redirect('/quotes')
+  if (ctx?.profile.role.slug === 'corporate_sales')  redirect('/crm')
+  // Review collectors only have the Guest Feedback module — land them there.
+  if (ctx?.profile.role.slug === 'review_collector') redirect('/qa')
 
   // Dashboard surfaces booking + revenue widgets — gate by bookings:read.
   // Roles without that (e.g. front_desk) get bounced to whatever they can use.
@@ -36,6 +38,7 @@ export default async function DashboardPage() {
     if (canRead('availability')) redirect('/availability')
     if (canRead('expenses'))     redirect('/expenses')
     if (canRead('hr'))           redirect('/hr')
+    if (canRead('qa'))           redirect('/qa')
     if (canRead('settings'))     redirect('/settings')
     redirect('/403?from=dashboard')
   }

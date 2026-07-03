@@ -7,7 +7,7 @@ import { createMiddlewareClient } from '@/lib/supabase/middleware'
  * before `/hr` so front_desk users (who have `attendance` but not `hr`) don't
  * get 403'd on the attendance page.
  */
-type RoleSlug = 'admin' | 'manager' | 'front_desk' | 'accountant' | 'reservation' | 'corporate_sales' | 'operations_manager' | 'md'
+type RoleSlug = 'admin' | 'manager' | 'front_desk' | 'accountant' | 'reservation' | 'corporate_sales' | 'operations_manager' | 'md' | 'review_collector'
 
 /**
  * Per-role route deny-list. Used when a role passes the module-level check
@@ -30,8 +30,9 @@ const ROLE_ALLOW: Array<{ prefix: string; roles: RoleSlug[] }> = [
   { prefix: '/reports/income/by-payment-method', roles: ['front_desk'] },
 ]
 
-const MODULE_PREFIX: Array<{ prefix: string; module: 'bookings' | 'checkout' | 'expenses' | 'hr' | 'reports' | 'settings' | 'availability' | 'attendance' | 'coffee_shop' | 'inventory' | 'crm' | 'fixed_assets' }> = [
+const MODULE_PREFIX: Array<{ prefix: string; module: 'bookings' | 'checkout' | 'expenses' | 'hr' | 'reports' | 'settings' | 'availability' | 'attendance' | 'coffee_shop' | 'inventory' | 'crm' | 'fixed_assets' | 'qa' }> = [
   { prefix: '/bookings',      module: 'bookings'     },
+  { prefix: '/qa',            module: 'qa'           },
   { prefix: '/quotes',        module: 'bookings'     },   // quotes live under the bookings module
   { prefix: '/packages',      module: 'bookings'     },   // packages too — operational/booking-side
   { prefix: '/availability',  module: 'availability' },
