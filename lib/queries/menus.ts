@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { getMealsForBookingOnDate } from '@/lib/engine/meals'
+import { dishSearchMatches } from '@/lib/menus/transliterate'
 import type {
   MenuBookingPrefill,
   MenuDayFull,
@@ -91,22 +92,30 @@ export async function getMenuDayFull(id: string): Promise<MenuDayFull | null> {
   return { ...data, menu_meals: undefined, meals, day_notes } as MenuDayFull
 }
 
-/** Dish picker search — usage-ranked, name ilike. */
+/** Dish picker search — usage-ranked. With no query returns the top dishes;
+ *  with a query, filters the (small) catalog in memory so English spellings
+ *  find Bangla names via transliteration (e.g. "kola" → কলা). */
 export async function searchDishCatalog(query: string, category?: string): Promise<MenuDishRow[]> {
+  const trimmed = query.trim()
+
   let q = dbc()
     .from('menu_dish_catalog')
     .select('*')
     .eq('is_active', true)
     .order('usage_count', { ascending: false })
     .order('name', { ascending: true })
-    .limit(20)
+    // No query → top 20 (DB-limited). With a query → pull the catalog and
+    // filter locally; it's ~100s of rows, well under the PostgREST cap.
+    .limit(trimmed ? 500 : 20)
 
-  if (query.trim()) q = q.ilike('name', `%${query.trim()}%`)
-  if (category)     q = q.eq('category', category)
+  if (category) q = q.eq('category', category)
 
   const { data, error } = await q
   if (error) throw new Error(`searchDishCatalog: ${error.message}`)
-  return (data ?? []) as MenuDishRow[]
+  const rows = (data ?? []) as MenuDishRow[]
+
+  if (!trimmed) return rows
+  return rows.filter((d) => dishSearchMatches(d.name, trimmed)).slice(0, 20)
 }
 
 export async function listMealTypes(): Promise<MenuMealTypeRow[]> {
