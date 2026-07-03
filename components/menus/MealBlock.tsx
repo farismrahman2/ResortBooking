@@ -8,18 +8,22 @@ import { NotesList } from './NotesList'
 import { setMealItems, updateMeal, removeMeal, addDishToCatalog, saveMealTemplate } from '@/lib/actions/menus'
 import type { MenuTemplateRow } from '@/lib/supabase/types-menus'
 import { headcountLine } from '@/lib/menus/headcount-line'
+import { toBanglaDigits } from '@/lib/menus/bangla-numerals'
 import { cn } from '@/lib/utils'
 import type { MenuMealFull } from '@/lib/supabase/types-menus'
+import type { DayMealCount } from '@/lib/queries/menus'
 
 interface Props {
   meal:     MenuMealFull
+  /** Expected counts for this meal type from the whole day's bookings (null = no basis). */
+  calc:     DayMealCount | null
   editable: boolean
   onError:  (msg: string) => void
 }
 
 type ItemDraft = { text: string; dish_catalog_id: string | null }
 
-export function MealBlock({ meal, editable, onError }: Props) {
+export function MealBlock({ meal, calc, editable, onError }: Props) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
 
@@ -176,6 +180,28 @@ export function MealBlock({ meal, editable, onError }: Props) {
 
         {/* Live preview of the printed headcount line */}
         <p className="rounded-lg bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-800">{previewLine}</p>
+
+        {/* Day-calculation hint — bookings may have changed since the meal was added */}
+        {editable && calc && calc.total > 0 &&
+          (calc.total !== (counts.total ?? -1) || calc.adults !== (counts.adults ?? -1)) && (
+          <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
+            <span>
+              বুকিং অনুযায়ী: মোট {toBanglaDigits(calc.total)} · প্রাপ্তবয়স্ক {toBanglaDigits(calc.adults)} ·
+              শিশু {toBanglaDigits(calc.children)} · ড্রাইভার {toBanglaDigits(calc.drivers)}
+            </span>
+            <button
+              onClick={() => {
+                const next = { total: calc.total, adults: calc.adults, children: calc.children, drivers: calc.drivers }
+                setCounts(next)
+                saveMealMeta(next)
+              }}
+              disabled={pending}
+              className="rounded border border-orange-200 px-2 py-0.5 font-medium text-orange-700 hover:bg-orange-50"
+            >
+              Apply
+            </button>
+          </div>
+        )}
 
         {/* Dish list */}
         <div className="space-y-1.5">

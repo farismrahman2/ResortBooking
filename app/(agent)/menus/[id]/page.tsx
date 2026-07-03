@@ -1,9 +1,8 @@
 import { notFound } from 'next/navigation'
 import { Topbar } from '@/components/layout/Topbar'
 import { requirePermission, hasPermission } from '@/lib/auth/permissions'
-import { getMenuDayFull, listMealTypes, getBookingPrefill } from '@/lib/queries/menus'
+import { getMenuDayFull, listMealTypes, getDayMealHeadcounts, type DayMealHeadcounts } from '@/lib/queries/menus'
 import { MenuDayEditor } from '@/components/menus/MenuDayEditor'
-import type { MenuBookingPrefill } from '@/lib/supabase/types-menus'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,13 +22,12 @@ export default async function MenuDayPage({ params, searchParams }: PageProps) {
   ])
   if (!day) notFound()
 
-  // Guest-count defaults for new meals when this menu came from a booking
-  let prefill: MenuBookingPrefill | null = null
-  if (day.booking_id) {
-    try {
-      prefill = await getBookingPrefill(day.booking_id)
-    } catch { /* booking gone or unconfirmed — no defaults */ }
-  }
+  // Day-wide expected headcounts from ALL bookings covering this date —
+  // a menu day feeds everyone on site, not one booking's party.
+  let dayCounts: DayMealHeadcounts = {}
+  try {
+    dayCounts = await getDayMealHeadcounts(day.menu_date)
+  } catch { /* bookings unavailable — meals start blank */ }
 
   return (
     <div className="flex h-full flex-col">
@@ -38,7 +36,7 @@ export default async function MenuDayPage({ params, searchParams }: PageProps) {
         <MenuDayEditor
           day={day}
           mealTypes={mealTypes}
-          prefill={prefill}
+          dayCounts={dayCounts}
           canWrite={canWrite}
           isAdmin={isAdminUser}
           justCopied={searchParams.copied === '1'}

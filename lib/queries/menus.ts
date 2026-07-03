@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { getMealsForBookingOnDate } from '@/lib/engine/meals'
 import type {
   MenuBookingPrefill,
   MenuDayFull,
@@ -154,6 +155,96 @@ export async function getBookingPrefill(bookingId: string): Promise<MenuBookingP
     drivers,
     total: adults + children + drivers,
   }
+}
+
+export interface DayMealCount {
+  adults:   number
+  children: number
+  drivers:  number
+  total:    number   // adults + children + drivers (prefill only — editable, never recomputed after)
+  bookings: number   // how many bookings contribute
+}
+
+/** Per-meal-type expected headcounts, keyed by meal type slug. Slugs with no
+ *  calculation basis (light_morning_snack) are absent. */
+export type DayMealHeadcounts = Partial<Record<string, DayMealCount>>
+
+/**
+ * Day-wide meal headcounts from ALL bookings covering `date` — a menu day
+ * feeds everyone on site, not one booking. Reuses the daily-report meal
+ * engine (lib/engine/meals.ts) so both screens always agree:
+ *
+ *   welcome_drinks  → everyone checking IN that day (daylong + night arrivals)
+ *   breakfast       → overnight guests waking up that day (incl. checkout-morning)
+ *                     + daylong packages that include breakfast
+ *   lunch           → daylong guests + arriving/staying night guests
+ *   afternoon_snack → packages that include snacks (typically daylong)
+ *   dinner          → night guests in-house that night
+ *
+ * Drivers ride along with whichever meals their booking participates in.
+ */
+export async function getDayMealHeadcounts(date: string): Promise<DayMealHeadcounts> {
+  const { data, error } = await dbc()
+    .from('bookings')
+    .select('package_type, visit_date, check_out_date, status, adults, children_paid, children_free, drivers, package_snapshot')
+    .neq('status', 'cancelled')
+    .neq('status', 'no_show')
+    .lte('visit_date', date)
+  if (error) throw new Error(`getDayMealHeadcounts: ${error.message}`)
+
+  const empty = (): DayMealCount => ({ adults: 0, children: 0, drivers: 0, total: 0, bookings: 0 })
+  const acc: Record<string, DayMealCount> = {
+    welcome_drinks:  empty(),
+    breakfast:       empty(),
+    lunch:           empty(),
+    afternoon_snack: empty(),
+    dinner:          empty(),
+  }
+
+  const add = (slug: string, b: { adults: number; children: number; drivers: number }) => {
+    const c = acc[slug]
+    c.adults   += b.adults
+    c.children += b.children
+    c.drivers  += b.drivers
+    c.total    += b.adults + b.children + b.drivers
+    c.bookings += 1
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const booking of (data ?? []) as any[]) {
+    const counts = {
+      adults:   Number(booking.adults ?? 0),
+      children: Number(booking.children_paid ?? 0) + Number(booking.children_free ?? 0),
+      drivers:  Number(booking.drivers ?? 0),
+    }
+
+    // Welcome drinks — arrivals of the day, regardless of package type
+    if (booking.visit_date === date) add('welcome_drinks', counts)
+
+    const snap = booking.package_snapshot ?? {}
+    const meals = getMealsForBookingOnDate(
+      {
+        package_type:       booking.package_type,
+        visit_date:         booking.visit_date,
+        check_out_date:     booking.check_out_date,
+        adults:             booking.adults ?? 0,
+        children_paid:      booking.children_paid ?? 0,
+        children_free:      booking.children_free ?? 0,
+        includes_breakfast: snap.includes_breakfast,
+        includes_lunch:     snap.includes_lunch,
+        includes_dinner:    snap.includes_dinner,
+        includes_snacks:    snap.includes_snacks,
+      },
+      date,
+    )
+
+    if (meals.breakfast > 0) add('breakfast', counts)
+    if (meals.lunch     > 0) add('lunch', counts)
+    if (meals.snacks    > 0) add('afternoon_snack', counts)
+    if (meals.dinner    > 0) add('dinner', counts)
+  }
+
+  return acc
 }
 
 /** Confirmed bookings for the "create from booking" picker (visit_date shown
