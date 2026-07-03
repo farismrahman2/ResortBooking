@@ -30,9 +30,10 @@ const ROLE_ALLOW: Array<{ prefix: string; roles: RoleSlug[] }> = [
   { prefix: '/reports/income/by-payment-method', roles: ['front_desk'] },
 ]
 
-const MODULE_PREFIX: Array<{ prefix: string; module: 'bookings' | 'checkout' | 'expenses' | 'hr' | 'reports' | 'settings' | 'availability' | 'attendance' | 'coffee_shop' | 'inventory' | 'crm' | 'fixed_assets' | 'qa' }> = [
+const MODULE_PREFIX: Array<{ prefix: string; module: 'bookings' | 'checkout' | 'expenses' | 'hr' | 'reports' | 'settings' | 'availability' | 'attendance' | 'coffee_shop' | 'inventory' | 'crm' | 'fixed_assets' | 'qa' | 'menus' }> = [
   { prefix: '/bookings',      module: 'bookings'     },
   { prefix: '/qa',            module: 'qa'           },
+  { prefix: '/menus',         module: 'menus'        },
   { prefix: '/quotes',        module: 'bookings'     },   // quotes live under the bookings module
   { prefix: '/packages',      module: 'bookings'     },   // packages too — operational/booking-side
   { prefix: '/availability',  module: 'availability' },
