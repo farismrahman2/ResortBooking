@@ -101,7 +101,8 @@ export function NewMenuForm({ bookings, recentDays, defaultDate }: Props) {
             ))}
           </select>
           <p className="mt-1 text-xs text-gray-500">
-            Picking a booking pre-fills the date, occasion, and guest counts — everything stays editable.
+            Picking a booking pre-fills the date and occasion. Meal headcounts always come from
+            ALL bookings on the menu date (arrivals, in-house, checkouts) — everything stays editable.
           </p>
         </div>
       )}
