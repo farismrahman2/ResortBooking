@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
+import { AlertCircle } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Textarea } from '@/components/ui/Textarea'
@@ -43,23 +44,37 @@ export function FeedbackFormModal({ booking, onClose }: Props) {
     onClose()
   }
 
+  // A rating below 5 must come with a reason — that "why" is what drives
+  // service improvement. Room/food need their own note; a low overall is
+  // satisfied by a note in any of the comment boxes.
+  const ratingsComplete   = roomRating != null && foodRating != null && overallRating != null
+  const roomReasonNeeded  = roomRating != null && roomRating < 5 && !roomComment.trim()
+  const foodReasonNeeded  = foodRating != null && foodRating < 5 && !foodComment.trim()
+  const anyReasonGiven    = !!(roomComment.trim() || foodComment.trim() || otherComment.trim())
+  const overallReasonNeeded = overallRating != null && overallRating < 5 && !anyReasonGiven
+  const canSubmit = ratingsComplete && !roomReasonNeeded && !foodReasonNeeded && !overallReasonNeeded
+
   function submit() {
     if (!booking) return
-    if (roomRating == null || foodRating == null || overallRating == null) {
+    if (!ratingsComplete) {
       setError('Please rate room service, food taste, and overall impression.')
+      return
+    }
+    if (!canSubmit) {
+      setError('Please add a reason for any rating below 5★ — that’s how we know what to improve.')
       return
     }
     setError(null)
     startTransition(async () => {
       const res = await submitQaReview({
         booking_id:           booking.id,
-        room_service_rating:  roomRating,
+        room_service_rating:  roomRating!,
         room_service_comment: roomComment.trim() || null,
-        food_rating:          foodRating,
+        food_rating:          foodRating!,
         food_comment:         foodComment.trim() || null,
         other_issue:          otherIssue,
         other_comment:        otherComment.trim() || null,
-        overall_rating:       overallRating,
+        overall_rating:       overallRating!,
         would_return:         wouldReturn,
       })
       if (!res.success) { setError(res.error); return }
@@ -85,14 +100,28 @@ export function FeedbackFormModal({ booking, onClose }: Props) {
 
           <div className="space-y-1.5">
             <StarRating label="Room service" value={roomRating} onChange={setRoomRating} />
-            <Textarea placeholder="Comments on housekeeping, room condition, staff… (optional)"
-              rows={2} value={roomComment} onChange={(e) => setRoomComment(e.target.value)} />
+            <Textarea
+              placeholder={roomRating != null && roomRating < 5
+                ? 'Why not 5★? What went wrong with the room / housekeeping / staff?'
+                : 'Comments on housekeeping, room condition, staff… (optional)'}
+              rows={2}
+              value={roomComment}
+              onChange={(e) => setRoomComment(e.target.value)}
+              error={roomReasonNeeded ? 'A reason is required because this isn’t 5★.' : undefined}
+            />
           </div>
 
           <div className="space-y-1.5">
             <StarRating label="Food taste" value={foodRating} onChange={setFoodRating} />
-            <Textarea placeholder="Comments on restaurant, breakfast, taste… (optional)"
-              rows={2} value={foodComment} onChange={(e) => setFoodComment(e.target.value)} />
+            <Textarea
+              placeholder={foodRating != null && foodRating < 5
+                ? 'Why not 5★? Which dish or meal disappointed the guest?'
+                : 'Comments on restaurant, breakfast, taste… (optional)'}
+              rows={2}
+              value={foodComment}
+              onChange={(e) => setFoodComment(e.target.value)}
+              error={foodReasonNeeded ? 'A reason is required because this isn’t 5★.' : undefined}
+            />
           </div>
 
           <div className="space-y-1.5">
@@ -106,7 +135,14 @@ export function FeedbackFormModal({ booking, onClose }: Props) {
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <StarRating label="Overall impression" value={overallRating} onChange={setOverallRating} />
+            <div>
+              <StarRating label="Overall impression" value={overallRating} onChange={setOverallRating} />
+              {overallReasonNeeded && (
+                <p className="mt-1 text-xs text-red-600">
+                  Below 5★ — add a note in any comment box above explaining why.
+                </p>
+              )}
+            </div>
             <div>
               <p className="field-label">Would return?</p>
               <div className="flex gap-2">
@@ -121,9 +157,16 @@ export function FeedbackFormModal({ booking, onClose }: Props) {
             </div>
           </div>
 
+          {ratingsComplete && !canSubmit && (
+            <p className="flex items-center gap-1.5 text-xs text-amber-700">
+              <AlertCircle size={13} />
+              Add a reason for every rating below 5★ to enable Save — it tells us what to improve.
+            </p>
+          )}
+
           <div className="flex justify-end gap-2 border-t border-gray-100 pt-4">
             <Button variant="outline" onClick={close} disabled={pending}>Cancel</Button>
-            <Button onClick={submit} loading={pending}>Save Feedback</Button>
+            <Button onClick={submit} loading={pending} disabled={!canSubmit}>Save Feedback</Button>
           </div>
         </div>
       )}
