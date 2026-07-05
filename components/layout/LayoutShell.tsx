@@ -12,9 +12,10 @@ interface ShellProps {
   roleLabel:     string | null
   roleSlug:      RoleSlug | null
   unreadAlerts?: number
+  unreadEnquiries?: number
 }
 
-function Shell({ children, userEmail, permissions, roleLabel, roleSlug, unreadAlerts }: ShellProps) {
+function Shell({ children, userEmail, permissions, roleLabel, roleSlug, unreadAlerts, unreadEnquiries }: ShellProps) {
   const { isOpen, close } = useSidebar()
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
@@ -33,6 +34,7 @@ function Shell({ children, userEmail, permissions, roleLabel, roleSlug, unreadAl
         roleLabel={roleLabel}
         roleSlug={roleSlug}
         unreadAlerts={unreadAlerts ?? 0}
+        unreadEnquiries={unreadEnquiries ?? 0}
       />
 
       <main className="flex-1 min-w-0 overflow-y-auto scrollable">
@@ -43,7 +45,7 @@ function Shell({ children, userEmail, permissions, roleLabel, roleSlug, unreadAl
 }
 
 export function LayoutShell({
-  children, userEmail, permissions, roleLabel, roleSlug, unreadAlerts,
+  children, userEmail, permissions, roleLabel, roleSlug, unreadAlerts, unreadEnquiries,
 }: ShellProps) {
   return (
     <SidebarProvider>
@@ -53,6 +55,7 @@ export function LayoutShell({
         roleLabel={roleLabel}
         roleSlug={roleSlug}
         unreadAlerts={unreadAlerts}
+        unreadEnquiries={unreadEnquiries}
       >
         {children}
       </Shell>

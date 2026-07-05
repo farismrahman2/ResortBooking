@@ -504,7 +504,7 @@ export type SalesEmployee = Pick<EmployeeRow,
 // ─── Auth & Roles ────────────────────────────────────────────────────────────
 
 export type RoleSlug       = 'admin' | 'manager' | 'front_desk' | 'accountant' | 'reservation' | 'corporate_sales' | 'operations_manager' | 'md' | 'review_collector'
-export type ModuleSlug     = 'bookings' | 'checkout' | 'expenses' | 'hr' | 'reports' | 'settings' | 'availability' | 'attendance' | 'coffee_shop' | 'inventory' | 'crm' | 'fixed_assets' | 'qa' | 'menus'
+export type ModuleSlug     = 'bookings' | 'checkout' | 'expenses' | 'hr' | 'reports' | 'settings' | 'availability' | 'attendance' | 'coffee_shop' | 'inventory' | 'crm' | 'fixed_assets' | 'qa' | 'menus' | 'enquiries'
 export type PermissionLevel = 'none' | 'read' | 'write'
 
 export interface RoleRow {
@@ -1005,4 +1005,33 @@ export interface Database {
     }
     CompositeTypes: Record<string, never>
   }
+}
+
+// ─── Enquiries (leads from the public marketing website) ─────────────────────
+
+export type EnquiryStatus = 'new' | 'contacted' | 'won' | 'lost'
+
+export interface EnquiryRow {
+  id:           string
+  /** The public site's own enquiry id (cuid). Unique; drives idempotent upsert. */
+  source_id:    string | null
+  type:         string
+  /** Free-text date the visitor typed — not a real calendar date. */
+  date_text:    string | null
+  pax:          number
+  organisation: string | null
+  name:         string
+  phone:        string
+  email:        string | null
+  note:         string | null
+  /** Page path / referrer / utm captured client-side on the public site. */
+  source:       Record<string, unknown> | null
+  status:       EnquiryStatus
+  staff_notes:  string | null
+  /** NULL = not yet opened by staff. Drives the sidebar "new enquiries" badge. */
+  seen_at:      string | null
+  /** When the lead was submitted on the public site. */
+  submitted_at: string | null
+  created_at:   string
+  updated_at:   string
 }

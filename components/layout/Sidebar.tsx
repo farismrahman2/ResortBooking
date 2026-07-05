@@ -22,6 +22,7 @@ import {
   Users,
   Receipt,
   MessageSquareHeart,
+  MailQuestion,
   UtensilsCrossed,
   X,
   LogOut,
@@ -43,6 +44,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { href: '/',             label: 'Dashboard',    icon: LayoutDashboard, module: 'bookings', hideForRoles: ['reservation', 'corporate_sales'] },
+  { href: '/enquiries',    label: 'Enquiries',    icon: MailQuestion,   module: 'enquiries' },
   { href: '/quotes',       label: 'Quotes',       icon: FileText,       module: 'bookings' },
   { href: '/bookings',     label: 'Bookings',     icon: CalendarCheck,  module: 'bookings' },
   { href: '/checkout',     label: 'Checkout',     icon: Receipt,        module: 'checkout' },
@@ -71,13 +73,14 @@ interface SidebarProps {
   roleLabel:    string | null
   roleSlug:     RoleSlug | null
   unreadAlerts: number
+  unreadEnquiries: number
 }
 
 function canSee(perm: PermissionLevel | undefined): boolean {
   return perm === 'read' || perm === 'write'
 }
 
-export function Sidebar({ userEmail, permissions, roleLabel, roleSlug, unreadAlerts }: SidebarProps) {
+export function Sidebar({ userEmail, permissions, roleLabel, roleSlug, unreadAlerts, unreadEnquiries }: SidebarProps) {
   const pathname  = usePathname()
   const { isOpen, close } = useSidebar()
 
@@ -124,7 +127,10 @@ export function Sidebar({ userEmail, permissions, roleLabel, roleSlug, unreadAle
             } else if (module && permissions && !canSee(permissions[module])) return null
             if (hideForRoles && roleSlug && hideForRoles.includes(roleSlug)) return null
             const isActive = href === '/' ? pathname === '/' : pathname.startsWith(href)
-            const showBadge = href === '/settings' && unreadAlerts > 0
+            const badgeCount =
+              href === '/settings'  ? unreadAlerts :
+              href === '/enquiries' ? unreadEnquiries : 0
+            const showBadge = badgeCount > 0
             return (
               <li key={href}>
                 <Link
@@ -141,7 +147,7 @@ export function Sidebar({ userEmail, permissions, roleLabel, roleSlug, unreadAle
                   <span className="flex-1">{label}</span>
                   {showBadge && (
                     <span className="inline-flex items-center justify-center rounded-full bg-amber-500 text-white text-[10px] font-bold px-1.5 min-w-[18px] h-[18px]">
-                      {unreadAlerts}
+                      {badgeCount}
                     </span>
                   )}
                 </Link>
