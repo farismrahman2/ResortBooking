@@ -73,6 +73,15 @@ export async function middleware(request: NextRequest) {
   const isAuthRoute  = pathname.startsWith('/auth/')
   const isApiRoute   = pathname.startsWith('/api/')
 
+  // Public server-to-server ingest endpoints authenticate themselves via a
+  // Bearer secret in their own handler — there is NO logged-in Supabase user
+  // on a machine-to-machine call, so they must bypass the session auth gate
+  // below (which 401s every unauthenticated /api/* request). The route
+  // handler still enforces its own secret, so this is not an open door.
+  if (pathname === '/api/enquiries') {
+    return NextResponse.next()
+  }
+
   // Fail open for the login + diagnose routes if env vars are missing so the
   // user can still see diagnostic info instead of an opaque 500.
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
