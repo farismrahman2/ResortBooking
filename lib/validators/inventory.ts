@@ -42,6 +42,15 @@ const baseLine = z.object({
   notes:      z.string().trim().min(1).nullable().optional(),
 })
 
+// Receipt photo already uploaded to the expense-receipts bucket by the browser;
+// createReceipt files it against the auto-created expense.
+export const receiptAttachmentSchema = z.object({
+  storage_path: z.string().trim().min(1),
+  file_name:    z.string().trim().min(1),
+  mime_type:    z.enum(['image/jpeg', 'image/png', 'image/webp', 'application/pdf']),
+  size_bytes:   z.number().int().positive().max(10 * 1024 * 1024),
+})
+
 export const receiptFormSchema = z.object({
   movement_date:  isoDate,
   store_id:       z.string().uuid('Store required'),
@@ -49,6 +58,7 @@ export const receiptFormSchema = z.object({
   invoice_number: z.string().trim().min(1).nullable().optional(),
   invoice_date:   isoDate.nullable().optional(),
   notes:          z.string().trim().min(1).nullable().optional(),
+  attachment:     receiptAttachmentSchema.nullable().optional(),
   lines: z.array(baseLine.extend({
     unit_price: z.number().min(0, 'Unit price must be ≥ 0'),
   })).min(1, 'At least one line required'),

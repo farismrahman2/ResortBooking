@@ -1,15 +1,19 @@
 'use client'
 
-import { useState, useTransition, useMemo } from 'react'
+import { useState, useTransition, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2, Upload, X } from 'lucide-react'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { Button } from '@/components/ui/Button'
 import { createReceipt, createIssue, createTransfer, createAdjustment } from '@/lib/actions/inventory'
+import { createClient } from '@/lib/supabase/client'
 import { formatBDT } from '@/lib/formatters/currency'
 import type { InvStore, InvSupplier, InvItemWithStock, MovementType } from '@/lib/supabase/types-inventory'
+
+const RECEIPT_MIME = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'] as const
+const MAX_BYTES    = 10 * 1024 * 1024  // 10 MB
 
 interface LineDraft {
   item_id:    string
@@ -46,8 +50,18 @@ export function MovementForm({ type, stores, suppliers, items }: Props) {
   const [reason, setReason]     = useState<typeof ADJ_REASONS[number]>('recount')
   const [notes, setNotes]       = useState('')
   const [lines, setLines]       = useState<LineDraft[]>([{ item_id: '', quantity: '', unit_price: '', direction: 'decrease' }])
+  const [photo, setPhoto]       = useState<File | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const storeItems = useMemo(() => items.filter((i) => i.store_id === storeId), [items, storeId])
+
+  function pickPhoto(f: File | null) {
+    setError(null)
+    if (!f) { setPhoto(null); return }
+    if (!RECEIPT_MIME.includes(f.type as typeof RECEIPT_MIME[number])) { setError('Receipt photo must be JPEG, PNG, WebP, or PDF.'); return }
+    if (f.size <= 0 || f.size > MAX_BYTES) { setError('Receipt photo must be between 1 byte and 10 MB.'); return }
+    setPhoto(f)
+  }
 
   function setLine(idx: number, patch: Partial<LineDraft>) {
     setLines((ls) => ls.map((l, i) => (i === idx ? { ...l, ...patch } : l)))
@@ -67,15 +81,57 @@ export function MovementForm({ type, stores, suppliers, items }: Props) {
     const cleanLines = lines.filter((l) => l.item_id && Number(l.quantity) > 0)
     if (cleanLines.length === 0) { setError('Add at least one line with an item and quantity'); return }
 
+    // A receipt with a real cost must carry a photo of the paper receipt.
+    if (type === 'receipt' && total > 0 && !photo) {
+      setError('Attach a photo of the receipt before saving.')
+      return
+    }
+
     startTransition(async () => {
-      let res
       if (type === 'receipt') {
-        res = await createReceipt({
+        // Upload the photo FIRST so the receipt is created only once we have it —
+        // this avoids duplicate receipts if a post-save upload had to be retried.
+        let attachment: {
+          storage_path: string; file_name: string
+          mime_type: typeof RECEIPT_MIME[number]; size_bytes: number
+        } | null = null
+        let uploadedPath: string | null = null
+        if (photo) {
+          const supabase = createClient()
+          const [y, m] = date.split('-')
+          const safeName = photo.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+          uploadedPath = `${y}/${m}/inventory-receipts/${Date.now()}-${safeName}`
+          const { error: upErr } = await supabase.storage
+            .from('expense-receipts')
+            .upload(uploadedPath, photo, { contentType: photo.type, upsert: false })
+          if (upErr) { setError(`Photo upload failed: ${upErr.message}`); return }
+          attachment = {
+            storage_path: uploadedPath,
+            file_name:    photo.name,
+            mime_type:    photo.type as typeof RECEIPT_MIME[number],
+            size_bytes:   photo.size,
+          }
+        }
+
+        const res = await createReceipt({
           movement_date: date, store_id: storeId, supplier_id: supplierId,
           invoice_number: invoiceNumber.trim() || null, notes: notes.trim() || null,
+          attachment,
           lines: cleanLines.map((l) => ({ item_id: l.item_id, quantity: Number(l.quantity), unit_price: Number(l.unit_price) || 0 })),
         })
-      } else if (type === 'issue') {
+        if (!res.success) {
+          // Remove the orphaned upload so a retry doesn't litter storage
+          if (uploadedPath) await createClient().storage.from('expense-receipts').remove([uploadedPath])
+          setError(res.error)
+          return
+        }
+        router.push('/inventory/movements')
+        router.refresh()
+        return
+      }
+
+      let res
+      if (type === 'issue') {
         res = await createIssue({
           movement_date: date, store_id: storeId, issued_to_department: department.trim(), notes: notes.trim() || null,
           lines: cleanLines.map((l) => ({ item_id: l.item_id, quantity: Number(l.quantity) })),
@@ -111,11 +167,48 @@ export function MovementForm({ type, stores, suppliers, items }: Props) {
       </div>
 
       {type === 'receipt' && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Select label="Supplier" value={supplierId} onChange={(e) => setSupplierId(e.target.value)} required
-            options={suppliers.map((s) => ({ value: s.id, label: s.name }))} />
-          <Input label="Invoice #" value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} />
-        </div>
+        <>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Select label="Supplier" value={supplierId} onChange={(e) => setSupplierId(e.target.value)} required
+              options={suppliers.map((s) => ({ value: s.id, label: s.name }))} />
+            <Input label="Invoice #" value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} />
+          </div>
+
+          <div>
+            <label className="field-label">
+              Receipt photo {total > 0 && <span className="text-red-500">*</span>}
+            </label>
+            {!photo ? (
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-300 px-4 py-4 text-sm font-medium text-gray-600 hover:border-teal-400 hover:bg-teal-50/40"
+              >
+                <Upload size={16} /> Upload a photo of the receipt
+              </button>
+            ) : (
+              <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm">
+                <span className="truncate text-gray-700">
+                  {photo.name} · {(photo.size / 1024 / 1024).toFixed(1)} MB
+                </span>
+                <button type="button" onClick={() => pickPhoto(null)}
+                  className="ml-2 flex-shrink-0 rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600" aria-label="Remove photo">
+                  <X size={15} />
+                </button>
+              </div>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,application/pdf"
+              onChange={(e) => pickPhoto(e.target.files?.[0] ?? null)}
+              className="hidden"
+            />
+            <p className="mt-1 text-[10px] text-gray-400">
+              JPEG, PNG, WebP, or PDF · max 10 MB. Also attached to the linked expense.
+            </p>
+          </div>
+        </>
       )}
       {type === 'issue' && (
         <Input label="Issued to (department)" value={department} onChange={(e) => setDepartment(e.target.value)} required />
@@ -181,7 +274,7 @@ export function MovementForm({ type, stores, suppliers, items }: Props) {
       <Textarea label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
 
       <div className="flex gap-2 pt-1">
-        <Button onClick={submit} loading={pending}>Save {TITLES[type]}</Button>
+        <Button onClick={submit} loading={pending} disabled={type === 'receipt' && total > 0 && !photo}>Save {TITLES[type]}</Button>
         <Button variant="outline" onClick={() => router.back()}>Cancel</Button>
       </div>
     </div>
