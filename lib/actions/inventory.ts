@@ -331,7 +331,7 @@ async function storeSlug(db: Db, storeId: string): Promise<string | null> {
 
 // ── Receipt ────────────────────────────────────────────────────────────────
 
-export async function createReceipt(raw: ReceiptFormInput): Promise<ActionData<{ id: string; movement_number: string }>> {
+export async function createReceipt(raw: ReceiptFormInput): Promise<ActionData<{ id: string; movement_number: string; expense_id: string | null }>> {
   await requirePermission('inventory', 'write')
   try {
     const input = receiptFormSchema.parse(raw)
@@ -403,13 +403,28 @@ export async function createReceipt(raw: ReceiptFormInput): Promise<ActionData<{
         }
         expenseId = expense.id
         await db.from('inv_movements').update({ expense_id: expenseId }).eq('id', header.id)
+
+        // File the receipt photo (already uploaded to storage by the browser)
+        // against the expense so it shows there in the usual attachment style.
+        // Non-fatal: the receipt + expense stand even if this row fails.
+        if (input.attachment) {
+          const { error: attErr } = await db.from('expense_attachments').insert({
+            expense_id:   expenseId,
+            storage_path: input.attachment.storage_path,
+            file_name:    input.attachment.file_name,
+            mime_type:    input.attachment.mime_type,
+            size_bytes:   input.attachment.size_bytes,
+            uploaded_by:  userId,
+          })
+          if (attErr) console.warn(`[createReceipt] receipt photo not linked: ${attErr.message}`)
+        }
       }
     }
 
     await logHistory('inv_movement', header.id, 'created', { type: 'receipt', total_value, expense_id: expenseId })
     revalidateInventory(await storeSlug(db, input.store_id))
     revalidatePath('/expenses')
-    return { success: true, data: header }
+    return { success: true, data: { ...header, expense_id: expenseId } }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }
