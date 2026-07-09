@@ -123,7 +123,7 @@ export function DailyReportPrint({ date, lang, rows, free }: Props) {
               <td className="center">{packageLabel(row.package_type, lang)}</td>
               <td className="center">{renderGuests(row, lang, t)}</td>
               <td className="center">{renderMeals(row, t)}</td>
-              <td className="center">{renderRooms(row, lang)}</td>
+              <td className="center">{renderRooms(row, lang, nightCheckoutRooms)}</td>
             </tr>
           ))}
 
@@ -146,6 +146,13 @@ export function DailyReportPrint({ date, lang, rows, free }: Props) {
           </tr>
         </tbody>
       </table>
+
+      {/* Legend — only when some room in the day frees after noon */}
+      {nightCheckoutRooms.size > 0 && (
+        <p className="mt-2 text-[11px] text-gray-600">
+          <strong style={{ fontWeight: 700 }}>{t.after_noon}</strong> — {t.noon_note}
+        </p>
+      )}
     </div>
   )
 }
@@ -178,17 +185,29 @@ function renderMeals(row: DailyReportRow, t: typeof DICT['en']) {
   return parts.join(', ')
 }
 
-function renderRooms(row: DailyReportRow, lang: Lang) {
-  const labels: string[] = []
+function renderRooms(row: DailyReportRow, lang: Lang, afterNoonRooms: Set<string>) {
+  // Flatten to tokens so we can bold the rooms that only free after noon
+  // (a night guest checks out at 12, so the daylong group gets that room late).
+  const tokens: Array<{ text: string; afterNoon: boolean }> = []
   for (const r of row.rooms) {
     if (r.room_numbers.length > 0) {
-      labels.push(r.room_numbers.map((n) => fmtNum(n, lang)).join(', '))
+      for (const n of r.room_numbers) tokens.push({ text: fmtNum(n, lang), afterNoon: afterNoonRooms.has(n) })
     } else {
       // No assigned number — show room type as fallback
-      labels.push(`${roomTypeLabel(r.room_type, r.room_type.replace(/_/g, ' '), lang)} × ${fmtNum(r.qty, lang)}`)
+      tokens.push({ text: `${roomTypeLabel(r.room_type, r.room_type.replace(/_/g, ' '), lang)} × ${fmtNum(r.qty, lang)}`, afterNoon: false })
     }
   }
-  return labels.join(', ') || '—'
+  if (tokens.length === 0) return '—'
+  return (
+    <>
+      {tokens.map((tk, i) => (
+        <span key={i}>
+          {i > 0 ? ', ' : ''}
+          {tk.afterNoon ? <strong style={{ fontWeight: 700 }}>{tk.text}</strong> : tk.text}
+        </span>
+      ))}
+    </>
+  )
 }
 
 function renderFreeRooms(free: FreeRooms, lang: Lang, t: typeof DICT['en']) {

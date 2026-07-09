@@ -39,6 +39,7 @@ interface Dict {
   free_rooms:      string
   after_noon:      string   // "১২ টার পর" / "After 12 PM"
   after_6pm:       string   // "৬ টার পর" / "After 6 PM"
+  noon_note:       string   // legend explaining the bold room numbers
   // totals row
   total:           string
   adults_label:    string
@@ -70,6 +71,7 @@ export const DICT: Record<Lang, Dict> = {
     free_rooms:     'Free Rooms',
     after_noon:     'After 12 PM',
     after_6pm:      'After 6 PM',
+    noon_note:      'Bold rooms are available only after 12:00 PM (the previous guest checks out at noon).',
     total:          'Total',
     adults_label:   'Adults',
     download:       'Download Room Allocation',
@@ -97,6 +99,7 @@ export const DICT: Record<Lang, Dict> = {
     free_rooms:     'রুম ফ্রী',
     after_noon:     '১২ টার পর',
     after_6pm:      '৬ টার পর',
+    noon_note:      'বোল্ড রুমগুলো শুধু দুপুর ১২টার পর পাওয়া যাবে (আগের গেস্ট দুপুরে চেকআউট করবেন)।',
     total:          'মোট',
     adults_label:   'প্রাপ্তবয়স্ক',
     download:       'রুম বন্টন ডাউনলোড',
