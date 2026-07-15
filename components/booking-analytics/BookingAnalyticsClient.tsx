@@ -102,13 +102,7 @@ export function BookingAnalyticsClient({ from, to, packageType, data }: Props) {
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                   <XAxis dataKey="day" tick={{ fontSize: 11 }} stroke="#9ca3af" />
                   <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" allowDecimals={false} />
-                  <Tooltip
-                    labelFormatter={(d, payload) => {
-                      const full = payload?.[0]?.payload?.date
-                      return full ? formatDate(full) : `Day ${d}`
-                    }}
-                    contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                  />
+                  <Tooltip content={<DailyVolumeTooltip />} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
                   <Bar dataKey="quotes"   name="Quotes"   fill={QUOTE_COLOR}   radius={[3, 3, 0, 0]} />
                   <Bar dataKey="bookings" name="Bookings" fill={BOOKING_COLOR} radius={[3, 3, 0, 0]} />
@@ -202,6 +196,26 @@ export function BookingAnalyticsClient({ from, to, packageType, data }: Props) {
           Print / Save as PDF
         </button>
       </div>
+    </div>
+  )
+}
+
+/** Daily Booking Volume tooltip — adds the booked amount (revenue) for the
+ *  day alongside the quotes/bookings counts. Recharts injects active/payload. */
+function DailyVolumeTooltip({ active, payload }: {
+  active?:  boolean
+  payload?: Array<{ payload: { date: string; quotes: number; bookings: number; revenue: number } }>
+}) {
+  if (!active || !payload || payload.length === 0) return null
+  const row = payload[0].payload
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs shadow-md">
+      <p className="mb-1 font-semibold text-gray-900">{formatDate(row.date)}</p>
+      <p style={{ color: QUOTE_COLOR }}>Quotes: <span className="font-medium">{row.quotes}</span></p>
+      <p style={{ color: BOOKING_COLOR }}>Bookings: <span className="font-medium">{row.bookings}</span></p>
+      <p className="mt-1 border-t border-gray-100 pt-1 text-gray-800">
+        Amount booked: <span className="font-semibold tabular-nums">{formatBDT(row.revenue)}</span>
+      </p>
     </div>
   )
 }
