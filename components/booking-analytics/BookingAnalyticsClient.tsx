@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -20,9 +21,26 @@ const BOOKING_COLOR = '#047857'  // forest
 const QUOTE_COLOR   = '#94a3b8'  // slate
 const DOW_COLOR     = '#6366f1'  // indigo
 const LEAD_COLOR    = '#f59e0b'  // amber
+const AMOUNT_COLOR  = '#b45309'  // amber-700 — money series
+
+type DailyMetric = 'both' | 'bookings' | 'quotes' | 'amount'
+
+const DAILY_METRICS: Array<{ key: DailyMetric; label: string }> = [
+  { key: 'both',     label: 'Quotes + Bookings' },
+  { key: 'bookings', label: 'Bookings' },
+  { key: 'quotes',   label: 'Quotes' },
+  { key: 'amount',   label: 'Amount booked (৳)' },
+]
+
+/** Compact BDT for chart axes: 1500 → ৳1.5k, 250000 → ৳250k. */
+function compactBDT(v: number): string {
+  if (v >= 1000) return `৳${(v / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })}k`
+  return `৳${v}`
+}
 
 export function BookingAnalyticsClient({ from, to, packageType, data }: Props) {
   const router = useRouter()
+  const [dailyMetric, setDailyMetric] = useState<DailyMetric>('both')
 
   function pushQuery(next: Partial<{ from: string; to: string; package: string }>) {
     const params = new URLSearchParams()
@@ -94,23 +112,50 @@ export function BookingAnalyticsClient({ from, to, packageType, data }: Props) {
             <KpiCard label="Revenue Locked In" value={formatBDT(totals.revenue)}                accent="forest" />
           </div>
 
-          {/* Daily volume — bookings + quotes overlay */}
+          {/* Daily volume — metric selector isolates one series for performance reads */}
           <Section title="📅 Daily Booking Volume">
+            <div className="mb-3 flex flex-wrap gap-1.5">
+              {DAILY_METRICS.map((m) => (
+                <button
+                  key={m.key}
+                  onClick={() => setDailyMetric(m.key)}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                    dailyMetric === m.key
+                      ? 'border-forest-300 bg-forest-50 text-forest-800'
+                      : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
             <div className="h-72 w-full">
               <ResponsiveContainer>
-                <BarChart data={dailySeries} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                <BarChart data={dailySeries} margin={{ top: 10, right: 10, left: dailyMetric === 'amount' ? 10 : -10, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                   <XAxis dataKey="day" tick={{ fontSize: 11 }} stroke="#9ca3af" />
-                  <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" allowDecimals={false} />
+                  {dailyMetric === 'amount' ? (
+                    <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" tickFormatter={compactBDT} width={58} />
+                  ) : (
+                    <YAxis tick={{ fontSize: 11 }} stroke="#9ca3af" allowDecimals={false} />
+                  )}
                   <Tooltip content={<DailyVolumeTooltip />} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Bar dataKey="quotes"   name="Quotes"   fill={QUOTE_COLOR}   radius={[3, 3, 0, 0]} />
-                  <Bar dataKey="bookings" name="Bookings" fill={BOOKING_COLOR} radius={[3, 3, 0, 0]} />
+                  {(dailyMetric === 'both' || dailyMetric === 'quotes') && (
+                    <Bar dataKey="quotes"   name="Quotes"   fill={QUOTE_COLOR}   radius={[3, 3, 0, 0]} />
+                  )}
+                  {(dailyMetric === 'both' || dailyMetric === 'bookings') && (
+                    <Bar dataKey="bookings" name="Bookings" fill={BOOKING_COLOR} radius={[3, 3, 0, 0]} />
+                  )}
+                  {dailyMetric === 'amount' && (
+                    <Bar dataKey="revenue" name="Amount booked" fill={AMOUNT_COLOR} radius={[3, 3, 0, 0]} />
+                  )}
                 </BarChart>
               </ResponsiveContainer>
             </div>
             <p className="mt-2 text-[10px] italic text-gray-400">
               Bucketed by Asia/Dhaka calendar date of <code>created_at</code>. Cancelled bookings/quotes excluded.
+              {dailyMetric === 'amount' && ' Amount = total value of bookings created that day.'}
             </p>
           </Section>
 
