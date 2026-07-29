@@ -100,6 +100,10 @@ export function RoomSelector({
         const availableUnits = Math.max(0, room.total_units - takenCount)
         const isFullyBooked  = fixedNums.length > 0 && availableUnits === 0
         const maxSelectable  = fixedNums.length > 0 ? availableUnits : room.total_units
+        // Rooms free only after the previous guest's ~noon checkout. Surfaced
+        // in the category sub-line so it's visible before expanding (clicking +).
+        const noonCount     = fixedNums.filter((n) => noonRoomNumbers.includes(n) && !bookedRoomNumbers.includes(n)).length
+        const availableNow  = Math.max(0, availableUnits - noonCount)
 
         return (
           <div
@@ -126,11 +130,18 @@ export function RoomSelector({
                     )}
                   </div>
                   <p className={cn('text-xs', isFullyBooked ? 'text-red-600 font-medium' : 'text-gray-500')}>
-                    {isFullyBooked
-                      ? 'No rooms available'
-                      : takenCount > 0
-                      ? `${availableUnits} of ${room.total_units} available`
-                      : `${room.total_units} unit${room.total_units !== 1 ? 's' : ''} available`}
+                    {isFullyBooked ? (
+                      'Fully booked — no rooms available'
+                    ) : noonCount > 0 ? (
+                      <>
+                        {availableNow} available now
+                        <span className="text-amber-600 font-medium"> · {noonCount} after 12 PM</span>
+                      </>
+                    ) : takenCount > 0 ? (
+                      `${availableUnits} of ${room.total_units} available`
+                    ) : (
+                      `${room.total_units} unit${room.total_units !== 1 ? 's' : ''} available`
+                    )}
                   </p>
                 </div>
               </div>
@@ -213,7 +224,7 @@ export function RoomSelector({
                             : isTaken
                             ? 'border-red-300 bg-red-50 text-red-400 cursor-not-allowed'
                             : isNoon
-                            ? 'border-amber-300 bg-amber-50 text-amber-700 hover:border-amber-400 hover:bg-amber-100'
+                            ? 'border-amber-400 bg-amber-100 text-amber-800 hover:border-amber-500 hover:bg-amber-200'
                             : 'border-gray-300 bg-white text-gray-700 hover:border-forest-400 hover:bg-forest-50',
                         )}
                       >

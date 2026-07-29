@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button'
 import { updateQuoteStatus, deleteQuote } from '@/lib/actions/quotes'
 import { convertQuoteToBooking } from '@/lib/actions/bookings'
 import { DuplicateConfirmModal } from '@/components/quotes/DuplicateConfirmModal'
+import { RoomConflictModal } from '@/components/quotes/RoomConflictModal'
 import type { QuoteRow } from '@/lib/supabase/types'
 import type { DuplicateMatch } from '@/lib/queries/duplicate-bookings'
 
@@ -20,6 +21,7 @@ export function QuoteActions({ quote, bookingId }: QuoteActionsProps) {
   const [loading, setLoading] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [duplicates, setDuplicates] = useState<DuplicateMatch[] | null>(null)
+  const [conflictRooms, setConflictRooms] = useState<string[] | null>(null)
 
   async function handleAction(
     action: () => Promise<{ success: boolean; error?: string }>,
@@ -53,6 +55,10 @@ export function QuoteActions({ quote, bookingId }: QuoteActionsProps) {
       }
       if (result.duplicate?.existing?.length) {
         setDuplicates(result.duplicate.existing)
+        return
+      }
+      if (result.conflict?.rooms?.length) {
+        setConflictRooms(result.conflict.rooms)
         return
       }
       setError(result.error)
@@ -93,6 +99,13 @@ export function QuoteActions({ quote, bookingId }: QuoteActionsProps) {
       attempting="booking"
       onCancel={() => setDuplicates(null)}
       onConfirm={() => runConvert(true)}
+      pending={loading === 'convert'}
+    />
+    <RoomConflictModal
+      open={!!conflictRooms && conflictRooms.length > 0}
+      rooms={conflictRooms ?? []}
+      onCancel={() => setConflictRooms(null)}
+      onEdit={() => router.push(`/quotes/${quote.id}/edit`)}
       pending={loading === 'convert'}
     />
     <div className="flex flex-wrap items-center gap-2">
@@ -167,16 +180,23 @@ export function QuoteActions({ quote, bookingId }: QuoteActionsProps) {
         </>
       )}
 
-      {/* CONFIRMED + no booking → convert */}
+      {/* CONFIRMED + no booking → edit (re-pick rooms) or convert */}
       {status === 'confirmed' && !bookingId && (
-        <Button
-          variant="primary"
-          size="sm"
-          loading={loading === 'convert'}
-          onClick={handleConvert}
-        >
-          Convert to Booking
-        </Button>
+        <>
+          <Link href={`/quotes/${quote.id}/edit`}>
+            <Button variant="outline" size="sm">
+              Edit Quote
+            </Button>
+          </Link>
+          <Button
+            variant="primary"
+            size="sm"
+            loading={loading === 'convert'}
+            onClick={handleConvert}
+          >
+            Convert to Booking
+          </Button>
+        </>
       )}
 
       {/* CONFIRMED + booking exists → show link */}
