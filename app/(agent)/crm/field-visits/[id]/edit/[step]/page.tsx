@@ -30,8 +30,11 @@ export default async function FieldVisitStepPage({ params }: PageProps) {
       listSalesEmployees().catch(() => [] as SalesEmployee[]),
     ])
     if (!visit) notFound()
-    // A submitted/processed visit is read-only — send the user to the detail page.
-    if (visit.status !== 'draft') redirect(`/crm/field-visits/${params.id}`)
+    // Drafts and submitted visits are editable (a rep must be able to correct a
+    // typo after submitting). Processed and void records are frozen.
+    if (visit.status !== 'draft' && visit.status !== 'submitted') {
+      redirect(`/crm/field-visits/${params.id}`)
+    }
 
     return (
       <FieldVisitWizard

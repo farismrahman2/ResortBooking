@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { Printer, CheckCircle2, MapPin } from 'lucide-react'
+import { Printer, CheckCircle2, MapPin, ExternalLink, Pencil } from 'lucide-react'
 import { Topbar } from '@/components/layout/Topbar'
 import { requirePermission, hasPermission } from '@/lib/auth/permissions'
 import { getFieldVisitById, listFieldVisitBands, findDuplicateAccounts } from '@/lib/queries/field-visits'
@@ -100,15 +100,23 @@ export default async function FieldVisitDetailPage({ params, searchParams }: Pag
                 </span>
               )}
               {visit.gps_lat && visit.gps_lng && (
-                <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+                <a
+                  href={`https://www.google.com/maps/search/?api=1&query=${visit.gps_lat},${visit.gps_lng}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex min-h-[32px] items-center gap-1 rounded-lg border border-gray-300 bg-white px-2 text-xs font-medium text-gray-700 hover:border-amber-400 hover:text-amber-700"
+                  title="Open this location in Google Maps"
+                >
                   <MapPin size={12} /> {visit.gps_lat.toFixed(4)}, {visit.gps_lng.toFixed(4)}
-                </span>
+                  <ExternalLink size={10} className="opacity-60" />
+                </a>
               )}
               <div className="ml-auto flex gap-2">
-                {visit.status === 'draft' && canWrite && (
+                {canWrite && (visit.status === 'draft' || visit.status === 'submitted') && (
                   <Link href={`/crm/field-visits/${visit.id}/edit/1`}
-                    className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700">
-                    Continue editing
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:border-amber-400">
+                    <Pencil size={12} />
+                    {visit.status === 'draft' ? 'Continue editing' : 'Edit visit'}
                   </Link>
                 )}
                 <Link href={`/crm/field-visits/${visit.id}/print`}
