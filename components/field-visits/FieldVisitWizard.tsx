@@ -228,9 +228,11 @@ export function FieldVisitWizard({ visit, initialStep, sectors, employees, emplo
       const saved = await saveDraftVisit(visit.id, toPayload(draft))
       if (!saved.success) { setSubmitError(saved.error); setSubmitting(false); return }
 
-      // Geolocation must NEVER block submit — 5s cap, then proceed without it.
+      // Location is always attached now — it's the proof the rep was on site.
+      // Still NEVER blocks submit: 5s cap, and a denied permission just means
+      // the visit saves without coordinates.
       let gps: { lat: number; lng: number } | null = null
-      if (attachGps && typeof navigator !== 'undefined' && navigator.geolocation) {
+      if (typeof navigator !== 'undefined' && navigator.geolocation) {
         gps = await new Promise((resolve) => {
           const done = setTimeout(() => resolve(null), 5000)
           navigator.geolocation.getCurrentPosition(
