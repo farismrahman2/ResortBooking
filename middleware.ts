@@ -30,7 +30,7 @@ const ROLE_ALLOW: Array<{ prefix: string; roles: RoleSlug[] }> = [
   { prefix: '/reports/income/by-payment-method', roles: ['front_desk'] },
 ]
 
-const MODULE_PREFIX: Array<{ prefix: string; module: 'bookings' | 'checkout' | 'expenses' | 'hr' | 'reports' | 'settings' | 'availability' | 'attendance' | 'coffee_shop' | 'inventory' | 'crm' | 'fixed_assets' | 'qa' | 'menus' | 'enquiries' }> = [
+const MODULE_PREFIX: Array<{ prefix: string; module: 'bookings' | 'checkout' | 'expenses' | 'hr' | 'reports' | 'settings' | 'availability' | 'attendance' | 'coffee_shop' | 'inventory' | 'crm' | 'fixed_assets' | 'qa' | 'menus' | 'enquiries' | 'field_visits' }> = [
   { prefix: '/bookings',      module: 'bookings'     },
   { prefix: '/enquiries',     module: 'enquiries'    },
   { prefix: '/qa',            module: 'qa'           },
@@ -41,6 +41,7 @@ const MODULE_PREFIX: Array<{ prefix: string; module: 'bookings' | 'checkout' | '
   { prefix: '/checkout',      module: 'checkout'     },
   { prefix: '/coffee-shop',   module: 'coffee_shop'  },
   { prefix: '/inventory',     module: 'inventory'    },
+  { prefix: '/crm/field-visits', module: 'field_visits' }, // MUST precede /crm — sub-permission
   { prefix: '/crm',           module: 'crm'          },
   { prefix: '/fixed-assets',  module: 'fixed_assets' },
   { prefix: '/expenses',      module: 'expenses'     },
