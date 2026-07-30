@@ -57,15 +57,33 @@ export default async function FieldVisitDetailPage({ params, searchParams }: Pag
           <div className="mx-auto max-w-5xl space-y-4">
 
             {searchParams.submitted === '1' && (
-              <div className="rounded-xl border border-green-300 bg-green-50 p-4">
-                <p className="flex items-center gap-2 text-sm font-semibold text-green-900">
-                  <CheckCircle2 size={16} /> Visit {visit.visit_ref} submitted
+              <div className="overflow-hidden rounded-2xl border border-green-300 bg-gradient-to-b from-green-50 to-white p-5 text-center">
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-green-600 text-white">
+                  <CheckCircle2 size={30} />
+                </div>
+                <p className="mt-3 text-lg font-bold text-green-900">Visit logged</p>
+                <p className="mt-0.5 font-mono text-sm text-green-800">{visit.visit_ref}</p>
+                <p className="mt-1 text-xs text-green-700">
+                  {visit.organisation_name ?? 'This organisation'} is now in the pipeline
+                  {visit.interest_level ? ` as a ${visit.interest_level} lead` : ''}.
                 </p>
-                <div className="mt-2.5 flex flex-wrap gap-2">
-                  <Link href="/crm/field-visits/new" className="min-h-[40px] rounded-lg bg-green-700 px-3 py-2 text-xs font-semibold text-white">
-                    Log another visit
+                <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                  <Link
+                    href={`/crm/field-visits/new?org=${encodeURIComponent(visit.organisation_name ?? '')}`}
+                    className="flex min-h-[44px] items-center justify-center rounded-xl bg-green-700 px-3 text-sm font-semibold text-white"
+                  >
+                    Another at this org
                   </Link>
-                  <Link href="/crm/field-visits" className="min-h-[40px] rounded-lg border border-green-300 bg-white px-3 py-2 text-xs font-medium text-green-800">
+                  <Link
+                    href="/crm/field-visits/new"
+                    className="flex min-h-[44px] items-center justify-center rounded-xl bg-amber-600 px-3 text-sm font-semibold text-white"
+                  >
+                    New visit
+                  </Link>
+                  <Link
+                    href="/crm/field-visits"
+                    className="flex min-h-[44px] items-center justify-center rounded-xl border border-green-300 bg-white px-3 text-sm font-medium text-green-800"
+                  >
                     All visits
                   </Link>
                 </div>

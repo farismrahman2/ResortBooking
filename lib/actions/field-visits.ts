@@ -34,12 +34,19 @@ async function logHistory(
   }
 }
 
-/** Creates an empty draft so the wizard has an id to autosave against. */
-export async function createDraftVisit(): Promise<ActionData<{ id: string; visit_ref: string }>> {
+/**
+ * Creates an empty draft so the wizard has an id to autosave against.
+ * `prefill.organisationName` supports the "log another visit at this
+ * organisation" shortcut on the confirmation screen.
+ */
+export async function createDraftVisit(
+  prefill?: { organisationName?: string | null },
+): Promise<ActionData<{ id: string; visit_ref: string }>> {
   await requirePermission('field_visits', 'write')
   try {
     const db  = dbc()
     const ctx = await getCurrentUserContext()
+    const org = prefill?.organisationName?.trim() || null
 
     // Retry on UNIQUE collision — mirrors the account-code pattern.
     let created: { id: string; visit_ref: string } | null = null
@@ -47,7 +54,11 @@ export async function createDraftVisit(): Promise<ActionData<{ id: string; visit
       const { count } = await db.from('crm_field_visits').select('id', { count: 'exact', head: true })
       const ref = formatVisitRef((count ?? 0) + attempt)
       const { data, error } = await db.from('crm_field_visits')
-        .insert({ visit_ref: ref, status: 'draft', created_by: ctx?.user_id ?? null })
+        .insert({
+          visit_ref: ref, status: 'draft',
+          organisation_name: org,
+          created_by: ctx?.user_id ?? null,
+        })
         .select('id, visit_ref').single()
       if (!error) { created = data; break }
       if (error.code !== '23505') return { success: false, error: error.message }

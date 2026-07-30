@@ -36,7 +36,7 @@ export default async function FieldVisitStepPage({ params }: PageProps) {
     return (
       <FieldVisitWizard
         visit={visit}
-        step={step}
+        initialStep={step}
         sectors={sectors}
         employees={employees}
         employeeBands={bands.employeeBands as FieldVisitBand[]}
