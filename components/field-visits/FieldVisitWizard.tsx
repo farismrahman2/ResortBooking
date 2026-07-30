@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, Check, CloudOff, Loader2, AlertTriangle, MapPin } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Check, CloudOff, Loader2, AlertTriangle, MapPin } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { saveDraftVisit, submitFieldVisit } from '@/lib/actions/field-visits'
 import { normaliseMaterials } from '@/lib/field-visits/visit-ref'
@@ -105,23 +105,31 @@ type SaveState = 'idle' | 'saving' | 'saved' | 'local'
 
 interface Props {
   visit:         FieldVisitWithChildren
-  step:          number
+  /** Starting step — from the URL. Stepping after mount is client-side only. */
+  initialStep:   number
   sectors:       CrmSector[]
   employees:     SalesEmployee[]
   employeeBands: FieldVisitBand[]
   budgetBands:   FieldVisitBand[]
 }
 
-export function FieldVisitWizard({ visit, step, sectors, employees, employeeBands, budgetBands }: Props) {
+export function FieldVisitWizard({ visit, initialStep, sectors, employees, employeeBands, budgetBands }: Props) {
   const router  = useRouter()
   const lsKey   = `fv:draft:${visit.id}`
   const [draft, setDraft]         = useState<WizardDraft>(() => fromServer(visit))
+  // Step lives in CLIENT state. Routing between steps used to be a full server
+  // navigation (re-running the page's 4 queries + rehydrating) which made
+  // "Next" take seconds on mobile data. The URL is kept in sync via
+  // history.replaceState purely so refresh/deep-link/back still work.
+  const [step, setStep]           = useState(initialStep)
+  const [dir, setDir]             = useState<'fwd' | 'back'>('fwd')
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [restorable, setRestorable] = useState<WizardDraft | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [errorSteps, setErrorSteps]   = useState<number[]>([])
   const [attachGps, setAttachGps]     = useState(false)
+  const [furthest, setFurthest]       = useState(initialStep)
   const dirtyRef = useRef(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -143,6 +151,17 @@ export function FieldVisitWizard({ visit, step, sectors, employees, employeeBand
     }
     window.addEventListener('beforeunload', onBeforeUnload)
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [])
+
+  // Browser/Android back button — we own the URL now, so read the step back out.
+  useEffect(() => {
+    function onPop() {
+      const m = window.location.pathname.match(/\/edit\/(\d+)$/)
+      const n = m ? Number(m[1]) : 1
+      if (n >= 1 && n <= TOTAL_STEPS) { setDir('back'); setStep(n) }
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
   }, [])
 
   const persistLocal = useCallback((d: WizardDraft) => {
@@ -175,10 +194,26 @@ export function FieldVisitWizard({ visit, step, sectors, employees, employeeBand
     update({ materials_given: normaliseMaterials(next, justToggled) })
   }
 
-  async function goToStep(n: number) {
+  /**
+   * Instant step change. The save is fire-and-forget — we already persisted to
+   * localStorage on every keystroke, so nothing is at risk if this is still in
+   * flight. Blocking the UI on a Supabase round-trip here was the whole reason
+   * "Next" felt slow.
+   */
+  function goToStep(n: number) {
+    if (n === step) return
+    setDir(n > step ? 'fwd' : 'back')
+    setStep(n)
+    setFurthest((f) => Math.max(f, n))
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      try { navigator.vibrate(8) } catch { /* unsupported */ }
+    }
+    window.scrollTo({ top: 0, behavior: 'auto' })
+    try {
+      window.history.replaceState(null, '', `/crm/field-visits/${visit.id}/edit/${n}`)
+    } catch { /* older browsers */ }
     if (timerRef.current) clearTimeout(timerRef.current)
-    await pushToServer(draft)                     // flush on every transition
-    router.push(`/crm/field-visits/${visit.id}/edit/${n}`)
+    void pushToServer(draft)          // background — never blocks the transition
   }
 
   async function handleSubmit() {
@@ -247,15 +282,36 @@ export function FieldVisitWizard({ visit, step, sectors, employees, employeeBand
           </button>
           <div className="min-w-0 flex-1">
             <p className="truncate text-base font-semibold text-gray-900">{STEP_TITLES[step]}</p>
-            <p className="text-xs text-gray-500">Step {step} of {TOTAL_STEPS} · {visit.visit_ref}</p>
+            <p className="text-xs text-gray-500">
+              Step {step} of {TOTAL_STEPS}
+              {step > 1 && <span className="text-amber-600"> · {Math.round(((step - 1) / TOTAL_STEPS) * 100)}% done</span>}
+            </p>
           </div>
           <SaveIndicator state={saveState} />
         </div>
-        <div className="h-1 w-full bg-gray-100">
-          <div
-            className="h-1 bg-amber-500 transition-all duration-200 motion-reduce:transition-none"
-            style={{ width: `${(step / TOTAL_STEPS) * 100}%` }}
-          />
+
+        {/* Step rail — tap any visited step to jump straight back to it. */}
+        <div className="flex items-center gap-1 px-3 pb-2">
+          {Array.from({ length: TOTAL_STEPS }, (_, i) => i + 1).map((n) => {
+            const done    = n < step
+            const current = n === step
+            const visited = n <= furthest
+            return (
+              <button
+                key={n}
+                type="button"
+                disabled={!visited}
+                onClick={() => visited && goToStep(n)}
+                aria-label={`Step ${n}: ${STEP_TITLES[n]}`}
+                aria-current={current ? 'step' : undefined}
+                className={cn(
+                  'group relative h-1.5 flex-1 rounded-full transition-all duration-300 motion-reduce:transition-none',
+                  current ? 'bg-amber-500' : done ? 'bg-amber-400' : visited ? 'bg-amber-200' : 'bg-gray-200',
+                  visited && !current && 'active:scale-y-150',
+                )}
+              />
+            )
+          })}
         </div>
       </header>
 
@@ -285,8 +341,23 @@ export function FieldVisitWizard({ visit, step, sectors, employees, employeeBand
         </div>
       )}
 
-      {/* Step body */}
-      <main className="flex-1 space-y-5 px-4 py-5 pb-28">
+      {/* Step body — keyed so each step animates in; ≤200ms, honours reduced motion */}
+      <main
+        key={step}
+        className={cn(
+          'flex-1 space-y-5 px-4 py-5 pb-28',
+          dir === 'fwd' ? 'fv-slide-in-right' : 'fv-slide-in-left',
+        )}
+      >
+        <style>{`
+          @keyframes fvInRight { from { opacity: 0; transform: translateX(14px) } to { opacity: 1; transform: none } }
+          @keyframes fvInLeft  { from { opacity: 0; transform: translateX(-14px) } to { opacity: 1; transform: none } }
+          .fv-slide-in-right { animation: fvInRight 180ms ease-out }
+          .fv-slide-in-left  { animation: fvInLeft  180ms ease-out }
+          @media (prefers-reduced-motion: reduce) {
+            .fv-slide-in-right, .fv-slide-in-left { animation: none }
+          }
+        `}</style>
         {step === 1 && <StepVisit {...common} employees={employees} />}
         {step === 2 && <StepOrganisation {...common} sectors={sectors} employeeBands={employeeBands} />}
         {step === 3 && <StepContacts {...common} />}
@@ -330,9 +401,10 @@ export function FieldVisitWizard({ visit, step, sectors, employees, employeeBand
             <button
               type="button"
               onClick={() => goToStep(step + 1)}
-              className="min-h-[48px] flex-[2] rounded-xl bg-amber-600 px-4 text-base font-semibold text-white active:bg-amber-700"
+              className="flex min-h-[48px] flex-[2] items-center justify-center gap-1.5 rounded-xl bg-amber-600 px-4 text-base font-semibold text-white transition-transform active:scale-[0.98] active:bg-amber-700 motion-reduce:transition-none"
             >
-              Next
+              {step === TOTAL_STEPS - 1 ? 'Review' : 'Next'}
+              <ChevronRight size={18} />
             </button>
           )}
         </div>

@@ -6,9 +6,11 @@ import { MigrationErrorBanner } from '@/components/crm/MigrationErrorBanner'
 export const dynamic = 'force-dynamic'
 
 /** Creates the draft row then hands straight off to step 1. */
-export default async function NewFieldVisitPage() {
+export default async function NewFieldVisitPage({
+  searchParams,
+}: { searchParams: { org?: string } }) {
   await requirePermission('field_visits', 'write')
-  const result = await createDraftVisit()
+  const result = await createDraftVisit({ organisationName: searchParams.org ?? null })
   if (result.success) redirect(`/crm/field-visits/${result.data.id}/edit/1`)
 
   return (
