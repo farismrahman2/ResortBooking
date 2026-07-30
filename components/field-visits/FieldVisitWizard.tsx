@@ -130,6 +130,7 @@ export function FieldVisitWizard({ visit, initialStep, sectors, employees, emplo
   const [errorSteps, setErrorSteps]   = useState<number[]>([])
   const [attachGps, setAttachGps]     = useState(false)
   const [furthest, setFurthest]       = useState(initialStep)
+  const [returnToReview, setReturnToReview] = useState(false)
   const dirtyRef = useRef(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -200,8 +201,12 @@ export function FieldVisitWizard({ visit, initialStep, sectors, employees, emplo
    * flight. Blocking the UI on a Supabase round-trip here was the whole reason
    * "Next" felt slow.
    */
-  function goToStep(n: number) {
+  function goToStep(n: number, opts?: { fromReview?: boolean }) {
     if (n === step) return
+    // Jumping out of the review step to fix something: remember that, so the
+    // primary action becomes "Back to review" instead of marching Next × 5.
+    if (opts?.fromReview) setReturnToReview(true)
+    else if (n === TOTAL_STEPS) setReturnToReview(false)
     setDir(n > step ? 'fwd' : 'back')
     setStep(n)
     setFurthest((f) => Math.max(f, n))
@@ -264,8 +269,21 @@ export function FieldVisitWizard({ visit, initialStep, sectors, employees, emplo
     }
   }
 
-  const isLast = step === TOTAL_STEPS
-  const common = { draft, update }
+  const isLast     = step === TOTAL_STEPS
+  const isAmending = visit.status === 'submitted'
+  const common     = { draft, update }
+
+  /** Amend flow: flush the edits and return to the detail page. No re-submit,
+   *  so submitted_at / visit_ref / GPS from the original submission survive. */
+  async function handleSaveAmendment() {
+    setSubmitting(true); setSubmitError(null)
+    if (timerRef.current) clearTimeout(timerRef.current)
+    const r = await saveDraftVisit(visit.id, toPayload(draft))
+    if (!r.success) { setSubmitError(r.error); setSubmitting(false); return }
+    try { localStorage.removeItem(lsKey) } catch {}
+    dirtyRef.current = false
+    router.push(`/crm/field-visits/${visit.id}`)
+  }
 
   return (
     <div className="mx-auto flex min-h-[100dvh] w-full max-w-[640px] flex-col bg-white">
@@ -371,7 +389,8 @@ export function FieldVisitWizard({ visit, initialStep, sectors, employees, emplo
             employeeBands={employeeBands} budgetBands={budgetBands}
             errorSteps={errorSteps} submitError={submitError}
             attachGps={attachGps} onToggleGps={setAttachGps}
-            onEditStep={goToStep}
+            onEditStep={(n) => goToStep(n, { fromReview: true })}
+            mode={visit.status === 'submitted' ? 'amend' : 'submit'}
           />
         )}
       </main>
@@ -388,7 +407,16 @@ export function FieldVisitWizard({ visit, initialStep, sectors, employees, emplo
               Back
             </button>
           )}
-          {isLast ? (
+          {isLast && isAmending ? (
+            <button
+              type="button"
+              onClick={handleSaveAmendment}
+              disabled={submitting}
+              className="flex min-h-[48px] flex-[2] items-center justify-center gap-1.5 rounded-xl bg-green-700 px-4 text-base font-semibold text-white active:bg-green-800 disabled:opacity-60"
+            >
+              <Check size={17} /> {submitting ? 'Saving…' : 'Save changes'}
+            </button>
+          ) : isLast ? (
             <button
               type="button"
               onClick={handleSubmit}
@@ -396,6 +424,14 @@ export function FieldVisitWizard({ visit, initialStep, sectors, employees, emplo
               className="min-h-[48px] flex-[2] rounded-xl bg-amber-600 px-4 text-base font-semibold text-white active:bg-amber-700 disabled:opacity-60"
             >
               {submitting ? 'Submitting…' : submitError ? 'Retry submit' : 'Submit visit'}
+            </button>
+          ) : returnToReview ? (
+            <button
+              type="button"
+              onClick={() => goToStep(TOTAL_STEPS)}
+              className="flex min-h-[48px] flex-[2] items-center justify-center gap-1.5 rounded-xl bg-green-700 px-4 text-base font-semibold text-white transition-transform active:scale-[0.98] motion-reduce:transition-none"
+            >
+              <Check size={17} /> Save &amp; back to review
             </button>
           ) : (
             <button

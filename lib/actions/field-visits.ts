@@ -83,9 +83,12 @@ export async function saveDraftVisit(id: string, partial: unknown): Promise<Acti
     const input = fieldVisitDraftSchema.parse(partial ?? {})
 
     const { data: existing } = await db.from('crm_field_visits')
-      .select('status').eq('id', id).maybeSingle()
+      .select('status, visit_ref').eq('id', id).maybeSingle()
     if (!existing) return { success: false, error: 'Visit not found' }
-    if (existing.status !== 'draft') {
+    // Drafts edit freely. A SUBMITTED visit stays amendable so a rep can fix a
+    // typo they spot afterwards — it hasn't reached the CRM yet. Once
+    // processed (or voided) the record is frozen.
+    if (existing.status !== 'draft' && existing.status !== 'submitted') {
       return { success: false, error: `Cannot edit — this visit is ${existing.status}.` }
     }
 
@@ -125,6 +128,12 @@ export async function saveDraftVisit(id: string, partial: unknown): Promise<Acti
           feedback: v.feedback ?? null,
         }))
       if (rows.length) await db.from('crm_field_visit_venues').insert(rows)
+    }
+
+    // Post-submission corrections are worth an audit entry; draft autosaves
+    // fire constantly and would just be noise.
+    if (existing.status === 'submitted') {
+      await logHistory(id, 'edited', 'amended_after_submit', { visit_ref: existing.visit_ref })
     }
 
     return { success: true }

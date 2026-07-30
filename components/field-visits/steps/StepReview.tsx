@@ -10,7 +10,7 @@ import type { SalesEmployee } from '@/lib/supabase/types'
 
 export function StepReview({
   draft, visitRef, sectors, employees, employeeBands, budgetBands,
-  errorSteps, submitError, attachGps, onToggleGps, onEditStep,
+  errorSteps, submitError, attachGps, onToggleGps, onEditStep, mode = 'submit',
 }: {
   draft: WizardDraft
   visitRef: string
@@ -23,6 +23,8 @@ export function StepReview({
   attachGps: boolean
   onToggleGps: (v: boolean) => void
   onEditStep: (n: number) => void
+  /** 'amend' when correcting an already-submitted visit. */
+  mode?: 'submit' | 'amend'
 }) {
   const sectorName = sectors.find((s) => s.id === draft.sector_id)?.display_name
   const execName   = employees.find((e) => e.id === draft.sales_executive_id)?.full_name
@@ -107,7 +109,16 @@ export function StepReview({
         <Row k="Owner"      v={L(ownerName)} />
       </Group>
 
-      {/* Optional GPS — never blocks submit. */}
+      {mode === 'amend' && (
+        <div className="rounded-xl border border-blue-300 bg-blue-50 px-3 py-2.5 text-sm text-blue-900">
+          You&apos;re correcting an already-submitted visit. Changes save as you go —
+          the original submission time and reference are kept.
+        </div>
+      )}
+
+      {/* Optional GPS — never blocks submit. Hidden when amending: the location
+          was captured at the original submission and shouldn't be overwritten. */}
+      {mode === 'submit' && (
       <button
         type="button"
         onClick={() => onToggleGps(!attachGps)}
@@ -128,9 +139,12 @@ export function StepReview({
           )} />
         </span>
       </button>
-      <p className="-mt-2 text-xs text-gray-500">
-        Optional. If location is unavailable, the visit still submits.
-      </p>
+      )}
+      {mode === 'submit' && (
+        <p className="-mt-2 text-xs text-gray-500">
+          Optional. If location is unavailable, the visit still submits.
+        </p>
+      )}
     </StepSection>
   )
 }
