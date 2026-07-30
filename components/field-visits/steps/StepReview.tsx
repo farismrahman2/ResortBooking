@@ -116,34 +116,17 @@ export function StepReview({
         </div>
       )}
 
-      {/* Optional GPS — never blocks submit. Hidden when amending: the location
-          was captured at the original submission and shouldn't be overwritten. */}
+      {/* Location is always captured on submit — it's the proof the rep was on
+          site. Not a toggle. Skipped when amending so the original capture
+          isn't overwritten. */}
       {mode === 'submit' && (
-      <button
-        type="button"
-        onClick={() => onToggleGps(!attachGps)}
-        className={cn(
-          'flex min-h-[48px] w-full items-center gap-2.5 rounded-xl border px-3 text-sm font-medium',
-          attachGps ? 'border-amber-500 bg-amber-100 text-amber-900' : 'border-gray-300 bg-white text-gray-700',
-        )}
-      >
-        <MapPin size={16} className={attachGps ? 'text-amber-600' : 'text-gray-400'} />
-        <span className="flex-1 text-left">Attach my location to this visit</span>
-        <span className={cn(
-          'h-6 w-10 flex-shrink-0 rounded-full p-0.5 transition-colors',
-          attachGps ? 'bg-amber-500' : 'bg-gray-300',
-        )}>
-          <span className={cn(
-            'block h-5 w-5 rounded-full bg-white transition-transform motion-reduce:transition-none',
-            attachGps && 'translate-x-4',
-          )} />
-        </span>
-      </button>
-      )}
-      {mode === 'submit' && (
-        <p className="-mt-2 text-xs text-gray-500">
-          Optional. If location is unavailable, the visit still submits.
-        </p>
+        <div className="flex items-start gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5">
+          <MapPin size={15} className="mt-0.5 flex-shrink-0 text-amber-600" />
+          <p className="text-xs text-gray-600">
+            Your location is attached automatically when you submit.
+            If location is off or denied, the visit still submits without it.
+          </p>
+        </div>
       )}
     </StepSection>
   )
