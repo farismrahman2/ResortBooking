@@ -11,6 +11,7 @@ import {
 } from '@/lib/actions/crm'
 import type { AccountDeleteImpact } from '@/lib/queries/crm'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
+import { toast } from '@/lib/toast'
 
 interface Props {
   accountId:   string
@@ -31,14 +32,30 @@ export function AccountDangerZone({ accountId, companyName, isActive, isAdmin }:
   const [impactError, setImpactError] = useState<string | null>(null)
   const [confirmText, setConfirmText] = useState('')
 
-  async function handleDeactivate() {
-    const ok = await confirm({ title: `Deactivate ${companyName}?`, description: 'It will be hidden from active lists. You can reactivate it later.', confirmLabel: 'Deactivate' })
-    if (!ok) return
+  /**
+   * Undo instead of confirm. Deactivating is fully reversible, so a dialog
+   * asking "are you sure?" costs a tap on every single use to guard against a
+   * mistake that takes one tap to fix. The toast's Undo is both faster and
+   * safer — it also covers the case where you meant it at the time and changed
+   * your mind a second later.
+   */
+  function handleDeactivate() {
     setError(null)
     startTransition(async () => {
       const r = await deactivateAccount(accountId)
       if (!r.success) { setError(r.error); return }
       router.refresh()
+      toast.success(`${companyName} deactivated`, {
+        description: 'Hidden from active lists.',
+        action: {
+          label: 'Undo',
+          onClick: async () => {
+            const back = await reactivateAccount(accountId)
+            if (back.success) { toast.success(`${companyName} restored`); router.refresh() }
+            else toast.error(back.error)
+          },
+        },
+      })
     })
   }
 
@@ -69,10 +86,11 @@ export function AccountDangerZone({ accountId, companyName, isActive, isAdmin }:
       const r = await hardDeleteAccount(accountId, confirmText)
       if (!r.success) { setError(r.error); return }
       const unlinked = r.data.orphanedBookings
-      window.alert(
-        `‘${companyName}’ permanently deleted.` +
-        (unlinked > 0 ? ` ${unlinked} booking${unlinked === 1 ? ' was' : 's were'} unlinked and preserved.` : ''),
-      )
+      toast.success(`${companyName} permanently deleted`, {
+        description: unlinked > 0
+          ? `${unlinked} booking${unlinked === 1 ? ' was' : 's were'} unlinked and preserved.`
+          : undefined,
+      })
       router.push('/crm/accounts')
       router.refresh()
     })
