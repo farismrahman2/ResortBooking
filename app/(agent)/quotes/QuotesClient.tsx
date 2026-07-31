@@ -93,9 +93,7 @@ export function QuotesClient({ quotes, statusCounts }: QuotesClientProps) {
       </div>
 
       {/* Table */}
-      <div className="card overflow-hidden p-0">
-        <QuoteTable quotes={filtered} />
-      </div>
+      <QuoteTable quotes={filtered} />
     </div>
   )
 }
