@@ -1,8 +1,9 @@
 import Link from 'next/link'
-import { Star, Pencil } from 'lucide-react'
+import { Star, Pencil, Users } from 'lucide-react'
 import type { CrmContact } from '@/lib/supabase/types-crm'
 import { formatBdPhone } from '@/lib/crm/phone-format'
 import { DEPARTMENT_LABELS } from './labels'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 interface Props {
   contacts:  CrmContact[]
@@ -12,7 +13,14 @@ interface Props {
 
 export function ContactsList({ contacts, accountId, canWrite }: Props) {
   if (contacts.length === 0) {
-    return <p className="rounded-lg border border-dashed border-gray-200 p-6 text-center text-sm text-gray-400">No contacts yet.</p>
+    return (
+      <EmptyState
+        compact
+        icon={<Users size={20} />}
+        title="No contacts yet"
+        description="Add the people you deal with at this account."
+      />
+    )
   }
   return (
     <div className="space-y-2">

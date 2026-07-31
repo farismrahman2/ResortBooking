@@ -1,13 +1,14 @@
 'use client'
 
 import Link from 'next/link'
-import { Eye } from 'lucide-react'
+import { Eye, CalendarCheck } from 'lucide-react'
 import { StatusBadge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { formatBDT } from '@/lib/formatters/currency'
 import { formatDate, computeNights } from '@/lib/formatters/dates'
 import type { BookingWithRooms, RoomType } from '@/lib/supabase/types'
 import { WhatsAppLink } from '@/components/ui/WhatsAppLink'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 const ROOM_LABELS: Record<RoomType, string> = {
   cottage:        'Cottage',
@@ -27,13 +28,13 @@ interface BookingTableProps {
 export function BookingTable({ bookings }: BookingTableProps) {
   if (bookings.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-center">
-        <div className="mb-3 text-4xl">📋</div>
-        <p className="text-base font-semibold text-gray-700">No bookings found</p>
-        <p className="mt-1 text-sm text-gray-500">
-          Adjust your filters or convert a confirmed quote to create a booking.
-        </p>
-      </div>
+      <EmptyState
+        icon={<CalendarCheck size={26} />}
+        title="No bookings found"
+        description="Adjust your filters, or convert a confirmed quote to create a booking."
+        action={{ label: 'Go to quotes', href: '/quotes' }}
+        className="border-0"
+      />
     )
   }
 

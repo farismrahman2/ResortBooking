@@ -2,10 +2,18 @@ import Link from 'next/link'
 import type { CrmOpportunityWithRelations } from '@/lib/supabase/types-crm'
 import { STAGE_LABELS } from '@/lib/crm/stage-probabilities'
 import { formatBDT } from '@/lib/formatters/currency'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { Target } from 'lucide-react'
 
 export function OpportunitiesTable({ opportunities }: { opportunities: CrmOpportunityWithRelations[] }) {
   if (opportunities.length === 0) {
-    return <div className="rounded-xl border border-gray-200 bg-white p-12 text-center text-sm text-gray-500">No opportunities yet.</div>
+    return (
+      <EmptyState
+        icon={<Target size={26} />}
+        title="No opportunities yet"
+        description="Opportunities track a deal from first conversation through to won."
+      />
+    )
   }
   return (
     <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
