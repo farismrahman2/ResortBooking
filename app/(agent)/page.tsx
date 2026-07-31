@@ -12,6 +12,8 @@ import { getCurrentUserContext } from '@/lib/auth/permissions'
 import { formatDate } from '@/lib/formatters/dates'
 import { formatBDT } from '@/lib/formatters/currency'
 import Link from 'next/link'
+import { TodayPanel } from '@/components/dashboard/TodayPanel'
+import { getTodaySnapshot } from '@/lib/queries/dashboard-today'
 
 export const dynamic = 'force-dynamic'
 
@@ -22,19 +24,22 @@ export default async function DashboardPage() {
   // Corporate sales has crm:write but no bookings access — land them on /crm
   // instead of falling through to /403.
   const ctx = await getCurrentUserContext()
-  if (ctx?.profile.role.slug === 'reservation')      redirect('/quotes')
+  // Corporate sales has no bookings access at all — "today at the resort"
+  // would be meaningless to them. Review collectors only have Guest Feedback.
   if (ctx?.profile.role.slug === 'corporate_sales')  redirect('/crm')
-  // Review collectors only have the Guest Feedback module — land them there.
   if (ctx?.profile.role.slug === 'review_collector') redirect('/qa')
 
-  // Dashboard surfaces booking + revenue widgets — gate by bookings:read.
-  // Roles without that (e.g. front_desk) get bounced to whatever they can use.
-  // ctx is already fetched above — read the permissions map directly rather
-  // than six awaited hasPermission() calls.
   const canRead = (m: keyof NonNullable<typeof ctx>['permissions']) =>
     ctx?.permissions[m] === 'read' || ctx?.permissions[m] === 'write'
-  if (!canRead('bookings')) {
-    if (canRead('checkout'))     redirect('/checkout')
+
+  // Front desk and reservations used to get bounced off the dashboard
+  // entirely. They have checkout/bookings access and arrivals-departures is
+  // precisely their job, so they now get the operational half of this page —
+  // just without the revenue widgets below.
+  const canSeeOps     = canRead('bookings') || canRead('checkout')
+  const canSeeRevenue = canRead('reports') || canRead('expenses')
+
+  if (!canSeeOps) {
     if (canRead('availability')) redirect('/availability')
     if (canRead('expenses'))     redirect('/expenses')
     if (canRead('hr'))           redirect('/hr')
@@ -43,12 +48,19 @@ export default async function DashboardPage() {
     redirect('/403?from=dashboard')
   }
 
-  const [recentQuotes, statusCounts, upcomingBookings, bookingStats] = await Promise.all([
-    getRecentQuotes(5),
-    getQuoteStatusCounts(),
-    getUpcomingBookings(5),
-    getBookingStats(),
-  ])
+  const today = await getTodaySnapshot().catch(() => null)
+
+  // Booking-module widgets are a separate gate from the operational panel:
+  // front desk sees today's arrivals but not the quote funnel.
+  const showBookingWidgets = canRead('bookings')
+  const [recentQuotes, statusCounts, upcomingBookings, bookingStats] = showBookingWidgets
+    ? await Promise.all([
+        getRecentQuotes(5),
+        getQuoteStatusCounts(),
+        getUpcomingBookings(5),
+        getBookingStats(),
+      ])
+    : [[], { draft: 0, sent: 0, confirmed: 0, cancelled: 0 } as any, [], { total_bookings: 0, total_revenue: 0, pending_advance: 0 }]
 
   const subtitle = new Date().toLocaleDateString('en-GB', {
     weekday: 'long',
@@ -62,26 +74,32 @@ export default async function DashboardPage() {
       <Topbar title="Dashboard" subtitle={subtitle} />
 
       <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
-        {/* Stats cards */}
-        <StatsCards
-          quoteStatusCounts={statusCounts}
-          bookingStats={bookingStats}
-          upcomingCount={upcomingBookings.length}
-        />
+        {/* What's happening today — the question this page is actually opened
+            to answer. Shown to everyone with operational access. */}
+        {today && <TodayPanel snapshot={today} name={ctx?.profile.full_name} />}
+
+        {showBookingWidgets && (
+          <StatsCards
+            quoteStatusCounts={statusCounts}
+            bookingStats={bookingStats}
+            upcomingCount={upcomingBookings.length}
+            trend={today?.bookingTrend.map((t) => t.count)}
+          />
+        )}
 
         {/* Main content: two column grid */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
           {/* Left: Recent quotes (wider) */}
           <div className="lg:col-span-3 space-y-6">
-            <RecentQuotes quotes={recentQuotes} />
+            {showBookingWidgets && <RecentQuotes quotes={recentQuotes} />}
           </div>
 
           {/* Right: Quick actions + revenue + expenses + P&L + upcoming */}
           <div className="lg:col-span-2 space-y-6">
             <QuickActions />
-            <RevenueWidget />
-            <MonthlyPnLWidget />
-            <ExpensesThisMonth />
+            {canSeeRevenue && <RevenueWidget />}
+            {canSeeRevenue && <MonthlyPnLWidget />}
+            {canSeeRevenue && <ExpensesThisMonth />}
 
             {/* Upcoming bookings mini list */}
             <div className="card p-5">

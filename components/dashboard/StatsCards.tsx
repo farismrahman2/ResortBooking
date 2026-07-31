@@ -1,6 +1,7 @@
 import { FileText, CalendarCheck, Wallet, Clock } from 'lucide-react'
 import { formatBDT } from '@/lib/formatters/currency'
 import { cn } from '@/lib/utils'
+import { Sparkline } from '@/components/dashboard/Sparkline'
 
 interface StatsCardsProps {
   quoteStatusCounts: Record<string, number>
@@ -10,6 +11,8 @@ interface StatsCardsProps {
     pending_advance: number
   }
   upcomingCount: number
+  /** 7-day booking-count trend for the sparkline. */
+  trend?: number[]
 }
 
 interface StatCardProps {
@@ -18,23 +21,28 @@ interface StatCardProps {
   icon: React.ReactNode
   iconBg: string
   valueClassName?: string
+  trend?: number[]
+  trendColor?: string
 }
 
-function StatCard({ label, value, icon, iconBg, valueClassName }: StatCardProps) {
+function StatCard({ label, value, icon, iconBg, valueClassName, trend, trendColor }: StatCardProps) {
   return (
-    <div className="card p-5 flex items-center gap-4">
+    <div className="card flex items-center gap-4 p-5">
       <div className={cn('flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full', iconBg)}>
         {icon}
       </div>
-      <div>
+      <div className="min-w-0 flex-1">
         <p className={cn('text-2xl font-bold text-gray-900', valueClassName)}>{value}</p>
         <p className="text-sm text-gray-500">{label}</p>
       </div>
+      {trend && trend.length > 1 && (
+        <Sparkline points={trend} stroke={trendColor ?? '#16a34a'} className="hidden flex-shrink-0 sm:block" />
+      )}
     </div>
   )
 }
 
-export function StatsCards({ quoteStatusCounts, bookingStats, upcomingCount }: StatsCardsProps) {
+export function StatsCards({ quoteStatusCounts, bookingStats, upcomingCount, trend }: StatsCardsProps) {
   const totalQuotes = Object.values(quoteStatusCounts).reduce((sum, n) => sum + n, 0)
 
   return (
@@ -44,6 +52,8 @@ export function StatsCards({ quoteStatusCounts, bookingStats, upcomingCount }: S
         value={totalQuotes}
         iconBg="bg-blue-100"
         icon={<FileText size={22} className="text-blue-600" />}
+        trend={trend}
+        trendColor="#2563eb"
       />
       <StatCard
         label="Active Bookings"
