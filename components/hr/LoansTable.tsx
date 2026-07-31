@@ -8,12 +8,14 @@ import { formatDate } from '@/lib/formatters/dates'
 import { LOAN_STATUS_BADGE, LOAN_STATUS_LABELS } from '@/components/hr/labels'
 import { closeLoan, writeOffLoan } from '@/lib/actions/loans'
 import type { LoanWithEmployee } from '@/lib/queries/loans'
+import { useConfirm } from '@/components/ui/ConfirmDialog'
 
 interface Props {
   rows: LoanWithEmployee[]
 }
 
 export function LoansTable({ rows }: Props) {
+  const confirm = useConfirm()
   const router  = useRouter()
   const [pending, startTransition] = useTransition()
 
@@ -23,8 +25,9 @@ export function LoansTable({ rows }: Props) {
       router.refresh()
     })
   }
-  function handleWriteOff(id: string) {
-    if (!confirm('Write off this loan? Outstanding balance will be considered uncollectable.')) return
+  async function handleWriteOff(id: string) {
+    const ok = await confirm({ title: 'Write off this loan?', description: 'The outstanding balance will be treated as uncollectable.', confirmLabel: 'Write off', danger: true })
+    if (!ok) return
     startTransition(async () => {
       await writeOffLoan(id)
       router.refresh()

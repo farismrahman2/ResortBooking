@@ -3,6 +3,7 @@
 import { type ReactNode } from 'react'
 import { SidebarProvider, useSidebar } from '@/lib/sidebar-context'
 import { Toaster } from '@/components/ui/Toaster'
+import { ConfirmProvider } from '@/components/ui/ConfirmDialog'
 import { Sidebar } from './Sidebar'
 import type { ModuleSlug, PermissionLevel, RoleSlug } from '@/lib/supabase/types'
 
@@ -52,16 +53,18 @@ export function LayoutShell({
 }: ShellProps) {
   return (
     <SidebarProvider>
-      <Shell
-        userEmail={userEmail}
-        permissions={permissions}
-        roleLabel={roleLabel}
-        roleSlug={roleSlug}
-        unreadAlerts={unreadAlerts}
-        unreadEnquiries={unreadEnquiries}
-      >
-        {children}
-      </Shell>
+      <ConfirmProvider>
+        <Shell
+          userEmail={userEmail}
+          permissions={permissions}
+          roleLabel={roleLabel}
+          roleSlug={roleSlug}
+          unreadAlerts={unreadAlerts}
+          unreadEnquiries={unreadEnquiries}
+        >
+          {children}
+        </Shell>
+      </ConfirmProvider>
     </SidebarProvider>
   )
 }

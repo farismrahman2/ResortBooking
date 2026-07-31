@@ -16,6 +16,7 @@ import type {
   CheckoutStatus,
   PackageSnapshot,
 } from '@/lib/supabase/types'
+import { useConfirm } from '@/components/ui/ConfirmDialog'
 
 interface Props {
   bookingId:    string
@@ -33,6 +34,7 @@ interface Props {
 export function BookingChargesTab({
   bookingId, canWrite, checkoutStatus, charges, snapshot, nights, extraGuestRate,
 }: Props) {
+  const confirm = useConfirm()
   const router  = useRouter()
   const [pending, startTransition] = useTransition()
   const [open, setOpen] = useState(false)
@@ -40,8 +42,9 @@ export function BookingChargesTab({
   const isLocked = checkoutStatus === 'finalized' || checkoutStatus === 'voided'
   const total    = calcChargesTotal(charges)
 
-  function handleRemove(id: string) {
-    if (!confirm('Remove this charge?')) return
+  async function handleRemove(id: string) {
+    const ok = await confirm({ title: 'Remove this charge?', description: 'It comes off the guest bill.', confirmLabel: 'Remove', danger: true })
+    if (!ok) return
     startTransition(async () => {
       const r = await removeCharge(id)
       if (!r.success) { toast.error(r.error); return }

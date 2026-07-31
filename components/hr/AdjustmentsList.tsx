@@ -8,17 +8,20 @@ import { SALARY_ADJUSTMENT_LABELS, ADDITION_TYPES, formatPeriod } from '@/compon
 import { deleteAdjustment } from '@/lib/actions/salary-adjustments'
 import type { SalaryAdjustmentRow } from '@/lib/supabase/types'
 import { toast } from '@/lib/toast'
+import { useConfirm } from '@/components/ui/ConfirmDialog'
 
 interface Props {
   rows: SalaryAdjustmentRow[]
 }
 
 export function AdjustmentsList({ rows }: Props) {
+  const confirm = useConfirm()
   const router  = useRouter()
   const [pending, startTransition] = useTransition()
 
-  function handleDelete(id: string) {
-    if (!confirm('Delete this adjustment?')) return
+  async function handleDelete(id: string) {
+    const ok = await confirm({ title: 'Delete this adjustment?', description: 'It will be removed from the payroll calculation.', confirmLabel: 'Delete', danger: true })
+    if (!ok) return
     startTransition(async () => {
       const r = await deleteAdjustment(id)
       if (!r.success) { toast.error(r.error); return }

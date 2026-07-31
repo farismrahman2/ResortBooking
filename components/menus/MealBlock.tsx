@@ -12,6 +12,9 @@ import { toBanglaDigits } from '@/lib/menus/bangla-numerals'
 import { cn } from '@/lib/utils'
 import type { MenuMealFull } from '@/lib/supabase/types-menus'
 import type { DayMealCount } from '@/lib/queries/menus'
+import { Modal } from '@/components/ui/Modal'
+import { Button } from '@/components/ui/Button'
+import { useConfirm } from '@/components/ui/ConfirmDialog'
 
 interface Props {
   meal:     MenuMealFull
@@ -24,6 +27,7 @@ interface Props {
 type ItemDraft = { text: string; dish_catalog_id: string | null }
 
 export function MealBlock({ meal, calc, editable, onError }: Props) {
+  const confirm = useConfirm()
   const router = useRouter()
   const [pending, startTransition] = useTransition()
 
@@ -32,6 +36,8 @@ export function MealBlock({ meal, calc, editable, onError }: Props) {
   )
   const [servingTime, setServingTime] = useState(meal.serving_time ?? '')
   const [templates, setTemplates] = useState<MenuTemplateRow[] | null>(null)  // null = picker closed
+  /** Template awaiting a replace-or-append decision. */
+  const [pendingTemplate, setPendingTemplate] = useState<ItemDraft[] | null>(null)
   const [counts, setCounts] = useState({
     total:    meal.headcount_total,
     adults:   meal.headcount_adults,
@@ -63,8 +69,9 @@ export function MealBlock({ meal, calc, editable, onError }: Props) {
     })
   }
 
-  function remove() {
-    if (!confirm(`Remove ${meal.meal_type.display_name} from this menu?`)) return
+  async function remove() {
+    const ok = await confirm({ title: `Remove ${meal.meal_type.display_name}?`, description: 'This meal and its dishes come off the menu for this day.', confirmLabel: 'Remove', danger: true })
+    if (!ok) return
     startTransition(async () => {
       const res = await removeMeal(meal.id)
       if (!res.success) { onError(res.error); return }
@@ -117,10 +124,23 @@ export function MealBlock({ meal, calc, editable, onError }: Props) {
 
   function loadTemplate(t: MenuTemplateRow) {
     const incoming: ItemDraft[] = (t.items ?? []).map((i) => ({ text: i.text, dish_catalog_id: null }))
-    // Append by default; offer replace when the meal already has dishes
-    const replace = items.length > 0 && confirm('Replace the current dishes with the template?\nOK = replace · Cancel = append after them')
+    // With no existing dishes there's nothing to decide — just load it.
+    if (items.length === 0) {
+      setTemplates(null)
+      saveItems(incoming)
+      return
+    }
+    // Otherwise it's a genuine three-way choice (replace / append / cancel).
+    // This used to be a window.confirm where OK=replace and Cancel=append —
+    // which meant there was no way to back out at all.
+    setPendingTemplate(incoming)
+  }
+
+  function applyPendingTemplate(mode: 'replace' | 'append') {
+    if (!pendingTemplate) return
+    saveItems(mode === 'replace' ? pendingTemplate : [...items, ...pendingTemplate])
+    setPendingTemplate(null)
     setTemplates(null)
-    saveItems(replace ? incoming : [...items, ...incoming])
   }
 
   const previewLine = headcountLine(meal.meal_type.display_name, servingTime.trim() || null, counts)
@@ -310,6 +330,32 @@ export function MealBlock({ meal, calc, editable, onError }: Props) {
       </div>
 
       <div className={cn('h-1 transition-opacity', pending ? 'animate-pulse bg-orange-300' : 'opacity-0')} />
+
+      {/* Replace / append / cancel — a real three-way choice. */}
+      <Modal
+        open={!!pendingTemplate}
+        onClose={() => setPendingTemplate(null)}
+        title="Load template"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-700">
+            This meal already has {items.length} dish{items.length === 1 ? '' : 'es'}.
+            Replace them with the template, or add the template after them?
+          </p>
+          <div className="grid gap-2">
+            <Button variant="danger" size="md" onClick={() => applyPendingTemplate('replace')}>
+              Replace the {items.length} existing dish{items.length === 1 ? '' : 'es'}
+            </Button>
+            <Button variant="primary" size="md" onClick={() => applyPendingTemplate('append')}>
+              Add after them
+            </Button>
+            <Button variant="outline" size="md" onClick={() => setPendingTemplate(null)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }

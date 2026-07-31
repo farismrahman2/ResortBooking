@@ -10,6 +10,7 @@ import {
   deactivateAccount, reactivateAccount, hardDeleteAccount, getAccountDeleteImpactAction,
 } from '@/lib/actions/crm'
 import type { AccountDeleteImpact } from '@/lib/queries/crm'
+import { useConfirm } from '@/components/ui/ConfirmDialog'
 
 interface Props {
   accountId:   string
@@ -19,6 +20,7 @@ interface Props {
 }
 
 export function AccountDangerZone({ accountId, companyName, isActive, isAdmin }: Props) {
+  const confirm = useConfirm()
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -29,8 +31,9 @@ export function AccountDangerZone({ accountId, companyName, isActive, isAdmin }:
   const [impactError, setImpactError] = useState<string | null>(null)
   const [confirmText, setConfirmText] = useState('')
 
-  function handleDeactivate() {
-    if (!window.confirm(`Deactivate ${companyName}? It will be hidden from active lists but can be reactivated later.`)) return
+  async function handleDeactivate() {
+    const ok = await confirm({ title: `Deactivate ${companyName}?`, description: 'It will be hidden from active lists. You can reactivate it later.', confirmLabel: 'Deactivate' })
+    if (!ok) return
     setError(null)
     startTransition(async () => {
       const r = await deactivateAccount(accountId)
