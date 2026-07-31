@@ -1,13 +1,16 @@
 import Link from 'next/link'
 import type { InvSupplier } from '@/lib/supabase/types-inventory'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { Truck } from 'lucide-react'
 
 export function SuppliersTable({ suppliers }: { suppliers: InvSupplier[] }) {
   if (suppliers.length === 0) {
     return (
-      <div className="rounded-xl border border-gray-200 bg-white p-12 text-center">
-        <p className="text-sm font-medium text-gray-700">No suppliers yet.</p>
-        <p className="mt-1 text-xs text-gray-500">Add one to attribute inventory receipts.</p>
-      </div>
+      <EmptyState
+        icon={<Truck size={26} />}
+        title="No suppliers yet"
+        description="Add the vendors you buy from so inventory receipts can be attributed to them."
+      />
     )
   }
 

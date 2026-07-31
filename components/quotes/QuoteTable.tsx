@@ -1,13 +1,14 @@
 'use client'
 
 import Link from 'next/link'
-import { Eye } from 'lucide-react'
+import { Eye, FileText } from 'lucide-react'
 import { StatusBadge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { formatBDT } from '@/lib/formatters/currency'
 import { formatDate } from '@/lib/formatters/dates'
 import type { QuoteRow } from '@/lib/supabase/types'
 import { WhatsAppLink } from '@/components/ui/WhatsAppLink'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 interface QuoteTableProps {
   quotes: QuoteRow[]
@@ -16,13 +17,13 @@ interface QuoteTableProps {
 export function QuoteTable({ quotes }: QuoteTableProps) {
   if (quotes.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-center">
-        <div className="mb-3 text-4xl">🗒️</div>
-        <p className="text-base font-semibold text-gray-700">No quotes found</p>
-        <p className="mt-1 text-sm text-gray-500">
-          Adjust your filters or create a new quote to get started.
-        </p>
-      </div>
+      <EmptyState
+        icon={<FileText size={26} />}
+        title="No quotes found"
+        description="Adjust your filters, or create a quote to get started."
+        action={{ label: 'New quote', href: '/quotes/new' }}
+        className="border-0"
+      />
     )
   }
 

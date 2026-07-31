@@ -1,5 +1,7 @@
 import Link from 'next/link'
 import type { InvCount } from '@/lib/supabase/types-inventory'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { ClipboardList } from 'lucide-react'
 
 const STATUS: Record<string, string> = {
   in_progress: 'bg-amber-50 text-amber-700',
@@ -10,9 +12,11 @@ const STATUS: Record<string, string> = {
 export function CountsTable({ counts }: { counts: InvCount[] }) {
   if (counts.length === 0) {
     return (
-      <div className="rounded-xl border border-gray-200 bg-white p-12 text-center">
-        <p className="text-sm font-medium text-gray-700">No counts yet.</p>
-      </div>
+      <EmptyState
+        icon={<ClipboardList size={26} />}
+        title="No stock counts yet"
+        description="Run a count to reconcile what is on the shelf against what the system thinks."
+      />
     )
   }
   return (
