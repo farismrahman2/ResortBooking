@@ -4,150 +4,104 @@ import Link from 'next/link'
 import { Eye, FileText } from 'lucide-react'
 import { StatusBadge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { DataTable, type DataColumn } from '@/components/ui/DataTable'
 import { formatBDT } from '@/lib/formatters/currency'
 import { formatDate } from '@/lib/formatters/dates'
-import type { QuoteRow } from '@/lib/supabase/types'
 import { WhatsAppLink } from '@/components/ui/WhatsAppLink'
-import { EmptyState } from '@/components/ui/EmptyState'
+import type { QuoteRow } from '@/lib/supabase/types'
 
 interface QuoteTableProps {
   quotes: QuoteRow[]
 }
 
 export function QuoteTable({ quotes }: QuoteTableProps) {
-  if (quotes.length === 0) {
-    return (
-      <EmptyState
-        icon={<FileText size={26} />}
-        title="No quotes found"
-        description="Adjust your filters, or create a quote to get started."
-        action={{ label: 'New quote', href: '/quotes/new' }}
-        className="border-0"
-      />
-    )
-  }
+  const columns: DataColumn<QuoteRow>[] = [
+    {
+      key: 'customer', header: 'Customer', card: 'title',
+      render: (q) => (
+        <span>
+          {q.customer_name}
+          {(q as any).is_corporate && (
+            <span
+              className="ml-1.5 inline-flex items-center rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 align-middle"
+              title={(q as any).company_name ?? 'Corporate quote'}
+            >🏢 Corporate</span>
+          )}
+        </span>
+      ),
+    },
+    {
+      key: 'ref', header: 'Quote #', card: 'subtitle',
+      render: (q) => (
+        <span className="font-mono text-xs text-gray-500">
+          {q.quote_number}
+          {(q as any).is_corporate && (q as any).company_name ? ` · ${(q as any).company_name}` : ''}
+        </span>
+      ),
+    },
+    { key: 'status', header: 'Status', align: 'center', card: 'badge', render: (q) => <StatusBadge status={q.status} /> },
+    {
+      key: 'date', header: 'Visit date',
+      render: (q) => <span className="whitespace-nowrap text-gray-700">{formatDate(q.visit_date)}</span>,
+    },
+    {
+      key: 'package', header: 'Package',
+      render: (q) => (
+        <span className={
+          q.package_type === 'night'
+            ? 'inline-flex rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700'
+            : 'inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700'
+        }>
+          {q.package_type === 'night' ? 'Overnight' : 'Daylong'}
+        </span>
+      ),
+      hideLabel: true,
+    },
+    {
+      key: 'total', header: 'Amount', align: 'right',
+      className: 'font-mono font-semibold text-gray-900',
+      render: (q) => formatBDT(q.total),
+    },
+    {
+      key: 'advance', header: 'Advance due', align: 'right', className: 'font-mono',
+      render: (q) => q.due_advance > 0
+        ? <span className="font-semibold text-red-600">{formatBDT(q.due_advance)}</span>
+        : <span className="text-gray-500">—</span>,
+    },
+    {
+      key: 'phone', header: 'Phone', card: 'meta',
+      render: (q) => (
+        <span className="inline-flex items-center gap-1.5 text-xs text-gray-500">
+          {q.customer_phone}
+          <WhatsAppLink phone={q.customer_phone} size="sm" />
+        </span>
+      ),
+    },
+  ]
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-sm">
-        <thead>
-          <tr className="border-b border-gray-200 bg-gray-50 text-left">
-            <Th>Quote #</Th>
-            <Th>Customer</Th>
-            <Th>Date</Th>
-            <Th>Package</Th>
-            <Th className="text-right">Amount</Th>
-            <Th className="text-right">Advance Due</Th>
-            <Th className="text-center">Status</Th>
-            <Th className="text-center">Actions</Th>
-          </tr>
-        </thead>
-        <tbody>
-          {quotes.map((quote) => (
-            <tr
-              key={quote.id}
-              className="border-b border-gray-100 transition-colors hover:bg-gray-50"
-            >
-              {/* Quote # */}
-              <td className="px-4 py-3">
-                <Link
-                  href={`/quotes/${quote.id}`}
-                  className="font-mono text-xs font-semibold text-forest-700 hover:underline"
-                >
-                  {quote.quote_number}
-                </Link>
-              </td>
-
-              {/* Customer */}
-              <td className="px-4 py-3">
-                <p className="font-medium text-gray-900">
-                  {quote.customer_name}
-                  {(quote as any).is_corporate && (
-                    <span
-                      className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 align-middle"
-                      title={(quote as any).company_name ?? 'Corporate quote'}
-                    >🏢 Corporate</span>
-                  )}
-                </p>
-                {(quote as any).is_corporate && (quote as any).company_name && (
-                  <p className="text-xs font-medium text-indigo-700">{(quote as any).company_name}</p>
-                )}
-                <div className="mt-0.5 flex items-center gap-1.5">
-                  <p className="text-xs text-gray-500">{quote.customer_phone}</p>
-                  <WhatsAppLink phone={quote.customer_phone} size="sm" />
-                </div>
-              </td>
-
-              {/* Visit date */}
-              <td className="px-4 py-3 text-gray-700">
-                {formatDate(quote.visit_date)}
-              </td>
-
-              {/* Package type */}
-              <td className="px-4 py-3">
-                <span
-                  className={
-                    quote.package_type === 'night'
-                      ? 'inline-flex rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700'
-                      : 'inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700'
-                  }
-                >
-                  {quote.package_type === 'night' ? 'Overnight' : 'Daylong'}
-                </span>
-              </td>
-
-              {/* Total amount */}
-              <td className="px-4 py-3 text-right font-mono font-semibold text-gray-900">
-                {formatBDT(quote.total)}
-              </td>
-
-              {/* Advance due */}
-              <td className="px-4 py-3 text-right font-mono">
-                <span
-                  className={
-                    quote.due_advance > 0
-                      ? 'font-semibold text-red-600'
-                      : 'text-gray-500'
-                  }
-                >
-                  {quote.due_advance > 0 ? formatBDT(quote.due_advance) : '—'}
-                </span>
-              </td>
-
-              {/* Status */}
-              <td className="px-4 py-3 text-center">
-                <StatusBadge status={quote.status} />
-              </td>
-
-              {/* Actions */}
-              <td className="px-4 py-3 text-center">
-                <Link href={`/quotes/${quote.id}`}>
-                  <Button variant="ghost" size="sm" className="gap-1">
-                    <Eye size={13} />
-                    View
-                  </Button>
-                </Link>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-// ─── Helper ───────────────────────────────────────────────────────────────────
-
-function Th({
-  children,
-  className = '',
-}: {
-  children?: React.ReactNode
-  className?: string
-}) {
-  return (
-    <th className={`px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-500 ${className}`}>
-      {children}
-    </th>
+    <DataTable
+      rows={quotes}
+      columns={columns}
+      rowKey={(q) => q.id}
+      href={(q) => `/quotes/${q.id}`}
+      rowClassName={(q) => (q.status === 'cancelled' ? 'opacity-60' : undefined)}
+      actions={(q) => (
+        <Link href={`/quotes/${q.id}`}>
+          <Button variant="ghost" size="sm" className="gap-1">
+            <Eye size={13} /> View
+          </Button>
+        </Link>
+      )}
+      empty={
+        <EmptyState
+          icon={<FileText size={26} />}
+          title="No quotes found"
+          description="Adjust your filters, or create a quote to get started."
+          action={{ label: 'New quote', href: '/quotes/new' }}
+        />
+      }
+    />
   )
 }
