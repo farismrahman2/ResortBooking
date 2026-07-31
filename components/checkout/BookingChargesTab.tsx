@@ -10,6 +10,7 @@ import { CHARGE_CATEGORY_BADGE, CHECKOUT_STATUS_BADGE, CHECKOUT_STATUS_LABELS } 
 import { removeCharge } from '@/lib/actions/checkout-charges'
 import { formatBDT } from '@/lib/formatters/currency'
 import { calcChargesTotal } from '@/lib/checkout/totals'
+import { toast } from '@/lib/toast'
 import type {
   CheckoutChargeWithRefs,
   CheckoutStatus,
@@ -43,7 +44,8 @@ export function BookingChargesTab({
     if (!confirm('Remove this charge?')) return
     startTransition(async () => {
       const r = await removeCharge(id)
-      if (!r.success) { alert(r.error); return }
+      if (!r.success) { toast.error(r.error); return }
+      toast.success('Charge removed')
       router.refresh()
     })
   }

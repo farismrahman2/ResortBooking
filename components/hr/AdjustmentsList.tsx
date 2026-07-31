@@ -7,6 +7,7 @@ import { formatBDT } from '@/lib/formatters/currency'
 import { SALARY_ADJUSTMENT_LABELS, ADDITION_TYPES, formatPeriod } from '@/components/hr/labels'
 import { deleteAdjustment } from '@/lib/actions/salary-adjustments'
 import type { SalaryAdjustmentRow } from '@/lib/supabase/types'
+import { toast } from '@/lib/toast'
 
 interface Props {
   rows: SalaryAdjustmentRow[]
@@ -20,7 +21,8 @@ export function AdjustmentsList({ rows }: Props) {
     if (!confirm('Delete this adjustment?')) return
     startTransition(async () => {
       const r = await deleteAdjustment(id)
-      if (!r.success) { alert(r.error); return }
+      if (!r.success) { toast.error(r.error); return }
+      toast.success('Adjustment removed')
       router.refresh()
     })
   }

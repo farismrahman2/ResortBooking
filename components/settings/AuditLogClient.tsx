@@ -10,6 +10,7 @@ import { formatDate } from '@/lib/formatters/dates'
 import { cn } from '@/lib/utils'
 import type { AdminAlertEvent } from '@/lib/supabase/types'
 import type { AdminAlertWithUser } from '@/lib/queries/admin-alerts'
+import { toast } from '@/lib/toast'
 
 interface Props {
   alerts: AdminAlertWithUser[]
@@ -64,7 +65,8 @@ export function AuditLogClient({ alerts, filter }: Props) {
     startTransition(async () => {
       const r = await acknowledgeAlert(id)
       setActiveId(null)
-      if (!r.success) { alert(r.error); return }
+      if (!r.success) { toast.error(r.error); return }
+      toast.success('Alert acknowledged')
       router.refresh()
     })
   }

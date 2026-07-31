@@ -2,6 +2,7 @@
 
 import { type ReactNode } from 'react'
 import { SidebarProvider, useSidebar } from '@/lib/sidebar-context'
+import { Toaster } from '@/components/ui/Toaster'
 import { Sidebar } from './Sidebar'
 import type { ModuleSlug, PermissionLevel, RoleSlug } from '@/lib/supabase/types'
 
@@ -40,6 +41,8 @@ function Shell({ children, userEmail, permissions, roleLabel, roleSlug, unreadAl
       <main className="flex-1 min-w-0 overflow-y-auto scrollable">
         {children}
       </main>
+
+      <Toaster />
     </div>
   )
 }

@@ -13,6 +13,7 @@ import { finalizeCheckout, voidCheckout, recordRefund, reopenCheckout } from '@/
 import { formatBDT } from '@/lib/formatters/currency'
 import { CHECKOUT_PAYMENT_METHOD_OPTIONS } from '@/components/checkout/labels'
 import type { CheckoutPaymentMethod, CheckoutWithFull } from '@/lib/supabase/types'
+import { toast } from '@/lib/toast'
 
 interface Props {
   checkout: CheckoutWithFull
@@ -55,6 +56,7 @@ export function FinalizeAndVoid({ checkout, totals, isAdmin, canWrite }: Props) 
       const r = await finalizeCheckout(checkout.id)
       if (!r.success) { setError(r.error); return }
       setFinalizeOpen(false)
+      toast.success('Checkout finalized', { description: 'The booking is now marked checked out.' })
       router.refresh()
     })
   }
@@ -66,6 +68,7 @@ export function FinalizeAndVoid({ checkout, totals, isAdmin, canWrite }: Props) 
       const r = await voidCheckout(checkout.id, { reason: voidReason })
       if (!r.success) { setError(r.error); return }
       setVoidOpen(false)
+      toast.success('Checkout voided')
       router.refresh()
     })
   }
@@ -76,6 +79,7 @@ export function FinalizeAndVoid({ checkout, totals, isAdmin, canWrite }: Props) 
     startTransition(async () => {
       const r = await reopenCheckout(checkout.id)
       if (!r.success) { setError(r.error); return }
+      toast.success('Checkout reopened for editing')
       router.refresh()
     })
   }
@@ -90,6 +94,7 @@ export function FinalizeAndVoid({ checkout, totals, isAdmin, canWrite }: Props) 
       })
       if (!r.success) { setError(r.error); return }
       setRefundOpen(false)
+      toast.success('Refund recorded')
       router.refresh()
     })
   }

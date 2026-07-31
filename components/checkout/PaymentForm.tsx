@@ -17,6 +17,7 @@ import { addPaymentSchema, type AddPaymentInput } from '@/lib/validators/checkou
 import { addPayment, removePayment } from '@/lib/actions/checkout'
 import { formatBDT } from '@/lib/formatters/currency'
 import type { CheckoutPaymentRow } from '@/lib/supabase/types'
+import { toast } from '@/lib/toast'
 
 interface Props {
   checkoutId: string
@@ -56,7 +57,8 @@ export function PaymentForm({ checkoutId, payments, suggestedAmount, disabled }:
     if (!confirm('Remove this payment?')) return
     startTransition(async () => {
       const r = await removePayment(id)
-      if (!r.success) { alert(r.error); return }
+      if (!r.success) { toast.error(r.error); return }
+      toast.success('Payment removed')
       router.refresh()
     })
   }
