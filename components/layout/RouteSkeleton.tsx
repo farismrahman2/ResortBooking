@@ -41,9 +41,19 @@ export function RouteSkeleton({ title, subtitle, variant = 'list' }: Props) {
         ) : (
           <>
             <Box h="h-10" />
+            {/* Content-shaped rows rather than plain bars — the eye reads the
+                incoming layout instead of a grey slab. */}
             <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
               {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="h-12 animate-pulse border-b border-gray-100 bg-gray-50/40" />
+                <div key={i} className="flex items-center gap-3 border-b border-gray-100 px-4 py-3 last:border-0">
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <Bar w={i % 3 === 0 ? 'w-40' : i % 3 === 1 ? 'w-52' : 'w-32'} />
+                    <Bar w="w-24" h="h-2" />
+                  </div>
+                  <Bar w="w-16" />
+                  <Bar w="w-14" className="hidden sm:block" />
+                  <div className="h-5 w-16 flex-shrink-0 animate-pulse rounded-full bg-gray-100" />
+                </div>
               ))}
             </div>
           </>
@@ -55,4 +65,8 @@ export function RouteSkeleton({ title, subtitle, variant = 'list' }: Props) {
 
 function Box({ h }: { h: string }) {
   return <div className={`${h} animate-pulse rounded-xl border border-gray-200 bg-gray-100`} />
+}
+
+function Bar({ w, h = 'h-3', className = '' }: { w: string; h?: string; className?: string }) {
+  return <div className={`${w} ${h} animate-pulse rounded bg-gray-100 ${className}`} />
 }

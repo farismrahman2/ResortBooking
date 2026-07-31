@@ -50,11 +50,16 @@ const config: Config = {
           900: '#881337',
         },
         // Status colours
+        // Single source of truth for booking-status colour. components/ui/Badge
+        // renders straight from these, so a status colour is changed here and
+        // nowhere else.
         status: {
-          draft:     '#64748b', // slate-500
-          sent:      '#3b82f6', // blue-500
-          confirmed: '#22c55e', // green-500
-          cancelled: '#ef4444', // red-500
+          draft:       '#64748b', // slate-500
+          sent:        '#3b82f6', // blue-500
+          confirmed:   '#22c55e', // green-500
+          cancelled:   '#ef4444', // red-500
+          checked_out: '#8b5cf6', // violet-500
+          no_show:     '#f59e0b', // amber-500
         },
       },
       fontFamily: {
