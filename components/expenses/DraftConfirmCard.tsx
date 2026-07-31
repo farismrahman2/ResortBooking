@@ -12,12 +12,14 @@ import { formatBDT } from '@/lib/formatters/currency'
 import { formatDate } from '@/lib/formatters/dates'
 import { CATEGORY_GROUP_BADGE, PAYMENT_METHOD_OPTIONS } from '@/components/expenses/labels'
 import type { ExpenseRowWithRefs, PaymentMethod } from '@/lib/supabase/types'
+import { useConfirm } from '@/components/ui/ConfirmDialog'
 
 interface Props {
   draft: ExpenseRowWithRefs
 }
 
 export function DraftConfirmCard({ draft }: Props) {
+  const confirm = useConfirm()
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [error,   setError]        = useState<string | null>(null)
@@ -45,8 +47,9 @@ export function DraftConfirmCard({ draft }: Props) {
     })
   }
 
-  function handleDiscard() {
-    if (!confirm('Discard this draft? It will not appear in your records.')) return
+  async function handleDiscard() {
+    const ok = await confirm({ title: 'Discard this draft?', description: 'It will not appear in your expense records.', confirmLabel: 'Discard', danger: true })
+    if (!ok) return
     setError(null)
     startTransition(async () => {
       const result = await discardDraftExpense(draft.id)

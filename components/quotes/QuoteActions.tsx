@@ -10,6 +10,7 @@ import { DuplicateConfirmModal } from '@/components/quotes/DuplicateConfirmModal
 import { RoomConflictModal } from '@/components/quotes/RoomConflictModal'
 import type { QuoteRow } from '@/lib/supabase/types'
 import type { DuplicateMatch } from '@/lib/queries/duplicate-bookings'
+import { useConfirm } from '@/components/ui/ConfirmDialog'
 
 interface QuoteActionsProps {
   quote: QuoteRow
@@ -17,6 +18,7 @@ interface QuoteActionsProps {
 }
 
 export function QuoteActions({ quote, bookingId }: QuoteActionsProps) {
+  const confirm = useConfirm()
   const router = useRouter()
   const [loading, setLoading] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -72,7 +74,8 @@ export function QuoteActions({ quote, bookingId }: QuoteActionsProps) {
   function handleConvert() { return runConvert(false) }
 
   async function handleDelete() {
-    if (!confirm('Delete this draft quote? This cannot be undone.')) return
+    const ok = await confirm({ title: 'Delete this draft quote?', description: 'This cannot be undone.', confirmLabel: 'Delete', danger: true })
+    if (!ok) return
     setLoading('delete')
     setError(null)
     try {

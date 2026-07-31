@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { NumberInput } from '@/components/ui/NumberInput'
 import { upsertServiceCharge, deleteServiceCharge } from '@/lib/actions/service-charge'
 import { formatBDT } from '@/lib/formatters/currency'
+import { useConfirm } from '@/components/ui/ConfirmDialog'
 
 interface Row {
   id?: string
@@ -21,6 +22,7 @@ interface Props {
 }
 
 export function ServiceChargeForm({ monthIso, rows }: Props) {
+  const confirm = useConfirm()
   const router  = useRouter()
   const [pending, startTransition] = useTransition()
   const [local, setLocal] = useState<Record<string, number>>(() => {
@@ -52,12 +54,13 @@ export function ServiceChargeForm({ monthIso, rows }: Props) {
     })
   }
 
-  function remove(rowId: string | undefined, empId: string) {
+  async function remove(rowId: string | undefined, empId: string) {
     if (!rowId) {
       setLocal((p) => ({ ...p, [empId]: 0 }))
       return
     }
-    if (!confirm('Remove this service-charge entry?')) return
+    const ok = await confirm({ title: 'Remove this entry?', description: 'The service-charge payout line will be deleted.', confirmLabel: 'Remove', danger: true })
+    if (!ok) return
     startTransition(async () => {
       const r = await deleteServiceCharge(rowId)
       if (!r.success) { setError(r.error); return }

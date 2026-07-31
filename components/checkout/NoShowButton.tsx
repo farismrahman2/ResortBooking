@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/Textarea'
 import { AlertCircle, AlertTriangle, UserX } from 'lucide-react'
 import { markNoShow, reverseNoShow } from '@/lib/actions/bookings'
 import { formatBDT } from '@/lib/formatters/currency'
+import { useConfirm } from '@/components/ui/ConfirmDialog'
 
 interface Props {
   bookingId:      string
@@ -17,6 +18,7 @@ interface Props {
 }
 
 export function NoShowButton({ bookingId, bookingStatus, advancePaid, customerName }: Props) {
+  const confirm = useConfirm()
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [open, setOpen]   = useState(false)
@@ -24,8 +26,9 @@ export function NoShowButton({ bookingId, bookingStatus, advancePaid, customerNa
   const [error, setError] = useState<string | null>(null)
 
   // Reverse path — confirmation only, no modal.
-  function handleReverse() {
-    if (!window.confirm(`Reverse no-show for ${customerName}? The booking will return to confirmed.`)) return
+  async function handleReverse() {
+    const ok = await confirm({ title: `Reverse no-show for ${customerName}?`, description: 'The booking returns to confirmed.', confirmLabel: 'Reverse' })
+    if (!ok) return
     setError(null)
     startTransition(async () => {
       const r = await reverseNoShow(bookingId)

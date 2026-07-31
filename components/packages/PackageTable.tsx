@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { formatDate } from '@/lib/formatters/dates'
 import { cn } from '@/lib/utils'
+import { useConfirm } from '@/components/ui/ConfirmDialog'
 
 interface PackageTableProps {
   packages: PackageRow[]
@@ -34,6 +35,7 @@ function ValidityCell({ pkg }: { pkg: PackageRow }) {
 }
 
 export function PackageTable({ packages }: PackageTableProps) {
+  const confirm = useConfirm()
   const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set())
 
   const setLoading = (id: string, loading: boolean) => {
@@ -63,7 +65,8 @@ export function PackageTable({ packages }: PackageTableProps) {
   }
 
   const handleArchive = async (id: string) => {
-    if (!confirm('Archive this package? It will be set to inactive.')) return
+    const ok = await confirm({ title: 'Archive this package?', description: 'It will be set to inactive and hidden from new quotes.', confirmLabel: 'Archive', danger: true })
+    if (!ok) return
     setLoading(id, true)
     try {
       await archivePackage(id)
