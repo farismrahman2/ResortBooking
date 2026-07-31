@@ -20,7 +20,9 @@ interface ShellProps {
 function Shell({ children, userEmail, permissions, roleLabel, roleSlug, unreadAlerts, unreadEnquiries }: ShellProps) {
   const { isOpen, close } = useSidebar()
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-50">
+    // A whisper of forest in the page background — enough to read as warm
+    // rather than clinical, not enough to tint the white cards sitting on it.
+    <div className="flex h-screen overflow-hidden bg-forest-50/40">
       {/* Mobile backdrop */}
       {isOpen && (
         <div

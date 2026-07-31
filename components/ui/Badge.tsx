@@ -6,13 +6,21 @@ interface BadgeProps {
   className?: string
 }
 
+/**
+ * Colours come from the `status` scale in tailwind.config.ts rather than being
+ * hardcoded here — that map existed but this component ignored it, so changing
+ * a status colour meant editing two places and only one of them took effect.
+ *
+ * The full class strings are written out literally because Tailwind scans
+ * source for complete class names; template-built ones get purged.
+ */
 const statusConfig: Record<BookingStatus, { label: string; className: string }> = {
-  draft:       { label: 'Draft',       className: 'bg-gray-100 text-gray-600 border-gray-200' },
-  sent:        { label: 'Sent',        className: 'bg-blue-50 text-blue-700 border-blue-200' },
-  confirmed:   { label: 'Confirmed',   className: 'bg-green-50 text-green-700 border-green-200' },
-  cancelled:   { label: 'Cancelled',   className: 'bg-red-50 text-red-700 border-red-200' },
-  checked_out: { label: 'Checked Out', className: 'bg-violet-50 text-violet-700 border-violet-200' },
-  no_show:     { label: 'No-Show',     className: 'bg-amber-50 text-amber-800 border-amber-200' },
+  draft:       { label: 'Draft',       className: 'bg-status-draft/10 text-status-draft border-status-draft/25' },
+  sent:        { label: 'Sent',        className: 'bg-status-sent/10 text-status-sent border-status-sent/25' },
+  confirmed:   { label: 'Confirmed',   className: 'bg-status-confirmed/10 text-status-confirmed border-status-confirmed/30' },
+  cancelled:   { label: 'Cancelled',   className: 'bg-status-cancelled/10 text-status-cancelled border-status-cancelled/25' },
+  checked_out: { label: 'Checked Out', className: 'bg-status-checked_out/10 text-status-checked_out border-status-checked_out/25' },
+  no_show:     { label: 'No-Show',     className: 'bg-status-no_show/10 text-status-no_show border-status-no_show/30' },
 }
 
 export function StatusBadge({ status, className }: BadgeProps) {
