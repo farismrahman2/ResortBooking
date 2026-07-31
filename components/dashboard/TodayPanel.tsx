@@ -68,6 +68,39 @@ export function TodayPanel({
         </div>
       )}
 
+      {/* Progress on the day's departures — repeat work with a finish line,
+          which is exactly where a progress bar earns its place. */}
+      {departures.length > 0 && (
+        <div className="px-5 pt-4">
+          {(() => {
+            const done = departures.filter((d) => d.status === 'checked_out').length
+            const pct  = Math.round((done / departures.length) * 100)
+            const allDone = done === departures.length
+            return (
+              <>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-forest-800/70">
+                    Checkouts done
+                  </span>
+                  <span className={cn('text-sm font-bold tabular-nums', allDone ? 'text-green-700' : 'text-forest-900')}>
+                    {allDone ? 'All done 🎉' : `${done} of ${departures.length}`}
+                  </span>
+                </div>
+                <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-forest-200/60">
+                  <div
+                    className={cn(
+                      'h-full rounded-full transition-[width] duration-300 motion-reduce:transition-none',
+                      allDone ? 'bg-green-600' : 'bg-forest-600',
+                    )}
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              </>
+            )
+          })()}
+        </div>
+      )}
+
       <div className="grid gap-px bg-forest-100 p-5 sm:grid-cols-2">
         <TodayList
           title="Arriving today" icon={<LogIn size={14} />} rows={arrivals}

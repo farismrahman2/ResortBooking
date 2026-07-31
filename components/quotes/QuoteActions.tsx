@@ -11,6 +11,8 @@ import { RoomConflictModal } from '@/components/quotes/RoomConflictModal'
 import type { QuoteRow } from '@/lib/supabase/types'
 import type { DuplicateMatch } from '@/lib/queries/duplicate-bookings'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
+import { toast } from '@/lib/toast'
+import { formatBDT } from '@/lib/formatters/currency'
 
 interface QuoteActionsProps {
   quote: QuoteRow
@@ -36,6 +38,7 @@ export function QuoteActions({ quote, bookingId }: QuoteActionsProps) {
       if (!result.success) {
         setError(result.error ?? 'Action failed')
       } else {
+        toast.success('Quote updated')
         router.refresh()
       }
     } catch (err) {
@@ -52,6 +55,10 @@ export function QuoteActions({ quote, bookingId }: QuoteActionsProps) {
     try {
       const result = await convertQuoteToBooking(quote.id, allowDuplicate)
       if (result.success) {
+        // A genuine milestone — the deal is now committed revenue.
+        toast.success('Booking confirmed 🎉', {
+          description: `${quote.customer_name} · ${formatBDT(quote.total)}`,
+        })
         router.push(`/bookings/${result.data.bookingId}`)
         return
       }
