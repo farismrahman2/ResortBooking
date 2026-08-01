@@ -17,6 +17,7 @@ import { StepRequirements } from './steps/StepRequirements'
 import { StepVenues }       from './steps/StepVenues'
 import { StepOutcome }      from './steps/StepOutcome'
 import { StepReview }       from './steps/StepReview'
+import type { CardItem } from './VisitCardCapture'
 
 export interface WizardDraft {
   visit_date: string; sales_executive_id: string; territory_zone: string; visit_type: string
@@ -111,9 +112,11 @@ interface Props {
   employees:     SalesEmployee[]
   employeeBands: FieldVisitBand[]
   budgetBands:   FieldVisitBand[]
+  /** Visiting-card photos already attached, with signed preview URLs. */
+  cards:         CardItem[]
 }
 
-export function FieldVisitWizard({ visit, initialStep, sectors, employees, employeeBands, budgetBands }: Props) {
+export function FieldVisitWizard({ visit, initialStep, sectors, employees, employeeBands, budgetBands, cards }: Props) {
   const router  = useRouter()
   const lsKey   = `fv:draft:${visit.id}`
   const [draft, setDraft]         = useState<WizardDraft>(() => fromServer(visit))
@@ -380,7 +383,7 @@ export function FieldVisitWizard({ visit, initialStep, sectors, employees, emplo
         `}</style>
         {step === 1 && <StepVisit {...common} employees={employees} />}
         {step === 2 && <StepOrganisation {...common} sectors={sectors} employeeBands={employeeBands} />}
-        {step === 3 && <StepContacts {...common} />}
+        {step === 3 && <StepContacts {...common} visitId={visit.id} cards={cards} />}
         {step === 4 && <StepRequirements {...common} budgetBands={budgetBands} />}
         {step === 5 && <StepVenues {...common} onSkip={() => goToStep(6)} />}
         {step === 6 && <StepOutcome {...common} employees={employees} onMaterials={updateMaterials} />}

@@ -1,6 +1,6 @@
 import { notFound, redirect } from 'next/navigation'
 import { requirePermission } from '@/lib/auth/permissions'
-import { getFieldVisitById, listFieldVisitBands } from '@/lib/queries/field-visits'
+import { getFieldVisitById, listFieldVisitBands, listVisitCards, getSignedCardUrl } from '@/lib/queries/field-visits'
 import { listSectors } from '@/lib/queries/crm'
 import { listSalesEmployees } from '@/lib/queries/employees'
 import { FieldVisitWizard } from '@/components/field-visits/FieldVisitWizard'
@@ -23,12 +23,18 @@ export default async function FieldVisitStepPage({ params }: PageProps) {
   }
 
   try {
-    const [visit, bands, sectors, employees] = await Promise.all([
+    const [visit, bands, sectors, employees, rawCards] = await Promise.all([
       getFieldVisitById(params.id),
       listFieldVisitBands(),
       listSectors().catch(() => [] as CrmSector[]),
       listSalesEmployees().catch(() => [] as SalesEmployee[]),
+      listVisitCards(params.id).catch(() => []),
     ])
+    // Private bucket — pre-sign each card so the client can render it.
+    const cards = await Promise.all(rawCards.map(async (c) => ({
+      id: c.id, file_name: c.file_name, contact_label: c.contact_label,
+      url: await getSignedCardUrl(c.storage_path).catch(() => null),
+    })))
     if (!visit) notFound()
     // Drafts and submitted visits are editable (a rep must be able to correct a
     // typo after submitting). Processed and void records are frozen.
@@ -44,6 +50,7 @@ export default async function FieldVisitStepPage({ params }: PageProps) {
         employees={employees}
         employeeBands={bands.employeeBands as FieldVisitBand[]}
         budgetBands={bands.budgetBands as FieldVisitBand[]}
+        cards={cards}
       />
     )
   } catch (err) {

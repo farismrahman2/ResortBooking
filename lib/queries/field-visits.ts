@@ -139,3 +139,35 @@ export async function getOpenFollowUps(limit = 5): Promise<FieldVisitListRow[]> 
   void today
   return rows.slice(0, limit)
 }
+
+export interface FieldVisitCard {
+  id:            string
+  visit_id:      string
+  storage_path:  string
+  file_name:     string
+  mime_type:     string
+  size_bytes:    number
+  contact_label: string | null
+  created_at:    string
+}
+
+/** Visiting-card photos collected on a visit. */
+export async function listVisitCards(visitId: string): Promise<FieldVisitCard[]> {
+  const { data, error } = await db()
+    .from('crm_field_visit_cards')
+    .select('*')
+    .eq('visit_id', visitId)
+    .eq('is_active', true)
+    .order('created_at')
+  if (error) return []   // pre-migration installs must not break the page
+  return (data ?? []) as FieldVisitCard[]
+}
+
+/** Bucket is private, so reads go through a short-lived signed URL. */
+export async function getSignedCardUrl(storagePath: string, expiresIn = 3600): Promise<string | null> {
+  const { data, error } = await db().storage
+    .from('field-visit-cards')
+    .createSignedUrl(storagePath, expiresIn)
+  if (error) return null
+  return data?.signedUrl ?? null
+}

@@ -6,12 +6,15 @@ import { cn } from '@/lib/utils'
 import { TextField, StepSection, FieldLabel, ChipGroup } from '../wizard-ui'
 import { DECISION_SIGNOFF_OPTIONS, CHANNEL_OPTIONS } from '@/lib/supabase/types-field-visits'
 import type { WizardDraft } from '../FieldVisitWizard'
+import { VisitCardCapture, type CardItem } from '../VisitCardCapture'
 
 export function StepContacts({
-  draft, update,
+  draft, update, visitId, cards,
 }: {
   draft: WizardDraft
   update: (p: Partial<WizardDraft>) => void
+  visitId: string
+  cards: CardItem[]
 }) {
   // Filled cards collapse to "Name · Designation" to keep the screen short.
   const [open, setOpen] = useState<number[]>([0])
@@ -132,6 +135,21 @@ export function StepContacts({
           value={draft.preferred_channel}
           onChange={(next) => update({ preferred_channel: next })}
         />
+      </div>
+
+      <div>
+        <FieldLabel>Visiting cards collected</FieldLabel>
+        <VisitCardCapture
+          visitId={visitId}
+          cards={cards}
+          contactLabel={draft.contacts.find((c) => c.is_decision_maker)?.name
+            || draft.contacts.find((c) => c.name.trim())?.name
+            || null}
+        />
+        <p className="mt-1 text-xs text-gray-500">
+          Photograph the card now — it saves straight away and ticks
+          &ldquo;Visiting card&rdquo; under materials given.
+        </p>
       </div>
     </StepSection>
   )

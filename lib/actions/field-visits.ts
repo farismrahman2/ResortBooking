@@ -339,3 +339,80 @@ export async function processVisitToCrm(
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }
 }
+
+/**
+ * Record a visiting-card photo after the client has uploaded it to storage.
+ * Also ticks OUT.02 "visiting_card" — if a card was collected, that box is
+ * true by definition, and making the rep tick it separately is redundant.
+ */
+export async function attachVisitCard(input: {
+  visit_id:      string
+  storage_path:  string
+  file_name:     string
+  mime_type:     string
+  size_bytes:    number
+  contact_label?: string | null
+}): Promise<ActionResult> {
+  await requirePermission('field_visits', 'write')
+  try {
+    const db  = dbc()
+    const ctx = await getCurrentUserContext()
+
+    const { data: visit } = await db.from('crm_field_visits')
+      .select('status, materials_given').eq('id', input.visit_id).maybeSingle()
+    if (!visit) return { success: false, error: 'Visit not found' }
+    if (visit.status === 'processed' || visit.status === 'void') {
+      return { success: false, error: `Cannot attach — this visit is ${visit.status}.` }
+    }
+
+    const { error } = await db.from('crm_field_visit_cards').insert({
+      visit_id:      input.visit_id,
+      storage_path:  input.storage_path,
+      file_name:     input.file_name,
+      mime_type:     input.mime_type,
+      size_bytes:    input.size_bytes,
+      contact_label: input.contact_label ?? null,
+      created_by:    ctx?.user_id ?? null,
+    })
+    if (error) return { success: false, error: error.message }
+
+    const materials: string[] = visit.materials_given ?? []
+    if (!materials.includes('visiting_card')) {
+      await db.from('crm_field_visits').update({
+        // 'nothing' is mutually exclusive with the rest (OUT.02).
+        materials_given: [...materials.filter((m) => m !== 'nothing'), 'visiting_card'],
+      }).eq('id', input.visit_id)
+    }
+
+    revalidatePath(`/crm/field-visits/${input.visit_id}`)
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/** Soft-delete the row, then best-effort remove the object from storage. */
+export async function removeVisitCard(cardId: string): Promise<ActionResult> {
+  await requirePermission('field_visits', 'write')
+  try {
+    const db = dbc()
+    const { data: card } = await db.from('crm_field_visit_cards')
+      .select('storage_path, visit_id').eq('id', cardId).maybeSingle()
+    if (!card) return { success: false, error: 'Card not found' }
+
+    const { error } = await db.from('crm_field_visit_cards').delete().eq('id', cardId)
+    if (error) return { success: false, error: error.message }
+
+    try {
+      await dbc().storage.from('field-visit-cards').remove([card.storage_path])
+    } catch (err) {
+      // Orphaned object is harmless; the metadata row is the source of truth.
+      console.warn('[field-visits] card storage cleanup non-fatal:', err)
+    }
+
+    revalidatePath(`/crm/field-visits/${card.visit_id}`)
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}

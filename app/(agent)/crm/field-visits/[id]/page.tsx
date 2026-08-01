@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation'
 import { Printer, CheckCircle2, MapPin, ExternalLink, Pencil } from 'lucide-react'
 import { Topbar } from '@/components/layout/Topbar'
 import { requirePermission, hasPermission } from '@/lib/auth/permissions'
-import { getFieldVisitById, listFieldVisitBands, findDuplicateAccounts } from '@/lib/queries/field-visits'
+import { getFieldVisitById, listFieldVisitBands, findDuplicateAccounts, listVisitCards, getSignedCardUrl } from '@/lib/queries/field-visits'
 import { listSectors, listTiers } from '@/lib/queries/crm'
 import { listSalesEmployees } from '@/lib/queries/employees'
 import { ProcessToCrmPanel } from '@/components/field-visits/ProcessToCrmPanel'
@@ -14,6 +14,7 @@ import {
 } from '@/lib/supabase/types-field-visits'
 import type { CrmSector, CrmTier } from '@/lib/supabase/types-crm'
 import type { SalesEmployee } from '@/lib/supabase/types'
+import { VisitCardCapture } from '@/components/field-visits/VisitCardCapture'
 
 export const dynamic = 'force-dynamic'
 
@@ -32,6 +33,12 @@ export default async function FieldVisitDetailPage({ params, searchParams }: Pag
       listTiers().catch(() => [] as CrmTier[]),
     ])
     if (!visit) notFound()
+
+    const rawCards = await listVisitCards(params.id).catch(() => [])
+    const cards = await Promise.all(rawCards.map(async (c) => ({
+      id: c.id, file_name: c.file_name, contact_label: c.contact_label,
+      url: await getSignedCardUrl(c.storage_path).catch(() => null),
+    })))
 
     const suggestions = visit.status === 'submitted' && visit.organisation_name
       ? await findDuplicateAccounts(visit.organisation_name).catch(() => [])
@@ -154,6 +161,17 @@ export default async function FieldVisitDetailPage({ params, searchParams }: Pag
                   <Row k="Best time" v={L(visit.best_time_to_call)} />
                   <Row k="Channel"   v={A(visit.preferred_channel)} />
                 </Section>
+
+                {cards.length > 0 && (
+                  <Section title="Visiting cards">
+                    <VisitCardCapture
+                      visitId={visit.id}
+                      cards={cards}
+                      editable={canWrite && visit.status !== 'processed' && visit.status !== 'void'}
+                      compact
+                    />
+                  </Section>
+                )}
 
                 <Section title="D · Requirements">
                   <Row k="Event types"  v={A(visit.event_types)} />
