@@ -495,3 +495,117 @@ export async function removeVisitCard(cardId: string): Promise<ActionResult> {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }
 }
+
+/**
+ * Sync a visit captured offline.
+ *
+ * The client generates the row id (a UUID) so the wizard can work with no
+ * network at all. What it CANNOT generate is `visit_ref` — GCR-FV-NNNNN is a
+ * sequential counter, and two reps offline would both believe they were
+ * next. So the real reference is minted here, at sync time, and the device
+ * only ever holds a temporary local label.
+ *
+ * Idempotent: re-syncing the same localId updates the existing row rather
+ * than creating a duplicate, so a retry after a half-failed upload is safe.
+ */
+export async function syncOfflineVisit(input: {
+  localId:   string
+  payload:   unknown
+  submitted: boolean
+  gps:       { lat: number; lng: number } | null
+}): Promise<ActionData<{ id: string; visit_ref: string; alreadyExisted: boolean }>> {
+  await requirePermission('field_visits', 'write')
+  try {
+    const db  = dbc()
+    const ctx = await getCurrentUserContext()
+    const parsed = fieldVisitDraftSchema.parse(input.payload ?? {})
+    const { contacts, venues, ...visitFields } = parsed
+
+    if (visitFields.materials_given) {
+      visitFields.materials_given = normaliseMaterials(visitFields.materials_given)
+    }
+
+    // Already synced? Update in place — this is the retry path.
+    const { data: existing } = await db.from('crm_field_visits')
+      .select('id, visit_ref, status').eq('id', input.localId).maybeSingle()
+
+    let visitRef: string = existing?.visit_ref ?? ''
+    if (!existing) {
+      let inserted = false
+      for (let attempt = 0; attempt < 6 && !inserted; attempt++) {
+        const { count } = await db.from('crm_field_visits').select('id', { count: 'exact', head: true })
+        const ref = formatVisitRef((count ?? 0) + attempt)
+        const { error } = await db.from('crm_field_visits').insert({
+          id:         input.localId,          // client-generated
+          visit_ref:  ref,
+          status:     'draft',
+          created_by: ctx?.user_id ?? null,
+          ...visitFields,
+        })
+        if (!error) { visitRef = ref; inserted = true; break }
+        // 23505 on visit_ref → another device took that number, try the next.
+        if (error.code !== '23505') return { success: false, error: error.message }
+      }
+      if (!inserted) return { success: false, error: 'Could not allocate a visit reference' }
+    } else {
+      if (existing.status === 'processed' || existing.status === 'void') {
+        // Someone already actioned it server-side; don't clobber that.
+        return { success: true, data: { id: existing.id, visit_ref: existing.visit_ref, alreadyExisted: true } }
+      }
+      const { error } = await db.from('crm_field_visits')
+        .update({ ...visitFields, updated_at: new Date().toISOString() })
+        .eq('id', input.localId)
+      if (error) return { success: false, error: error.message }
+    }
+
+    // Children are replace-all, matching saveDraftVisit's semantics.
+    if (contacts) {
+      await db.from('crm_field_visit_contacts').delete().eq('visit_id', input.localId)
+      const rows = contacts
+        .filter((c) => c.name || c.designation || c.mobile || c.email)
+        .map((c, i) => ({
+          visit_id: input.localId, sort_order: i,
+          name: c.name ?? null, designation: c.designation ?? null,
+          department: c.department ?? null, mobile: c.mobile ?? null,
+          email: c.email ?? null, is_decision_maker: c.is_decision_maker ?? false,
+        }))
+      if (rows.length) await db.from('crm_field_visit_contacts').insert(rows)
+    }
+    if (venues) {
+      await db.from('crm_field_visit_venues').delete().eq('visit_id', input.localId)
+      const rows = venues
+        .filter((v) => v.venue_name || v.pax || v.rate_per_head || v.feedback)
+        .map((v, i) => ({
+          visit_id: input.localId, sort_order: i,
+          venue_name: v.venue_name ?? null, event_month_year: v.event_month_year ?? null,
+          pax: v.pax ?? null, rate_per_head: v.rate_per_head ?? null,
+          feedback: v.feedback ?? null,
+        }))
+      if (rows.length) await db.from('crm_field_visit_venues').insert(rows)
+    }
+
+    // Only now run the submit gate, so a queued-but-incomplete visit lands as
+    // a draft on the server rather than being rejected and lost.
+    if (input.submitted) {
+      const full = await getFieldVisitById(input.localId)
+      const check = fieldVisitSubmitSchema.safeParse({ ...full, contacts: full?.contacts ?? [] })
+      if (check.success) {
+        await db.from('crm_field_visits').update({
+          status: 'submitted',
+          submitted_at: new Date().toISOString(),
+          gps_lat: input.gps?.lat ?? null,
+          gps_lng: input.gps?.lng ?? null,
+        }).eq('id', input.localId)
+      }
+    }
+
+    await logHistory(input.localId, 'created', 'synced_from_offline', {
+      visit_ref: visitRef, submitted: input.submitted,
+    })
+
+    revalidatePath('/crm/field-visits')
+    return { success: true, data: { id: input.localId, visit_ref: visitRef, alreadyExisted: !!existing } }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}

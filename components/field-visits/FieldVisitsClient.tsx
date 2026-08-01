@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useState, useMemo } from 'react'
 import {
   Download, Search, Plus, ClipboardList, SlidersHorizontal, X,
-  Flame, AlertTriangle, PencilLine, ChevronRight,
+  Flame, AlertTriangle, PencilLine, ChevronRight, CloudOff,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
@@ -15,6 +15,7 @@ import {
 import { formatDate } from '@/lib/formatters/dates'
 import type { CrmSector } from '@/lib/supabase/types-crm'
 import type { SalesEmployee } from '@/lib/supabase/types'
+import { OfflineSync } from './OfflineSync'
 
 interface Initial {
   from: string; to: string; exec: string; interest: string
@@ -88,6 +89,8 @@ export function FieldVisitsClient({
 
   return (
     <div className="space-y-4">
+      <OfflineSync compact />
+
       {/* Stat strip — tappable shortcuts, not just decoration */}
       {visits.length > 0 && (
         <div className="grid grid-cols-3 gap-2">
@@ -120,6 +123,15 @@ export function FieldVisitsClient({
             className="min-h-[44px] w-full rounded-xl border border-gray-300 bg-white pl-9 pr-3 text-sm focus:border-amber-500 focus:outline-none"
           />
         </div>
+        <Link
+          href="/crm/field-visits/offline"
+          aria-label="Offline visits"
+          title="Log a visit with no signal"
+          className="flex min-h-[44px] items-center gap-1.5 rounded-xl border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700"
+        >
+          <CloudOff size={15} />
+          <span className="hidden sm:inline">Offline</span>
+        </Link>
         <button
           type="button"
           onClick={() => setShowFilters((v) => !v)}
