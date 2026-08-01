@@ -11,6 +11,7 @@ import { formatBDT } from '@/lib/formatters/currency'
 import { formatDate } from '@/lib/formatters/dates'
 import { cn } from '@/lib/utils'
 import type { DuplicateGroup } from '@/lib/queries/duplicate-bookings'
+import { toast } from '@/lib/toast'
 
 interface Props {
   groups:   DuplicateGroup[]
@@ -34,7 +35,8 @@ export function DuplicateBookingsTable({ groups, canWrite }: Props) {
     if (!confirm(msg)) return
     startTransition(async () => {
       const r = await cancelBooking(id)
-      if (!r.success) { alert(r.error); return }
+      if (!r.success) { toast.error(r.error); return }
+      toast.success('Duplicate cancelled')
       router.refresh()
     })
   }

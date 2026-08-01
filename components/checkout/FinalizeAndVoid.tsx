@@ -13,6 +13,8 @@ import { finalizeCheckout, voidCheckout, recordRefund, reopenCheckout } from '@/
 import { formatBDT } from '@/lib/formatters/currency'
 import { CHECKOUT_PAYMENT_METHOD_OPTIONS } from '@/components/checkout/labels'
 import type { CheckoutPaymentMethod, CheckoutWithFull } from '@/lib/supabase/types'
+import { toast } from '@/lib/toast'
+import { useConfirm } from '@/components/ui/ConfirmDialog'
 
 interface Props {
   checkout: CheckoutWithFull
@@ -29,6 +31,7 @@ interface Props {
 }
 
 export function FinalizeAndVoid({ checkout, totals, isAdmin, canWrite }: Props) {
+  const confirm = useConfirm()
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -55,6 +58,7 @@ export function FinalizeAndVoid({ checkout, totals, isAdmin, canWrite }: Props) 
       const r = await finalizeCheckout(checkout.id)
       if (!r.success) { setError(r.error); return }
       setFinalizeOpen(false)
+      toast.success('Checkout finalized', { description: 'The booking is now marked checked out.' })
       router.refresh()
     })
   }
@@ -66,16 +70,19 @@ export function FinalizeAndVoid({ checkout, totals, isAdmin, canWrite }: Props) 
       const r = await voidCheckout(checkout.id, { reason: voidReason })
       if (!r.success) { setError(r.error); return }
       setVoidOpen(false)
+      toast.success('Checkout voided')
       router.refresh()
     })
   }
 
-  function handleReopen() {
-    if (!window.confirm('Reopen this finalized checkout for editing? The booking will revert from "checked out" to "confirmed" while you amend the bill.')) return
+  async function handleReopen() {
+    const ok = await confirm({ title: 'Reopen this checkout?', description: 'The booking reverts from checked out to confirmed while you amend the bill.', confirmLabel: 'Reopen' })
+    if (!ok) return
     setError(null)
     startTransition(async () => {
       const r = await reopenCheckout(checkout.id)
       if (!r.success) { setError(r.error); return }
+      toast.success('Checkout reopened for editing')
       router.refresh()
     })
   }
@@ -90,6 +97,7 @@ export function FinalizeAndVoid({ checkout, totals, isAdmin, canWrite }: Props) 
       })
       if (!r.success) { setError(r.error); return }
       setRefundOpen(false)
+      toast.success('Refund recorded')
       router.refresh()
     })
   }

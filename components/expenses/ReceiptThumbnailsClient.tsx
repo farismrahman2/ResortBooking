@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { File as FileIcon, Trash2, ExternalLink } from 'lucide-react'
 import { removeReceipt } from '@/lib/actions/expenses'
 import type { ExpenseAttachmentRow } from '@/lib/supabase/types'
+import { useConfirm } from '@/components/ui/ConfirmDialog'
 
 interface SignedItem extends ExpenseAttachmentRow {
   url: string | null
@@ -16,12 +17,14 @@ interface Props {
 }
 
 export function ReceiptThumbnailsClient({ items, editable }: Props) {
+  const confirm = useConfirm()
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [error,   setError]        = useState<string | null>(null)
 
-  function handleRemove(id: string) {
-    if (!confirm('Remove this receipt? The file is deleted from storage.')) return
+  async function handleRemove(id: string) {
+    const ok = await confirm({ title: 'Remove this receipt?', description: 'The file is permanently deleted from storage.', confirmLabel: 'Remove', danger: true })
+    if (!ok) return
     setError(null)
     startTransition(async () => {
       const result = await removeReceipt(id)

@@ -162,9 +162,7 @@ export function BookingsClient({ bookings }: BookingsClientProps) {
       </div>
 
       {/* Table */}
-      <div className="card overflow-hidden p-0">
-        <BookingTable bookings={filtered} />
-      </div>
+      <BookingTable bookings={filtered} />
     </div>
   )
 }

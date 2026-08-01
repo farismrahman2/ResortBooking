@@ -37,8 +37,14 @@ export default async function EditQuotePage({ params }: PageProps) {
 
   if (!quote) notFound()
 
-  // Only draft and sent quotes can be edited
-  if (!['draft', 'sent'].includes(quote.status)) {
+  // Draft and sent quotes are always editable. A `confirmed` quote is also
+  // editable ONLY while it hasn't been converted to a booking yet — this is
+  // the recovery path when a pre-picked room gets taken by someone else at
+  // convert time. Once converted, the booking is the source of truth.
+  const isEditable =
+    ['draft', 'sent'].includes(quote.status) ||
+    (quote.status === 'confirmed' && !quote.converted_to_booking_id)
+  if (!isEditable) {
     redirect(`/quotes/${params.id}`)
   }
 

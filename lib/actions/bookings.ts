@@ -103,6 +103,9 @@ export async function convertQuoteToBooking(
           `Room number${unique.length > 1 ? 's' : ''} already booked by another booking: ` +
           `${unique.join(', ')}. Edit the quote to pick different rooms, or cancel the ` +
           `conflicting booking first.`,
+        // Structured payload so the UI can offer a "re-pick rooms" affordance
+        // instead of a dead-end error (mirrors the `duplicate` channel).
+        conflict: { rooms: unique },
       }
     }
 

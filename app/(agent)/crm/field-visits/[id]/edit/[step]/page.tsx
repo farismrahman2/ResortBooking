@@ -1,0 +1,65 @@
+import { notFound, redirect } from 'next/navigation'
+import { requirePermission } from '@/lib/auth/permissions'
+import { getFieldVisitById, listFieldVisitBands, listVisitCards, getSignedCardUrl } from '@/lib/queries/field-visits'
+import { listSectors } from '@/lib/queries/crm'
+import { listSalesEmployees } from '@/lib/queries/employees'
+import { FieldVisitWizard } from '@/components/field-visits/FieldVisitWizard'
+import { MigrationErrorBanner } from '@/components/crm/MigrationErrorBanner'
+import { TOTAL_STEPS } from '@/lib/validators/field-visits'
+import type { CrmSector } from '@/lib/supabase/types-crm'
+import type { SalesEmployee } from '@/lib/supabase/types'
+import type { FieldVisitBand } from '@/lib/supabase/types-field-visits'
+
+export const dynamic = 'force-dynamic'
+
+interface PageProps { params: { id: string; step: string } }
+
+export default async function FieldVisitStepPage({ params }: PageProps) {
+  await requirePermission('field_visits', 'write')
+
+  const step = Number(params.step)
+  if (!Number.isInteger(step) || step < 1 || step > TOTAL_STEPS) {
+    redirect(`/crm/field-visits/${params.id}/edit/1`)
+  }
+
+  try {
+    const [visit, bands, sectors, employees, rawCards] = await Promise.all([
+      getFieldVisitById(params.id),
+      listFieldVisitBands(),
+      listSectors().catch(() => [] as CrmSector[]),
+      listSalesEmployees().catch(() => [] as SalesEmployee[]),
+      listVisitCards(params.id).catch(() => []),
+    ])
+    // Private bucket — pre-sign each card so the client can render it.
+    const cards = await Promise.all(rawCards.map(async (c) => ({
+      id: c.id, file_name: c.file_name, contact_label: c.contact_label,
+      url: await getSignedCardUrl(c.storage_path).catch(() => null),
+    })))
+    if (!visit) notFound()
+    // Drafts and submitted visits are editable (a rep must be able to correct a
+    // typo after submitting). Processed and void records are frozen.
+    if (visit.status !== 'draft' && visit.status !== 'submitted') {
+      redirect(`/crm/field-visits/${params.id}`)
+    }
+
+    return (
+      <FieldVisitWizard
+        visit={visit}
+        initialStep={step}
+        sectors={sectors}
+        employees={employees}
+        employeeBands={bands.employeeBands as FieldVisitBand[]}
+        budgetBands={bands.budgetBands as FieldVisitBand[]}
+        cards={cards}
+      />
+    )
+  } catch (err) {
+    // Next's redirect()/notFound() throw control-flow errors — never swallow them.
+    if (err && typeof err === 'object' && 'digest' in err) throw err
+    return (
+      <div className="px-4 py-6">
+        <MigrationErrorBanner error={err instanceof Error ? err.message : String(err)} />
+      </div>
+    )
+  }
+}

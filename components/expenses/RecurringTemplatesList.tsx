@@ -29,6 +29,7 @@ import type {
   ExpensePayeeRow,
   RecurringExpenseTemplateRow,
 } from '@/lib/supabase/types'
+import { useConfirm } from '@/components/ui/ConfirmDialog'
 
 interface Props {
   templates:  RecurringExpenseTemplateRow[]
@@ -38,6 +39,7 @@ interface Props {
 }
 
 export function RecurringTemplatesList({ templates, categories, payees, defaultMonth }: Props) {
+  const confirm = useConfirm()
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [open, setOpen]            = useState(false)
@@ -58,8 +60,9 @@ export function RecurringTemplatesList({ templates, categories, payees, defaultM
     })
   }
 
-  function handleDelete(id: string) {
-    if (!confirm('Delete this template? Existing draft expenses generated from it remain.')) return
+  async function handleDelete(id: string) {
+    const ok = await confirm({ title: 'Delete this template?', description: 'Draft expenses already generated from it are kept.', confirmLabel: 'Delete', danger: true })
+    if (!ok) return
     setError(null)
     startTransition(async () => {
       const result = await deleteRecurringTemplate(id)

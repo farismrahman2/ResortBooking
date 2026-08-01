@@ -17,6 +17,8 @@ import { addPaymentSchema, type AddPaymentInput } from '@/lib/validators/checkou
 import { addPayment, removePayment } from '@/lib/actions/checkout'
 import { formatBDT } from '@/lib/formatters/currency'
 import type { CheckoutPaymentRow } from '@/lib/supabase/types'
+import { toast } from '@/lib/toast'
+import { useConfirm } from '@/components/ui/ConfirmDialog'
 
 interface Props {
   checkoutId: string
@@ -28,6 +30,7 @@ interface Props {
 }
 
 export function PaymentForm({ checkoutId, payments, suggestedAmount, disabled }: Props) {
+  const confirm = useConfirm()
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -52,11 +55,13 @@ export function PaymentForm({ checkoutId, payments, suggestedAmount, disabled }:
     })
   }
 
-  function handleRemove(id: string) {
-    if (!confirm('Remove this payment?')) return
+  async function handleRemove(id: string) {
+    const ok = await confirm({ title: 'Remove this payment?', description: 'The outstanding balance will increase by this amount.', confirmLabel: 'Remove', danger: true })
+    if (!ok) return
     startTransition(async () => {
       const r = await removePayment(id)
-      if (!r.success) { alert(r.error); return }
+      if (!r.success) { toast.error(r.error); return }
+      toast.success('Payment removed')
       router.refresh()
     })
   }

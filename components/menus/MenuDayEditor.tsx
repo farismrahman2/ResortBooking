@@ -13,6 +13,7 @@ import { banglaDate, banglaWeekday, toBanglaDigits } from '@/lib/menus/bangla-nu
 import { cn } from '@/lib/utils'
 import type { MenuDayFull, MenuMealTypeRow } from '@/lib/supabase/types-menus'
 import type { DayMealHeadcounts } from '@/lib/queries/menus'
+import { useConfirm } from '@/components/ui/ConfirmDialog'
 
 interface Props {
   day:        MenuDayFull
@@ -25,6 +26,7 @@ interface Props {
 }
 
 export function MenuDayEditor({ day, mealTypes, dayCounts, canWrite, isAdmin, justCopied }: Props) {
+  const confirm = useConfirm()
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -61,8 +63,9 @@ export function MenuDayEditor({ day, mealTypes, dayCounts, canWrite, isAdmin, ju
     }))
   }
 
-  function onDeleteDay() {
-    if (!confirm('Delete this entire menu day? This cannot be undone.')) return
+  async function onDeleteDay() {
+    const ok = await confirm({ title: 'Delete this menu day?', description: 'Every meal and dish for this day is removed. This cannot be undone.', confirmLabel: 'Delete', danger: true })
+    if (!ok) return
     run(() => deleteMenuDay(day.id), () => router.push('/menus'))
   }
 
@@ -95,7 +98,14 @@ export function MenuDayEditor({ day, mealTypes, dayCounts, canWrite, isAdmin, ju
 
           {canWrite && day.status === 'draft' && (
             <button
-              onClick={() => { if (confirm('Finalize this menu? Editing will be locked (admin can reopen).')) run(() => finalizeMenuDay(day.id)) }}
+              onClick={async () => {
+                const ok = await confirm({
+                  title: 'Finalize this menu?',
+                  description: 'Editing will be locked. An admin can reopen it if something needs to change.',
+                  confirmLabel: 'Finalize',
+                })
+                if (ok) run(() => finalizeMenuDay(day.id))
+              }}
               disabled={pending || day.meals.length === 0}
               className="inline-flex items-center gap-1.5 rounded-lg bg-forest-700 px-3 py-2 text-xs font-medium text-white hover:bg-forest-800 disabled:opacity-40"
             >

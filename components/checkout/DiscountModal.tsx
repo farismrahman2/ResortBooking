@@ -10,6 +10,7 @@ import { AlertCircle, AlertTriangle } from 'lucide-react'
 import { applyDiscount, clearDiscount } from '@/lib/actions/checkout'
 import { formatBDT } from '@/lib/formatters/currency'
 import { cn } from '@/lib/utils'
+import { useConfirm } from '@/components/ui/ConfirmDialog'
 
 interface Props {
   open:        boolean
@@ -25,6 +26,7 @@ interface Props {
 }
 
 export function DiscountModal({ open, onClose, checkoutId, subtotal, current }: Props) {
+  const confirm = useConfirm()
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -58,8 +60,9 @@ export function DiscountModal({ open, onClose, checkoutId, subtotal, current }: 
     })
   }
 
-  function remove() {
-    if (!confirm('Remove the discount from this checkout?')) return
+  async function remove() {
+    const ok = await confirm({ title: 'Remove the discount?', description: 'The checkout total returns to the undiscounted amount.', confirmLabel: 'Remove', danger: true })
+    if (!ok) return
     startTransition(async () => {
       const r = await clearDiscount(checkoutId)
       if (!r.success) { setError(r.error); return }

@@ -5,11 +5,15 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'secondary' | 'danger' | 'ghost' | 'outline'
   size?: 'sm' | 'md' | 'lg'
   loading?: boolean
+  /** Briefly swap the label for a checkmark after a successful action. */
+  succeeded?: boolean
 }
 
 const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant = 'primary', size = 'md', loading, children, disabled, ...props }, ref) => {
-    const base = 'inline-flex items-center justify-center gap-2 font-medium rounded-lg transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50'
+  ({ className, variant = 'primary', size = 'md', loading, succeeded, children, disabled, ...props }, ref) => {
+    // active:scale gives every button in the app a physical press response —
+    // previously only the dashboard QuickActions cards had any micro-interaction.
+    const base = 'inline-flex items-center justify-center gap-2 font-medium rounded-lg transition-all active:scale-[0.97] motion-reduce:active:scale-100 motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50'
 
     const variants = {
       primary:   'bg-forest-700 text-white hover:bg-forest-800 focus-visible:ring-forest-600',
@@ -34,6 +38,11 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       >
         {loading && (
           <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+        )}
+        {succeeded && !loading && (
+          <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2.5} aria-hidden>
+            <path d="M4 10.5l4 4 8-9" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
         )}
         {children}
       </button>

@@ -2,6 +2,8 @@
 
 import { type ReactNode } from 'react'
 import { SidebarProvider, useSidebar } from '@/lib/sidebar-context'
+import { Toaster } from '@/components/ui/Toaster'
+import { ConfirmProvider } from '@/components/ui/ConfirmDialog'
 import { Sidebar } from './Sidebar'
 import type { ModuleSlug, PermissionLevel, RoleSlug } from '@/lib/supabase/types'
 
@@ -18,7 +20,9 @@ interface ShellProps {
 function Shell({ children, userEmail, permissions, roleLabel, roleSlug, unreadAlerts, unreadEnquiries }: ShellProps) {
   const { isOpen, close } = useSidebar()
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-50">
+    // A whisper of forest in the page background — enough to read as warm
+    // rather than clinical, not enough to tint the white cards sitting on it.
+    <div className="flex h-screen overflow-hidden bg-forest-50/40">
       {/* Mobile backdrop */}
       {isOpen && (
         <div
@@ -40,6 +44,8 @@ function Shell({ children, userEmail, permissions, roleLabel, roleSlug, unreadAl
       <main className="flex-1 min-w-0 overflow-y-auto scrollable">
         {children}
       </main>
+
+      <Toaster />
     </div>
   )
 }
@@ -49,16 +55,18 @@ export function LayoutShell({
 }: ShellProps) {
   return (
     <SidebarProvider>
-      <Shell
-        userEmail={userEmail}
-        permissions={permissions}
-        roleLabel={roleLabel}
-        roleSlug={roleSlug}
-        unreadAlerts={unreadAlerts}
-        unreadEnquiries={unreadEnquiries}
-      >
-        {children}
-      </Shell>
+      <ConfirmProvider>
+        <Shell
+          userEmail={userEmail}
+          permissions={permissions}
+          roleLabel={roleLabel}
+          roleSlug={roleSlug}
+          unreadAlerts={unreadAlerts}
+          unreadEnquiries={unreadEnquiries}
+        >
+          {children}
+        </Shell>
+      </ConfirmProvider>
     </SidebarProvider>
   )
 }

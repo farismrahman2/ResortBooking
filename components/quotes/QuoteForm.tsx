@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -234,6 +234,34 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
   useEffect(() => {
     recalculate()
   }, [recalculate])
+
+  /**
+   * Advance required is 50% of the total, re-derived whenever the total moves.
+   * The resort's terms are a 50% advance, so keeping this in sync by hand after
+   * every room/guest/discount tweak was pure busywork — and easy to forget,
+   * which silently sent the guest the wrong number on the WhatsApp quote.
+   *
+   * Safe against a feedback loop: advance_required feeds due_advance only, it
+   * never feeds `total`, so re-deriving from total can't change total.
+   *
+   * A manual override sticks until the total changes again, at which point the
+   * 50% rule reasserts. In edit mode the first computed total is skipped so
+   * opening an old quote with a bespoke advance doesn't silently rewrite it.
+   */
+  const lastAutoTotal = useRef<number | null>(null)
+  const skipFirstAutoAdvance = useRef<boolean>(!!quoteId)
+  useEffect(() => {
+    const total = calcResult?.total ?? 0
+    if (total <= 0) return
+    if (skipFirstAutoAdvance.current) {
+      skipFirstAutoAdvance.current = false
+      lastAutoTotal.current = total
+      return
+    }
+    if (lastAutoTotal.current === total) return
+    lastAutoTotal.current = total
+    setValue('advance_required', Math.round(total * 0.5), { shouldDirty: true })
+  }, [calcResult?.total, setValue])
 
   // Fetch booked room numbers whenever dates change
   useEffect(() => {
@@ -841,13 +869,34 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
               name="advance_required"
               control={control}
               render={({ field }) => (
-                <NumberInput
-                  label="Advance Required"
-                  prefix="৳"
-                  value={field.value}
-                  onChange={(v) => field.onChange(v)}
-                  error={errors.advance_required?.message}
-                />
+                <div>
+                  <NumberInput
+                    label="Advance Required"
+                    prefix="৳"
+                    value={field.value}
+                    onChange={(v) => field.onChange(v)}
+                    error={errors.advance_required?.message}
+                  />
+                  {/* The number moves on its own when the total changes, so
+                      say why — otherwise it reads as a glitch. */}
+                  {(calcResult?.total ?? 0) > 0 && (() => {
+                    const half = Math.round((calcResult?.total ?? 0) * 0.5)
+                    const overridden = field.value !== half
+                    return overridden ? (
+                      <button
+                        type="button"
+                        onClick={() => field.onChange(half)}
+                        className="mt-1 text-[11px] font-medium text-amber-700 hover:underline"
+                      >
+                        Manually set — reset to 50% ({formatBDT(half)})
+                      </button>
+                    ) : (
+                      <p className="mt-1 text-[11px] text-gray-500">
+                        50% of total — updates automatically
+                      </p>
+                    )
+                  })()}
+                </div>
               )}
             />
             <Controller
