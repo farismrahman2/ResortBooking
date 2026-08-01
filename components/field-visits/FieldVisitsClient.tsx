@@ -16,6 +16,7 @@ import { formatDate } from '@/lib/formatters/dates'
 import type { CrmSector } from '@/lib/supabase/types-crm'
 import type { SalesEmployee } from '@/lib/supabase/types'
 import { OfflineSync } from './OfflineSync'
+import { DiscardDraftButton } from './DiscardDraftButton'
 
 interface Initial {
   from: string; to: string; exec: string; interest: string
@@ -303,6 +304,7 @@ function VisitCard({ v, today }: { v: FieldVisitListRow; today: string }) {
           </span>
           <span className="block text-xs text-gray-500">Tap to continue where you left off</span>
         </span>
+        <DiscardDraftButton visitId={v.id} label={v.organisation_name} iconOnly />
         <ChevronRight size={16} className="flex-shrink-0 text-gray-400" />
       </Link>
     )

@@ -34,6 +34,53 @@ async function logHistory(
   }
 }
 
+
+/**
+ * Has the rep actually entered anything worth persisting?
+ *
+ * Guards the lazy-create in saveDraftVisit so that merely opening the wizard
+ * — or opening it and tapping Next a few times — never writes a row. Only
+ * fields a human must deliberately fill count: the wizard pre-seeds one empty
+ * contact card, so an untouched contact array is not "content".
+ */
+function hasMeaningfulContent(input: Record<string, unknown>): boolean {
+  const text = [
+    'organisation_name', 'office_address', 'territory_zone', 'visit_type',
+    'sector_id', 'employee_band', 'best_time_to_call', 'events_per_year',
+    'typical_headcount', 'budget_per_head_band', 'interest_level',
+    'next_event_month', 'next_event_type', 'visit_date', 'sales_executive_id',
+    'due_by', 'follow_up_owner_id',
+  ]
+  for (const k of text) {
+    const v = input[k]
+    if (typeof v === 'string' && v.trim()) return true
+  }
+  const nums = ['rooms_needed', 'annual_event_spend', 'next_event_pax']
+  for (const k of nums) if (typeof input[k] === 'number') return true
+
+  const arrays = [
+    'decision_signoff', 'preferred_channel', 'event_types', 'event_format',
+    'preferred_day', 'peak_months', 'transport', 'materials_given', 'next_step',
+  ]
+  for (const k of arrays) {
+    const v = input[k]
+    if (Array.isArray(v) && v.length > 0) return true
+  }
+
+  // A contact only counts once it has a real field filled in.
+  const contacts = input.contacts
+  if (Array.isArray(contacts) && contacts.some((c) =>
+    ['name', 'designation', 'department', 'mobile', 'email']
+      .some((f) => typeof (c as Record<string, unknown>)?.[f] === 'string'
+        && ((c as Record<string, string>)[f] ?? '').trim())
+  )) return true
+
+  const venues = input.venues
+  if (Array.isArray(venues) && venues.length > 0) return true
+
+  return false
+}
+
 /**
  * Creates an empty draft so the wizard has an id to autosave against.
  * `prefill.organisationName` supports the "log another visit at this
@@ -84,15 +131,36 @@ export async function saveDraftVisit(id: string, partial: unknown): Promise<Acti
 
     const { data: existing } = await db.from('crm_field_visits')
       .select('status, visit_ref').eq('id', id).maybeSingle()
-    if (!existing) return { success: false, error: 'Visit not found' }
-    // Drafts edit freely. A SUBMITTED visit stays amendable so a rep can fix a
-    // typo they spot afterwards — it hasn't reached the CRM yet. Once
-    // processed (or voided) the record is frozen.
-    if (existing.status !== 'draft' && existing.status !== 'submitted') {
-      return { success: false, error: `Cannot edit — this visit is ${existing.status}.` }
-    }
 
     const { contacts, venues, ...visitFields } = input
+
+    // No row yet — this is a brand-new visit whose id was minted client-side.
+    // Create it lazily, and ONLY if the rep has actually entered something.
+    // Opening the form to look at it must not leave a row behind.
+    if (!existing) {
+      if (!hasMeaningfulContent(input)) return { success: true }   // nothing to save yet
+      const ctx = await getCurrentUserContext()
+      let created = false
+      for (let attempt = 0; attempt < 6 && !created; attempt++) {
+        const { count } = await db.from('crm_field_visits').select('id', { count: 'exact', head: true })
+        const { error } = await db.from('crm_field_visits').insert({
+          id,
+          visit_ref:  formatVisitRef((count ?? 0) + attempt),
+          status:     'draft',
+          created_by: ctx?.user_id ?? null,
+        })
+        if (!error) { created = true; break }
+        if (error.code !== '23505') return { success: false, error: error.message }
+      }
+      if (!created) return { success: false, error: 'Could not allocate a visit reference' }
+    } else {
+      // Drafts edit freely. A SUBMITTED visit stays amendable so a rep can fix
+      // a typo they spot afterwards — it hasn't reached the CRM yet. Once
+      // processed (or voided) the record is frozen.
+      if (existing.status !== 'draft' && existing.status !== 'submitted') {
+        return { success: false, error: `Cannot edit — this visit is ${existing.status}.` }
+      }
+    }
     // OUT.02 exclusivity enforced server-side too, not just in the UI.
     if (visitFields.materials_given) {
       visitFields.materials_given = normaliseMaterials(visitFields.materials_given)
@@ -605,6 +673,45 @@ export async function syncOfflineVisit(input: {
 
     revalidatePath('/crm/field-visits')
     return { success: true, data: { id: input.localId, visit_ref: visitRef, alreadyExisted: !!existing } }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/**
+ * Discard a draft outright. Drafts have never reached the CRM and, unlike a
+ * submitted visit, carry no audit value — so this is a real delete, available
+ * to whoever owns the draft rather than admin-only.
+ *
+ * Refuses anything past `draft`; those go through void/hardDelete instead.
+ */
+export async function discardDraftVisit(id: string): Promise<ActionResult> {
+  await requirePermission('field_visits', 'write')
+  try {
+    const db = dbc()
+    const { data: visit } = await db.from('crm_field_visits')
+      .select('status, visit_ref').eq('id', id).maybeSingle()
+    // Nothing there — the row was never created (the lazy-create path). That's
+    // a success from the caller's point of view.
+    if (!visit) return { success: true }
+    if (visit.status !== 'draft') {
+      return { success: false, error: 'Only drafts can be discarded. Void or delete this visit instead.' }
+    }
+
+    try {
+      const { data: cards } = await db.from('crm_field_visit_cards')
+        .select('storage_path').eq('visit_id', id)
+      const paths = (cards ?? []).map((c: { storage_path: string }) => c.storage_path)
+      if (paths.length) await db.storage.from('field-visit-cards').remove(paths)
+    } catch (err) {
+      console.warn('[field-visits] card cleanup on discard non-fatal:', err)
+    }
+
+    const { error } = await db.from('crm_field_visits').delete().eq('id', id)
+    if (error) return { success: false, error: error.message }
+
+    revalidatePath('/crm/field-visits')
+    return { success: true }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }
