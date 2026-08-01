@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Inter, Noto_Sans_Bengali } from 'next/font/google'
 import './globals.css'
+import { ServiceWorkerRegistrar } from '@/components/pwa/ServiceWorkerRegistrar'
 
 const inter = Inter({
   subsets: ['latin'],
@@ -19,6 +20,7 @@ const notoSansBengali = Noto_Sans_Bengali({
 })
 
 export const metadata: Metadata = {
+  manifest: '/manifest.json',
   title: {
     template: '%s | Garden Centre Resort',
     default: 'Garden Centre Resort — Agent',
@@ -34,7 +36,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`${inter.variable} ${notoSansBengali.variable}`}>
-      <body className="min-h-screen bg-gray-50">{children}</body>
+      <body className="min-h-screen bg-gray-50">
+        {children}
+        <ServiceWorkerRegistrar />
+      </body>
     </html>
   )
 }
