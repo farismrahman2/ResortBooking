@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
-import { requirePermission, getCurrentUserContext } from '@/lib/auth/permissions'
+import { requirePermission, getCurrentUserContext, isAdmin } from '@/lib/auth/permissions'
 import { fieldVisitDraftSchema, fieldVisitSubmitSchema } from '@/lib/validators/field-visits'
 import { formatVisitRef, normaliseMaterials } from '@/lib/field-visits/visit-ref'
 import { formatAccountCode } from '@/lib/crm/account-code'
@@ -189,22 +189,38 @@ export async function submitFieldVisit(
   }
 }
 
-/** Soft delete. Same-day only (Asia/Dhaka), mirroring the coffee-shop rule. */
+/**
+ * Soft delete. Same-day only (Asia/Dhaka) for ordinary users, mirroring the
+ * coffee-shop rule — a rep can undo their own mistake on the day, but can't
+ * quietly rewrite last week's activity.
+ *
+ * An admin has no such window, and can also void an already-processed visit
+ * (the CRM account and activity it created are left untouched — those are
+ * separate records with their own lifecycle).
+ */
 export async function voidFieldVisit(id: string, reason: string): Promise<ActionResult> {
   await requirePermission('field_visits', 'write')
   try {
     if (reason.trim().length < 2) return { success: false, error: 'A reason is required' }
-    const db = dbc()
+    const db    = dbc()
+    const admin = await isAdmin()
     const { data: visit } = await db.from('crm_field_visits')
       .select('status, visit_ref, submitted_at, created_at').eq('id', id).maybeSingle()
     if (!visit) return { success: false, error: 'Visit not found' }
-    if (visit.status === 'void')      return { success: false, error: 'Already void' }
-    if (visit.status === 'processed') return { success: false, error: 'Cannot void a processed visit — it is already in the CRM.' }
+    if (visit.status === 'void') return { success: false, error: 'Already void' }
+    if (visit.status === 'processed' && !admin) {
+      return { success: false, error: 'This visit is already in the CRM — only an admin can void it.' }
+    }
 
-    // Window is measured from the day the visit was logged.
-    const anchor = (visit.submitted_at ?? visit.created_at ?? '').slice(0, 10)
-    if (anchor && !isStillSameDayInDhaka(anchor)) {
-      return { success: false, error: 'Visits can only be voided on the day they were logged.' }
+    // Window is measured from the day the visit was logged. Admins bypass it.
+    if (!admin) {
+      const anchor = (visit.submitted_at ?? visit.created_at ?? '').slice(0, 10)
+      if (anchor && !isStillSameDayInDhaka(anchor)) {
+        return {
+          success: false,
+          error: 'Visits can only be voided on the day they were logged. Ask an admin to void an older visit.',
+        }
+      }
     }
 
     const { error } = await db.from('crm_field_visits')
@@ -212,10 +228,73 @@ export async function voidFieldVisit(id: string, reason: string): Promise<Action
       .eq('id', id)
     if (error) return { success: false, error: error.message }
 
-    await logHistory(id, 'edited', 'voided', { visit_ref: visit.visit_ref, reason })
+    await logHistory(id, 'edited', 'voided', {
+      visit_ref: visit.visit_ref, reason,
+      was_status: visit.status, by_admin: admin,
+    })
     revalidatePath('/crm/field-visits')
     revalidatePath(`/crm/field-visits/${id}`)
     return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/**
+ * Permanent delete — admin only, type-to-confirm on the visit ref.
+ * Destroys the visit, its contacts, venues and card photos.
+ *
+ * Anything the visit pushed into the CRM (the account, and the
+ * crm_activities row created at process time) is deliberately LEFT ALONE.
+ * Those are the sales team's records now with their own lifecycle, and the
+ * KPI actuals are computed from crm_activities — silently deleting them here
+ * would rewrite someone's historical numbers.
+ */
+export async function hardDeleteFieldVisit(
+  id: string,
+  confirmRef: string,
+): Promise<ActionData<{ visit_ref: string }>> {
+  await requirePermission('field_visits', 'write')
+  try {
+    // Defence in depth: permission gate above + explicit role check here.
+    const ctx = await getCurrentUserContext()
+    if (!ctx || ctx.profile.role.slug !== 'admin') {
+      return { success: false, error: 'Only an Admin can permanently delete a visit.' }
+    }
+    const db = dbc()
+
+    const { data: visit } = await db.from('crm_field_visits')
+      .select('visit_ref, organisation_name, status, account_id').eq('id', id).maybeSingle()
+    if (!visit) return { success: false, error: 'Visit not found' }
+    if (confirmRef.trim().toUpperCase() !== visit.visit_ref.trim().toUpperCase()) {
+      return { success: false, error: `Type ${visit.visit_ref} exactly to confirm.` }
+    }
+
+    // Remove the card images before the rows cascade away, otherwise the
+    // storage paths are gone and the objects are orphaned forever.
+    try {
+      const { data: cards } = await db.from('crm_field_visit_cards')
+        .select('storage_path').eq('visit_id', id)
+      const paths = (cards ?? []).map((c: { storage_path: string }) => c.storage_path)
+      if (paths.length) await db.storage.from('field-visit-cards').remove(paths)
+    } catch (err) {
+      console.warn('[field-visits] card cleanup on delete non-fatal:', err)
+    }
+
+    // Children (contacts, venues, cards) cascade on the FK.
+    const { error } = await db.from('crm_field_visits').delete().eq('id', id)
+    if (error) return { success: false, error: error.message }
+
+    await logHistory(id, 'edited', 'hard_deleted', {
+      visit_ref: visit.visit_ref,
+      organisation: visit.organisation_name,
+      was_status: visit.status,
+      crm_account_kept: visit.account_id ?? null,
+      by: ctx.email ?? null,
+    })
+
+    revalidatePath('/crm/field-visits')
+    return { success: true, data: { visit_ref: visit.visit_ref } }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }

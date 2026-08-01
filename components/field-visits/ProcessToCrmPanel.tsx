@@ -2,9 +2,9 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertCircle, Building2, CheckCircle2, Trash2 } from 'lucide-react'
+import { AlertCircle, Building2, CheckCircle2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { processVisitToCrm, voidFieldVisit } from '@/lib/actions/field-visits'
+import { processVisitToCrm } from '@/lib/actions/field-visits'
 import { STAGE_LABELS, STAGE_ORDER } from '@/lib/crm/stage-probabilities'
 import type { CrmTier } from '@/lib/supabase/types-crm'
 
@@ -75,16 +75,6 @@ export function ProcessToCrmPanel({
     })
   }
 
-  function handleVoid() {
-    const reason = window.prompt('Why is this visit being voided?')
-    if (!reason) return
-    setError(null)
-    startTransition(async () => {
-      const r = await voidFieldVisit(visitId, reason)
-      if (!r.success) { setError(r.error); return }
-      router.refresh()
-    })
-  }
 
   return (
     <div className="space-y-3 rounded-xl border border-amber-300 bg-amber-50/50 p-4">
@@ -153,12 +143,6 @@ export function ProcessToCrmPanel({
         {pending ? 'Processing…' : 'Mark processed'}
       </button>
 
-      <button
-        type="button" onClick={handleVoid} disabled={pending}
-        className="flex min-h-[40px] w-full items-center justify-center gap-1.5 rounded-xl border border-red-200 text-xs font-medium text-red-600"
-      >
-        <Trash2 size={13} /> Void this visit
-      </button>
     </div>
   )
 }
