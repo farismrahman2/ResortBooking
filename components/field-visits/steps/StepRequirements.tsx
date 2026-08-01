@@ -3,7 +3,7 @@
 import { TextField, SelectField, StepSection, FieldLabel, ChipGroup } from '../wizard-ui'
 import {
   EVENT_TYPE_OPTIONS, EVENT_FORMAT_OPTIONS, PREFERRED_DAY_OPTIONS,
-  MONTH_OPTIONS, TRANSPORT_OPTIONS,
+  MONTH_OPTIONS,
 } from '@/lib/supabase/types-field-visits'
 import type { WizardDraft } from '../FieldVisitWizard'
 import type { FieldVisitBand } from '@/lib/supabase/types-field-visits'
@@ -85,15 +85,6 @@ export function StepRequirements({
           options={MONTH_OPTIONS}
           value={draft.peak_months}
           onChange={(next) => update({ peak_months: next })}
-        />
-      </div>
-
-      <div>
-        <FieldLabel>Transport</FieldLabel>
-        <ChipGroup
-          options={TRANSPORT_OPTIONS}
-          value={draft.transport}
-          onChange={(next) => update({ transport: next })}
         />
       </div>
     </StepSection>

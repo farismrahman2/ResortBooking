@@ -95,8 +95,6 @@ export function FieldVisitPrint({
         </table>
         <div className="mt-1.5 grid grid-cols-2 gap-x-4">
           <F c="CON.04" k="Sign-off"  v={A(visit.decision_signoff)} />
-          <F c="CON.05" k="Best time" v={L(visit.best_time_to_call)} />
-          <F c="CON.06" k="Channel"   v={A(visit.preferred_channel)} />
         </div>
       </Sec>
 
@@ -110,7 +108,6 @@ export function FieldVisitPrint({
         <F c="REQ.07" k="Rooms"        v={L(visit.rooms_needed)} />
         <F c="REQ.08" k="Annual spend" v={L(visit.annual_event_spend)} />
         <F c="REQ.09" k="Peak months"  v={A(visit.peak_months)} wide />
-        <F c="REQ.10" k="Transport"    v={A(visit.transport)} wide />
       </Sec>
 
       <Sec title="E — Current venues (CMP)">

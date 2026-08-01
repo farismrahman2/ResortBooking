@@ -75,8 +75,6 @@ export function StepReview({
               <Row key={i} k={c.name} v={[c.designation, c.mobile].filter(Boolean).join(' · ') || '—'} />
             ))}
         <Row k="Sign-off"  v={A(draft.decision_signoff)} />
-        <Row k="Best time" v={L(draft.best_time_to_call)} />
-        <Row k="Channel"   v={A(draft.preferred_channel)} />
       </Group>
 
       <Group title="D · Requirements" step={4} errorSteps={errorSteps} onEdit={onEditStep}>
@@ -89,7 +87,6 @@ export function StepReview({
         <Row k="Rooms"       v={L(draft.rooms_needed)} />
         <Row k="Annual spend" v={L(draft.annual_event_spend)} />
         <Row k="Peak months" v={A(draft.peak_months)} />
-        <Row k="Transport"   v={A(draft.transport)} />
       </Group>
 
       <Group title="E · Current venues" step={5} errorSteps={errorSteps} onEdit={onEditStep}>
