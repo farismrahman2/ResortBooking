@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Plus, Trash2, ChevronDown, ChevronUp, Star } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TextField, StepSection, FieldLabel, ChipGroup } from '../wizard-ui'
-import { DECISION_SIGNOFF_OPTIONS, CHANNEL_OPTIONS } from '@/lib/supabase/types-field-visits'
+import { DECISION_SIGNOFF_OPTIONS } from '@/lib/supabase/types-field-visits'
 import type { WizardDraft } from '../FieldVisitWizard'
 import { VisitCardCapture, type CardItem } from '../VisitCardCapture'
 
@@ -118,22 +118,6 @@ export function StepContacts({
           options={DECISION_SIGNOFF_OPTIONS}
           value={draft.decision_signoff}
           onChange={(next) => update({ decision_signoff: next })}
-        />
-      </div>
-
-      <TextField
-        label="Best time to call"
-        value={draft.best_time_to_call}
-        onChange={(v) => update({ best_time_to_call: v })}
-        placeholder="e.g. after 3pm, Sun–Thu"
-      />
-
-      <div>
-        <FieldLabel>Preferred contact channel</FieldLabel>
-        <ChipGroup
-          options={CHANNEL_OPTIONS}
-          value={draft.preferred_channel}
-          onChange={(next) => update({ preferred_channel: next })}
         />
       </div>
 

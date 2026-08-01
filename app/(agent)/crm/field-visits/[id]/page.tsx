@@ -160,8 +160,6 @@ export default async function FieldVisitDetailPage({ params, searchParams }: Pag
                           v={[c.designation, c.department, c.mobile, c.email].filter(Boolean).join(' · ') || '—'} />
                       ))}
                   <Row k="Sign-off"  v={A(visit.decision_signoff)} />
-                  <Row k="Best time" v={L(visit.best_time_to_call)} />
-                  <Row k="Channel"   v={A(visit.preferred_channel)} />
                 </Section>
 
                 {cards.length > 0 && (
@@ -185,7 +183,6 @@ export default async function FieldVisitDetailPage({ params, searchParams }: Pag
                   <Row k="Rooms needed" v={L(visit.rooms_needed)} />
                   <Row k="Annual spend" v={L(visit.annual_event_spend)} />
                   <Row k="Peak months"  v={A(visit.peak_months)} />
-                  <Row k="Transport"    v={A(visit.transport)} />
                 </Section>
 
                 <Section title="E · Current venues">
