@@ -173,6 +173,10 @@ export function FieldVisitWizard({ visit, initialStep, sectors, employees, emplo
   }, [lsKey])
 
   const pushToServer = useCallback(async (d: WizardDraft) => {
+    // Nothing typed since the last successful save — don't touch the server.
+    // Stepping through an untouched form used to POST on every Next, which is
+    // what created the empty "Unfinished visit" rows.
+    if (!dirtyRef.current) return
     setSaveState('saving')
     try {
       const r = await saveDraftVisit(visit.id, toPayload(d))
