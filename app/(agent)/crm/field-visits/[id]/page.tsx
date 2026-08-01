@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { Printer, CheckCircle2, MapPin, ExternalLink, Pencil } from 'lucide-react'
 import { Topbar } from '@/components/layout/Topbar'
-import { requirePermission, hasPermission } from '@/lib/auth/permissions'
+import { requirePermission, hasPermission, isAdmin } from '@/lib/auth/permissions'
 import { getFieldVisitById, listFieldVisitBands, findDuplicateAccounts, listVisitCards, getSignedCardUrl } from '@/lib/queries/field-visits'
 import { listSectors, listTiers } from '@/lib/queries/crm'
 import { listSalesEmployees } from '@/lib/queries/employees'
@@ -15,6 +15,7 @@ import {
 import type { CrmSector, CrmTier } from '@/lib/supabase/types-crm'
 import type { SalesEmployee } from '@/lib/supabase/types'
 import { VisitCardCapture } from '@/components/field-visits/VisitCardCapture'
+import { VisitDangerZone } from '@/components/field-visits/VisitDangerZone'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,6 +24,7 @@ interface PageProps { params: { id: string }; searchParams: { submitted?: string
 export default async function FieldVisitDetailPage({ params, searchParams }: PageProps) {
   await requirePermission('field_visits', 'read')
   const canWrite = await hasPermission('field_visits', 'write')
+  const admin    = await isAdmin()
 
   try {
     const [visit, bands, sectors, employees, tiers] = await Promise.all([
@@ -216,6 +218,17 @@ export default async function FieldVisitDetailPage({ params, searchParams }: Pag
                   canWrite={canWrite}
                   accountId={visit.account_id}
                 />
+
+                {canWrite && (
+                  <VisitDangerZone
+                    visitId={visit.id}
+                    visitRef={visit.visit_ref}
+                    status={visit.status}
+                    organisationName={visit.organisation_name}
+                    isAdmin={admin}
+                    accountId={visit.account_id}
+                  />
+                )}
               </div>
             </div>
 
