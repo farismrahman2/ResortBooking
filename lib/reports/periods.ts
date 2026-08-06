@@ -38,8 +38,11 @@ export function buildPeriodRange(
       return range(y, y, 'Yesterday', 'day')
     }
     case 'this_week': {
+      // Ends TODAY, not at the end of the week. Running to a future date meant
+      // a partial current period was compared against a complete prior one,
+      // so every metric showed a collapse that hadn't happened.
       const f = startOfWeek(anchor, { weekStartsOn: 1 })
-      return range(f, endOfWeek(anchor, { weekStartsOn: 1 }), 'This week', 'day')
+      return range(f, anchor, 'This week', 'day')
     }
     case 'last_week': {
       const a = subWeeks(anchor, 1)
@@ -47,7 +50,8 @@ export function buildPeriodRange(
       return range(f, endOfWeek(a, { weekStartsOn: 1 }), 'Last week', 'day')
     }
     case 'this_month':
-      return range(startOfMonth(anchor), endOfMonth(anchor), format(anchor, 'MMMM yyyy'), 'day')
+      // to = today, not end of month — see the note on 'this_week'.
+      return range(startOfMonth(anchor), anchor, format(anchor, 'MMMM yyyy'), 'day')
     case 'last_month': {
       const a = subMonths(anchor, 1)
       return range(startOfMonth(a), endOfMonth(a), format(a, 'MMMM yyyy'), 'day')
@@ -57,7 +61,7 @@ export function buildPeriodRange(
     case 'last_90_days':
       return range(subDays(anchor, 89), anchor, 'Last 90 days', 'week')
     case 'this_quarter':
-      return range(startOfQuarter(anchor), endOfQuarter(anchor),
+      return range(startOfQuarter(anchor), anchor,
         `Q${Math.floor(anchor.getMonth() / 3) + 1} ${anchor.getFullYear()}`, 'week')
     case 'last_quarter': {
       const a = subQuarters(anchor, 1)
@@ -65,7 +69,7 @@ export function buildPeriodRange(
         `Q${Math.floor(a.getMonth() / 3) + 1} ${a.getFullYear()}`, 'week')
     }
     case 'this_year':
-      return range(startOfYear(anchor), endOfYear(anchor), `${anchor.getFullYear()}`, 'month')
+      return range(startOfYear(anchor), anchor, `${anchor.getFullYear()}`, 'month')
     case 'ytd':
       return range(startOfYear(anchor), anchor, `${anchor.getFullYear()} YTD`, 'month')
     case 'custom': {
@@ -98,6 +102,27 @@ export function getComparisonRange(period: PeriodRange, mode: 'previous_period' 
   }
   // previous_period
   const days = differenceInCalendarDays(period.to, period.from) + 1
+
+  // Month-aligned periods compare against the SAME DAYS of the previous month,
+  // not a sliding window of equal length. Sliding meant June (30 days) was
+  // compared against 2–31 May rather than May, so month-over-month deltas were
+  // wrong for every month except the 31-day ones — and "1–6 Aug" landed on
+  // "26–31 Jul" instead of "1–6 Jul", which is the comparison a manager means.
+  if (period.from.getDate() === 1) {
+    const prevStart = startOfMonth(subMonths(period.from, 1))
+    const prevMonthEnd = endOfMonth(prevStart)
+    // Month-to-date: mirror the same day count, clamped to the shorter month
+    // (so 1–31 Mar compares against all of Feb rather than spilling into Mar).
+    const mirroredEnd = addDays(prevStart, days - 1)
+    const t = mirroredEnd > prevMonthEnd ? prevMonthEnd : mirroredEnd
+    return {
+      from: startOfDay(prevStart),
+      to:   endOfDay(t),
+      label: `${format(prevStart, 'MMM')} 1–${format(t, 'd')}`,
+      granularity: period.granularity,
+    }
+  }
+
   const t = subDays(period.from, 1)
   const f = subDays(t, days - 1)
   return { from: startOfDay(f), to: endOfDay(t), label: `Previous ${days}d`, granularity: period.granularity }

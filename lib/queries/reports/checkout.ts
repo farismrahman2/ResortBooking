@@ -2,6 +2,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { unstable_cache } from 'next/cache'
 import { toIsoDate } from '@/lib/reports/periods'
 import type { PeriodRange } from '@/lib/reports/types'
+import { dhakaRangeBounds, toDhakaDay } from '@/lib/reports/booking-revenue'
 
 const db = () => createServiceClient() as any  // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -20,6 +21,7 @@ export interface ExtrasOverview {
 export async function getExtrasOverview(period: PeriodRange): Promise<ExtrasOverview> {
   const fromIso = toIsoDate(period.from)
   const toIso   = toIsoDate(period.to)
+  const dhakaBounds = dhakaRangeBounds(fromIso, toIso)
   // Pull finalized checkouts and their charges
   const { data: checkouts } = await db()
     .from('checkouts')
@@ -29,7 +31,7 @@ export async function getExtrasOverview(period: PeriodRange): Promise<ExtrasOver
       checkout_charges (amount, category:charge_categories (slug, display_name))
     `)
     .eq('status', 'finalized')
-    .gte('finalized_at', fromIso).lte('finalized_at', `${toIso}T23:59:59`)
+    .gte('finalized_at', dhakaBounds.startUtc).lt('finalized_at', dhakaBounds.endUtc)
 
   let total_extras_revenue = 0
   let total_guests = 0
@@ -44,7 +46,7 @@ export async function getExtrasOverview(period: PeriodRange): Promise<ExtrasOver
     total_extras_revenue += amt
     const guests = Number(co.booking?.adults ?? 0) + Number(co.booking?.children_paid ?? 0) + Number(co.booking?.children_free ?? 0)
     total_guests += guests
-    const day = String(co.finalized_at).slice(0, 10)
+    const day = toDhakaDay(String(co.finalized_at))
     daily.set(day, (daily.get(day) ?? 0) + amt)
     for (const ch of (co.checkout_charges ?? [])) {
       const slug = ch.category?.slug ?? 'misc'
@@ -84,6 +86,7 @@ export interface TopItemRow {
 export async function getTopChargeItems(period: PeriodRange, limit = 50): Promise<TopItemRow[]> {
   const fromIso = toIsoDate(period.from)
   const toIso   = toIsoDate(period.to)
+  const dhakaBounds = dhakaRangeBounds(fromIso, toIso)
   const { data } = await db()
     .from('checkout_charges')
     .select(`
@@ -92,7 +95,7 @@ export async function getTopChargeItems(period: PeriodRange, limit = 50): Promis
       checkout:checkouts!inner (status, finalized_at)
     `)
     .eq('checkout.status', 'finalized')
-    .gte('checkout.finalized_at', fromIso).lte('checkout.finalized_at', `${toIso}T23:59:59`)
+    .gte('checkout.finalized_at', dhakaBounds.startUtc).lt('checkout.finalized_at', dhakaBounds.endUtc)
 
   const catalog = new Map<string, TopItemRow>()
   let freeformTotal = 0, freeformQty = 0, freeformCount = 0
@@ -144,11 +147,12 @@ export interface ExtrasByRoomTypeRow {
 export async function getExtrasByRoomType(period: PeriodRange): Promise<ExtrasByRoomTypeRow[]> {
   const fromIso = toIsoDate(period.from)
   const toIso   = toIsoDate(period.to)
+  const dhakaBounds = dhakaRangeBounds(fromIso, toIso)
   const { data } = await db()
     .from('checkouts')
     .select('charges_total, booking:bookings!inner (booking_rooms (room_type, qty))')
     .eq('status', 'finalized')
-    .gte('finalized_at', fromIso).lte('finalized_at', `${toIso}T23:59:59`)
+    .gte('finalized_at', dhakaBounds.startUtc).lt('finalized_at', dhakaBounds.endUtc)
 
   const byType = new Map<string, { revenue: number; checkouts: number }>()
   for (const co of (data ?? []) as any[]) {  // eslint-disable-line @typescript-eslint/no-explicit-any

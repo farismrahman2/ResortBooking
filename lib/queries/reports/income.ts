@@ -2,6 +2,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { unstable_cache } from 'next/cache'
 import { toIsoDate } from '@/lib/reports/periods'
 import type { PeriodRange } from '@/lib/reports/types'
+import { bookingRevenue, REVENUE_STATUS_LIST, occupiesRoom, dhakaRangeBounds, toDhakaDay } from '@/lib/reports/booking-revenue'
 
 interface DbRows<T> { rows: T[] }
 const db = () => createServiceClient() as any  // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -17,14 +18,15 @@ const DOW_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Fri
 async function fetchDailyIncome(period: PeriodRange): Promise<DailyIncomeRow[]> {
   const fromIso = toIsoDate(period.from)
   const toIso   = toIsoDate(period.to)
+  const dhakaBounds = dhakaRangeBounds(fromIso, toIso)
   const [{ data: bookings }, { data: checkouts }, coffeeRes] = await Promise.all([
     db().from('bookings')
-      .select('visit_date, total')
-      .gte('visit_date', fromIso).lte('visit_date', toIso).neq('status', 'cancelled'),
+      .select('visit_date, total, status, advance_paid')
+      .gte('visit_date', fromIso).lte('visit_date', toIso).in('status', REVENUE_STATUS_LIST),
     db().from('checkouts')
       .select('finalized_at, charges_total')
       .eq('status', 'finalized')
-      .gte('finalized_at', fromIso).lte('finalized_at', `${toIso}T23:59:59`),
+      .gte('finalized_at', dhakaBounds.startUtc).lt('finalized_at', dhakaBounds.endUtc),
     db().from('coffee_shop_sales')
       .select('sale_date, net_amount')
       .eq('status', 'completed')
@@ -38,14 +40,15 @@ async function fetchDailyIncome(period: PeriodRange): Promise<DailyIncomeRow[]> 
     byDay.set(iso, { date: iso, room_revenue: 0, extras_revenue: 0, coffee_shop_revenue: 0, total_revenue: 0, bookings: 0 })
     d = new Date(d.getTime() + 86400_000)
   }
-  for (const b of (bookings ?? []) as Array<{ visit_date: string; total: number }>) {
+  for (const b of (bookings ?? []) as Array<{ visit_date: string; total: number; status: string; advance_paid: number }>) {
     const r = byDay.get(b.visit_date)
     if (!r) continue
-    r.room_revenue += Number(b.total ?? 0)
+    // A no-show contributes only its non-refundable advance.
+    r.room_revenue += bookingRevenue(b)
     r.bookings += 1
   }
   for (const c of (checkouts ?? []) as Array<{ finalized_at: string; charges_total: number }>) {
-    const iso = c.finalized_at.slice(0, 10)
+    const iso = toDhakaDay(c.finalized_at)
     const r = byDay.get(iso)
     if (!r) continue
     r.extras_revenue += Number(c.charges_total ?? 0)
@@ -68,14 +71,15 @@ export const getDailyIncome = (period: PeriodRange) => unstable_cache(
 async function fetchPackageRevenue(period: PeriodRange): Promise<PackageRevenueRow[]> {
   const fromIso = toIsoDate(period.from)
   const toIso   = toIsoDate(period.to)
+  const dhakaBounds = dhakaRangeBounds(fromIso, toIso)
   const { data } = await db().from('bookings')
-    .select('total, package_snapshot')
-    .gte('visit_date', fromIso).lte('visit_date', toIso).neq('status', 'cancelled')
+    .select('total, package_snapshot, status, advance_paid')
+    .gte('visit_date', fromIso).lte('visit_date', toIso).in('status', REVENUE_STATUS_LIST)
   const byPkg = new Map<string, { revenue: number; bookings: number }>()
   for (const b of (data ?? []) as Array<{ total: number; package_snapshot: { name?: string } | null }>) {
     const name = b.package_snapshot?.name ?? '(Unnamed)'
     const cur = byPkg.get(name) ?? { revenue: 0, bookings: 0 }
-    cur.revenue += Number(b.total ?? 0)
+    cur.revenue += bookingRevenue(b)
     cur.bookings += 1
     byPkg.set(name, cur)
   }
@@ -100,10 +104,11 @@ export const getPackageRevenue = (period: PeriodRange) => unstable_cache(
 async function fetchDayOfWeek(period: PeriodRange): Promise<DowRow[]> {
   const fromIso = toIsoDate(period.from)
   const toIso   = toIsoDate(period.to)
+  const dhakaBounds = dhakaRangeBounds(fromIso, toIso)
   const [{ data: bookings }, { data: occ }] = await Promise.all([
     db().from('bookings')
-      .select('visit_date, total')
-      .gte('visit_date', fromIso).lte('visit_date', toIso).neq('status', 'cancelled'),
+      .select('visit_date, total, status, advance_paid')
+      .gte('visit_date', fromIso).lte('visit_date', toIso).in('status', REVENUE_STATUS_LIST),
     db().rpc('reports_daily_occupancy', { p_from: fromIso, p_to: toIso }),
   ])
   const stats: DowRow[] = DOW_LABELS.map((label, i) => ({
@@ -117,7 +122,7 @@ async function fetchDayOfWeek(period: PeriodRange): Promise<DowRow[]> {
   }
   for (const b of (bookings ?? []) as Array<{ visit_date: string; total: number }>) {
     const day = new Date(b.visit_date + 'T00:00:00').getDay()
-    stats[day].total_revenue += Number(b.total ?? 0)
+    stats[day].total_revenue += bookingRevenue(b)
     stats[day].bookings += 1
   }
   for (const o of (occ ?? []) as Array<{ date: string; occupancy_pct: number }>) {
@@ -154,18 +159,20 @@ export interface IndustryKpis {
 async function fetchIndustryKpis(period: PeriodRange): Promise<IndustryKpis> {
   const fromIso = toIsoDate(period.from)
   const toIso   = toIsoDate(period.to)
+  const dhakaBounds = dhakaRangeBounds(fromIso, toIso)
   const [{ data: occ }, { data: bookings }] = await Promise.all([
     db().rpc('reports_daily_occupancy', { p_from: fromIso, p_to: toIso }),
     db().from('bookings')
-      .select('total, package_type, visit_date, check_out_date, nights')
-      .gte('visit_date', fromIso).lte('visit_date', toIso).neq('status', 'cancelled'),
+      .select('total, package_type, visit_date, check_out_date, nights, status, advance_paid')
+      .gte('visit_date', fromIso).lte('visit_date', toIso).in('status', REVENUE_STATUS_LIST),
   ])
   const occRows = (occ ?? []) as Array<{ rooms_occupied: number; total_rooms: number }>
   const days = occRows.length
   const totalRooms = days > 0 ? occRows[0].total_rooms : null
   const roomNightsSold      = occRows.reduce((s, r) => s + Number(r.rooms_occupied ?? 0), 0)
   const availableRoomNights = totalRooms ? totalRooms * days : 0
-  const roomRevenue         = (bookings ?? []).reduce((s: number, b: any) => s + Number(b.total ?? 0), 0)  // eslint-disable-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const roomRevenue         = (bookings ?? []).reduce((s: number, b: any) => s + bookingRevenue(b), 0)
   const adr     = roomNightsSold > 0      ? Math.round(roomRevenue / roomNightsSold) : null
   const revpar  = availableRoomNights > 0 ? Math.round(roomRevenue / availableRoomNights) : null
   const occPct  = availableRoomNights > 0 ? Math.round((roomNightsSold / availableRoomNights) * 1000) / 10 : null
