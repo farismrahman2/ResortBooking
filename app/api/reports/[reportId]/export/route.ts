@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { renderToStream } from '@react-pdf/renderer'
-import { requirePermission, getCurrentUserContext } from '@/lib/auth/permissions'
+import { requirePermission, getCurrentUserContext, hasPermission } from '@/lib/auth/permissions'
+import type { ModuleSlug } from '@/lib/supabase/types'
 import { resolvePeriod } from '@/lib/reports/page-params'
 import { getReportBuilder } from '@/lib/reports/registry'
 import { payloadToCsv } from '@/lib/reports/export/csv'
@@ -18,8 +19,31 @@ function safeFilename(reportId: string, period: string, ext: string): string {
   return `${reportId}_${periodSlug}_${stamp}.${ext}`
 }
 
+/**
+ * Reports whose PAGE enforces a second permission on top of reports:read.
+ * The export route must mirror that, or a user with reports:read but no
+ * hr:read can download via /api/reports/hr-loan-exposure/export the very
+ * payroll and staff-loan figures the UI explicitly refuses to show them.
+ */
+const EXTRA_PERMISSION: Record<string, ModuleSlug> = {
+  'hr-salary-vs-revenue': 'hr',
+  'hr-attendance':        'hr',
+  'hr-loan-exposure':     'hr',
+  'checkout-extras':      'checkout',
+  'checkout-top-items':   'checkout',
+  'checkout-by-room-type':'checkout',
+}
+
 export async function GET(req: NextRequest, { params }: RouteParams) {
   await requirePermission('reports', 'read')
+
+  const extra = EXTRA_PERMISSION[params.reportId]
+  if (extra && !(await hasPermission(extra, 'read'))) {
+    return NextResponse.json(
+      { error: `${extra} access required for this report` },
+      { status: 403 },
+    )
+  }
 
   const sp = req.nextUrl.searchParams
   const format = (sp.get('format') ?? 'csv').toLowerCase()
