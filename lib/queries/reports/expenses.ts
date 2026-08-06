@@ -99,11 +99,35 @@ export const getTopVendors = (period: PeriodRange) => unstable_cache(
 export interface BudgetVarianceRow { category_name: string; budgeted: number; actual: number; variance: number; variance_pct: number | null; status: 'under' | 'on_track' | 'warn' | 'over' }
 
 export async function getBudgetVsActual(period: PeriodRange): Promise<BudgetVarianceRow[]> {
-  // Resolve to a single year+month if the period spans exactly one calendar month
-  const month = period.from.getMonth() + 1
-  const year  = period.from.getFullYear()
+  // Budgets are monthly; the period is arbitrary. This used to take the month
+  // of period.from ONLY and compare that single month's budget against the
+  // actuals for the WHOLE period — so a 90-day or YTD view showed every
+  // category as wildly over budget. Now every month the period touches is
+  // included, each pro-rated by the fraction of that month actually covered.
+  const months: { year: number; month: number; weight: number }[] = []
+  {
+    const cursor = new Date(period.from.getFullYear(), period.from.getMonth(), 1)
+    while (cursor <= period.to) {
+      const y = cursor.getFullYear(), m = cursor.getMonth()
+      const monthStart = new Date(y, m, 1)
+      const monthEnd   = new Date(y, m + 1, 0)
+      const daysInMonth = monthEnd.getDate()
+      const overlapStart = period.from > monthStart ? period.from : monthStart
+      const overlapEnd   = period.to   < monthEnd   ? period.to   : monthEnd
+      const covered = Math.max(
+        0,
+        Math.round((overlapEnd.getTime() - overlapStart.getTime()) / 86400_000) + 1,
+      )
+      months.push({ year: y, month: m + 1, weight: Math.min(1, covered / daysInMonth) })
+      cursor.setMonth(cursor.getMonth() + 1)
+    }
+  }
+  const weightFor = new Map(months.map((x) => [`${x.year}-${x.month}`, x.weight]))
+
   try {
-    const { data: budgets } = await db().from('expense_budgets').select('*').eq('year', year).eq('month', month)
+    const { data: budgets } = await db().from('expense_budgets').select('*')
+      .in('year',  [...new Set(months.map((x) => x.year))])
+      .in('month', [...new Set(months.map((x) => x.month))])
     const { data: actuals } = await db().from('expenses')
       .select('amount, category:expense_categories!inner (id, name)')
       .gte('expense_date', toIsoDate(period.from))
@@ -116,7 +140,18 @@ export async function getBudgetVsActual(period: PeriodRange): Promise<BudgetVari
       cur.total += Number(a.amount ?? 0)
       actualByCat.set(k, cur)
     }
-    return ((budgets ?? []) as any[]).map((b) => {  // eslint-disable-line @typescript-eslint/no-explicit-any
+    // Collapse the per-month budget rows into one pro-rated figure per
+    // category. `.in(year) x .in(month)` can return month/year pairs the
+    // period never touches, so anything without a weight is dropped.
+    const budgetByCat = new Map<string, number>()
+    for (const b of (budgets ?? []) as any[]) {  // eslint-disable-line @typescript-eslint/no-explicit-any
+      const w = weightFor.get(`${b.year}-${b.month}`)
+      if (w === undefined) continue
+      budgetByCat.set(b.category_id, (budgetByCat.get(b.category_id) ?? 0) + Number(b.amount ?? 0) * w)
+    }
+
+    return [...budgetByCat.entries()].map(([categoryId, budgeted]) => {
+      const b = { category_id: categoryId, amount: Math.round(budgeted) }
       const a = actualByCat.get(b.category_id) ?? { name: '?', total: 0 }
       const variance = a.total - Number(b.amount ?? 0)
       const variance_pct = b.amount > 0 ? Math.round((variance / Number(b.amount)) * 1000) / 10 : null

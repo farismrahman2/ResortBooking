@@ -2,6 +2,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { unstable_cache } from 'next/cache'
 import { toIsoDate, periodLengthDays, getComparisonRange } from '@/lib/reports/periods'
 import type { PeriodRange } from '@/lib/reports/types'
+import { bookingRevenue, REVENUE_STATUS_LIST, occupiesRoom } from '@/lib/reports/booking-revenue'
 
 /**
  * Hub-level KPIs and 30-day sparklines. All numbers are rounded BDT.
@@ -91,13 +92,13 @@ export const getRevenueSparkline = unstable_cache(
     const toIso   = toIsoDate(today)
     const { data } = await db
       .from('bookings')
-      .select('visit_date, total')
+      .select('visit_date, total, status, advance_paid')
       .gte('visit_date', fromIso)
       .lte('visit_date', toIso)
-      .neq('status', 'cancelled')
+      .in('status', REVENUE_STATUS_LIST)
     const byDay = new Map<string, number>()
     for (const r of (data ?? []) as Array<{ visit_date: string; total: number }>) {
-      byDay.set(r.visit_date, (byDay.get(r.visit_date) ?? 0) + Number(r.total ?? 0))
+      byDay.set(r.visit_date, (byDay.get(r.visit_date) ?? 0) + bookingRevenue(r))
     }
     const out: Array<{ date: string; revenue: number }> = []
     for (let i = 0; i < 30; i++) {

@@ -3,6 +3,7 @@ import { unstable_cache } from 'next/cache'
 import { toIsoDate } from '@/lib/reports/periods'
 import { getDataStartDate } from '@/lib/reports/sufficient-data'
 import type { PeriodRange } from '@/lib/reports/types'
+import { bookingRevenue, REVENUE_STATUS_LIST, occupiesRoom, dhakaRangeBounds, toDhakaDay } from '@/lib/reports/booking-revenue'
 
 const db = () => createServiceClient() as any  // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -17,6 +18,7 @@ export interface MonthlyPnLRow {
 async function fetchMonthlyPnL(period: PeriodRange): Promise<MonthlyPnLRow[]> {
   const fromIso = toIsoDate(period.from)
   const toIso   = toIsoDate(period.to)
+  const dhakaBounds = dhakaRangeBounds(fromIso, toIso)
   const [{ data: incomeRows }, { data: expRows }] = await Promise.all([
     db().rpc('reports_monthly_income',   { p_from: fromIso, p_to: toIso }),
     db().rpc('reports_monthly_expenses', { p_from: fromIso, p_to: toIso }),
@@ -53,20 +55,22 @@ export async function getCashPosition(period: PeriodRange): Promise<CashPosition
   // Daily revenue from bookings + finalized checkout extras; daily expenses from non-draft.
   const fromIso = toIsoDate(period.from)
   const toIso   = toIsoDate(period.to)
+  const dhakaBounds = dhakaRangeBounds(fromIso, toIso)
   const [{ data: bookings }, { data: checkouts }, { data: expenses }] = await Promise.all([
-    db().from('bookings').select('visit_date, total')
-      .gte('visit_date', fromIso).lte('visit_date', toIso).neq('status', 'cancelled'),
+    db().from('bookings').select('visit_date, total, status, advance_paid')
+      .gte('visit_date', fromIso).lte('visit_date', toIso).in('status', REVENUE_STATUS_LIST),
     db().from('checkouts').select('finalized_at, charges_total')
       .eq('status', 'finalized')
-      .gte('finalized_at', fromIso).lte('finalized_at', `${toIso}T23:59:59`),
+      .gte('finalized_at', dhakaBounds.startUtc).lt('finalized_at', dhakaBounds.endUtc),
     db().from('expenses').select('expense_date, amount')
       .gte('expense_date', fromIso).lte('expense_date', toIso).eq('is_draft', false),
   ])
   const inMap = new Map<string, number>()
   const exMap = new Map<string, number>()
-  for (const b of (bookings  ?? []) as Array<{ visit_date: string; total: number }>) inMap.set(b.visit_date, (inMap.get(b.visit_date) ?? 0) + Number(b.total ?? 0))
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const b of (bookings  ?? []) as any[]) inMap.set(b.visit_date, (inMap.get(b.visit_date) ?? 0) + bookingRevenue(b))
   for (const c of (checkouts ?? []) as Array<{ finalized_at: string; charges_total: number }>) {
-    const k = c.finalized_at.slice(0, 10)
+    const k = toDhakaDay(c.finalized_at)
     inMap.set(k, (inMap.get(k) ?? 0) + Number(c.charges_total ?? 0))
   }
   for (const e of (expenses  ?? []) as Array<{ expense_date: string; amount: number }>) exMap.set(e.expense_date, (exMap.get(e.expense_date) ?? 0) + Number(e.amount ?? 0))
