@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getExpenses } from '@/lib/queries/expenses'
+import { getCurrentUserContext } from '@/lib/auth/permissions'
 
 /**
  * GET /api/expenses/csv-export?from=&to=&categoryId=&payeeId=
@@ -7,6 +8,16 @@ import { getExpenses } from '@/lib/queries/expenses'
  * Streams a CSV download of every matching expense. Excludes drafts.
  */
 export async function GET(req: NextRequest) {
+  // This route had NO authorisation. Middleware 401s only UNAUTHENTICATED
+  // /api/* calls and its module map covers page prefixes, not /api/..., so any
+  // logged-in user could dump the whole expense ledger.
+  const ctx = await getCurrentUserContext()
+  if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  const lvl = ctx.permissions.expenses
+  if (lvl !== 'read' && lvl !== 'write') {
+    return NextResponse.json({ error: 'Expenses access required' }, { status: 403 })
+  }
+
   const { searchParams } = new URL(req.url)
   const from = searchParams.get('from')
   const to   = searchParams.get('to')

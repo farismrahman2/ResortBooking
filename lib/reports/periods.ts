@@ -69,9 +69,18 @@ export function buildPeriodRange(
     case 'ytd':
       return range(startOfYear(anchor), anchor, `${anchor.getFullYear()} YTD`, 'month')
     case 'custom': {
-      if (!opts.from || !opts.to) throw new Error('custom period requires from and to')
-      const lbl = `${format(opts.from, 'd MMM yyyy')} – ${format(opts.to, 'd MMM yyyy')}`
-      return range(opts.from, opts.to, lbl)
+      // Must not throw on a half-specified range. Picking "Custom range…" from
+      // the dropdown sets period=custom BEFORE either date exists, and picking
+      // only a From leaves To empty — this used to crash the whole report page
+      // on the most ordinary path a user takes to choose dates.
+      // Fall back per-side instead: missing From = start of this month,
+      // missing To = today.
+      const from = opts.from ?? startOfMonth(anchor)
+      const to   = opts.to   ?? anchor
+      // Tolerate a reversed range rather than silently returning nothing.
+      const [f, t] = from <= to ? [from, to] : [to, from]
+      const lbl = `${format(f, 'd MMM yyyy')} – ${format(t, 'd MMM yyyy')}`
+      return range(f, t, lbl)
     }
   }
 }

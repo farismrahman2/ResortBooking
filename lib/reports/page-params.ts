@@ -15,6 +15,13 @@ export function pickMode(s: string | undefined): ComparisonMode {
   return VALID_MODES.includes(s as ComparisonMode) ? (s as ComparisonMode) : 'off'
 }
 
+/** Guards against `new Date('nonsense')` reaching date-fns as Invalid Date. */
+function parseDate(s: string | undefined): Date | undefined {
+  if (!s) return undefined
+  const d = new Date(s + 'T00:00:00')
+  return Number.isNaN(d.getTime()) ? undefined : d
+}
+
 export function resolvePeriod(searchParams: Record<string, string | undefined>): {
   preset: PeriodPreset
   period: PeriodRange
@@ -22,11 +29,18 @@ export function resolvePeriod(searchParams: Record<string, string | undefined>):
   customFrom?: string
   customTo?: string
 } {
-  const preset = pickPreset(searchParams.period)
+  // If explicit dates are present, treat it as a custom range even when
+  // `period` is absent. Previously ?from=…&to=… without period=custom fell
+  // back to 'this_month' and the dates were silently ignored — a hand-typed
+  // or shared report URL quietly showed the wrong window with no indication.
+  const hasExplicitDates = !!(searchParams.from || searchParams.to)
+  const preset = searchParams.period
+    ? pickPreset(searchParams.period)
+    : (hasExplicitDates ? 'custom' : pickPreset(undefined))
   const mode   = pickMode(searchParams.compare)
   const period = buildPeriodRange(preset, {
-    from: searchParams.from ? new Date(searchParams.from + 'T00:00:00') : undefined,
-    to:   searchParams.to   ? new Date(searchParams.to   + 'T00:00:00') : undefined,
+    from: parseDate(searchParams.from),
+    to:   parseDate(searchParams.to),
   })
   return { preset, period, mode, customFrom: searchParams.from, customTo: searchParams.to }
 }
