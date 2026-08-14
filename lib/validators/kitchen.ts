@@ -155,6 +155,8 @@ export const deliveryDraftSchema = z.object({
   supplier_id:       z.string().uuid().nullish().transform((v) => v || null),
   delivery_date:     z.string().nullish().transform((v) => v || null),
   supplier_memo_no:  nullableStr,
+  /** What the supplier's own paper says the total is — compared, never used. */
+  supplier_memo_total: optionalPrice,
   received_by_employee_id: z.string().uuid().nullish().transform((v) => v || null),
   notes:             nullableStr,
   lines:             z.array(deliveryLineSchema).default([]),

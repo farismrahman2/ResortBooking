@@ -5,7 +5,9 @@ import { Topbar } from '@/components/layout/Topbar'
 import { requirePermission, hasPermission } from '@/lib/auth/permissions'
 import { getPaymentById } from '@/lib/queries/kitchen-ledger'
 import { listKitchenVendors } from '@/lib/queries/kitchen'
+import { listKitchenDocuments } from '@/lib/queries/kitchen-docs'
 import { CancelPaymentButton } from '@/components/kitchen/CancelPaymentButton'
+import { DocumentCapture } from '@/components/kitchen/DocumentCapture'
 import { formatDate } from '@/lib/formatters/dates'
 import { formatBDT } from '@/lib/formatters/currency'
 import { PAYMENT_METHOD_LABELS } from '@/lib/supabase/types-kitchen'
@@ -16,9 +18,10 @@ export default async function PaymentDetailPage({ params }: { params: { id: stri
   await requirePermission('kitchen', 'read')
   const canWrite = await hasPermission('kitchen', 'write')
 
-  const [payment, vendors] = await Promise.all([
+  const [payment, vendors, docs] = await Promise.all([
     getPaymentById(params.id),
     listKitchenVendors(),
+    listKitchenDocuments('payment', params.id),
   ])
   if (!payment) notFound()
 
@@ -109,6 +112,13 @@ export default async function PaymentDetailPage({ params }: { params: { id: stri
               )}
             </div>
           </div>
+
+          <DocumentCapture
+            entityType="payment" entityId={payment.id} docs={docs}
+            kind="cheque" label="Cheque photo"
+            hint="Photograph the cheque or counterfoil before it leaves. The number alone reconciles the statement; the picture settles what was handed over."
+            editable={canWrite}
+          />
 
           {canWrite && payment.status !== 'cancelled' && (
             <CancelPaymentButton paymentId={payment.id} />

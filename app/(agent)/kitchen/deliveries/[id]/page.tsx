@@ -6,7 +6,9 @@ import { requirePermission, hasPermission } from '@/lib/auth/permissions'
 import { getDeliveryById, listDeliveries } from '@/lib/queries/kitchen-ledger'
 import { listKitchenVendors, getUnitLabels, getRequisitionById } from '@/lib/queries/kitchen'
 import { listSalesEmployees } from '@/lib/queries/employees'
+import { listKitchenDocuments } from '@/lib/queries/kitchen-docs'
 import { BillMessage } from '@/components/kitchen/BillMessage'
+import { DocumentCapture } from '@/components/kitchen/DocumentCapture'
 import { CancelDeliveryButton } from '@/components/kitchen/CancelDeliveryButton'
 import { MigrationErrorBanner } from '@/components/ui/MigrationErrorBanner'
 import { formatDate } from '@/lib/formatters/dates'
@@ -30,11 +32,12 @@ export default async function DeliveryDetailPage({ params }: { params: { id: str
     ])
     if (!del) notFound()
 
-    const [req, rows] = await Promise.all([
+    const [req, rows, docs] = await Promise.all([
       del.requisition_id ? getRequisitionById(del.requisition_id) : Promise.resolve(null),
       // The list row carries what has been paid against this delivery; the
       // detail query deliberately doesn't re-derive it in a second place.
       listDeliveries({ vendorId: del.kitchen_vendor_id }),
+      listKitchenDocuments('delivery', del.id),
     ])
     const row = rows.find((r) => r.id === del.id)
 
@@ -152,6 +155,13 @@ export default async function DeliveryDetailPage({ params }: { params: { id: str
                     rejected={rejected}
                   />
                 )}
+
+                <DocumentCapture
+                  entityType="delivery" entityId={del.id} docs={docs}
+                  kind="receipt" label="Receipt photos"
+                  hint="Photograph the supplier's receipt book page. When a total is queried a fortnight later, this is what settles it."
+                  editable={canWrite}
+                />
 
                 {del.notes && (
                   <div className="rounded-xl border border-gray-200 bg-white p-4">

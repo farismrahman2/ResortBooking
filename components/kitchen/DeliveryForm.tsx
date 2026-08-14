@@ -78,6 +78,9 @@ export function DeliveryForm({
   const [vendorId, setVendorId]   = useState(initial?.kitchen_vendor_id ?? defaultVendorId ?? '')
   const [date, setDate]           = useState(initial?.delivery_date ?? new Date().toISOString().slice(0, 10))
   const [memoNo, setMemoNo]       = useState(initial?.supplier_memo_no ?? '')
+  const [memoTotal, setMemoTotal] = useState(
+    initial?.supplier_memo_total === null || initial?.supplier_memo_total === undefined
+      ? '' : String(initial.supplier_memo_total))
   const [receiverId, setReceiver] = useState(initial?.received_by_employee_id ?? '')
   const [notes, setNotes]         = useState(initial?.notes ?? '')
   const [lines, setLines] = useState<Line[]>(() => {
@@ -133,6 +136,7 @@ export function DeliveryForm({
       kitchen_vendor_id: vendorId || null,
       delivery_date: date || null,
       supplier_memo_no: memoNo || null,
+      supplier_memo_total: memoTotal,
       received_by_employee_id: receiverId || null,
       notes: notes || null,
       lines: lines.map((l, i) => ({
@@ -248,6 +252,15 @@ export function DeliveryForm({
           <input
             value={memoNo} onChange={(e) => { setMemoNo(e.target.value); touch() }}
             placeholder="from the supplier's slip"
+            className="min-h-[44px] w-full rounded-xl border border-gray-300 px-3 text-base"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-sm font-medium text-gray-800">Total on their memo</span>
+          <input
+            inputMode="decimal" value={memoTotal}
+            onChange={(e) => { setMemoTotal(e.target.value.replace(/[^0-9.]/g, '')); touch() }}
+            placeholder="what their paper says"
             className="min-h-[44px] w-full rounded-xl border border-gray-300 px-3 text-base"
           />
         </label>
@@ -398,6 +411,23 @@ export function DeliveryForm({
             <span className="text-sm font-medium text-gray-700">Bill total</span>
             <span className="text-lg font-bold text-gray-900">{formatBDT(total)}</span>
           </div>
+        </div>
+      )}
+
+      {/* The supplier's arithmetic, not ours. Our total is quantity x rate and
+          is right by construction; a handwritten memo footing to a different
+          number is a real gap, and it is only ever found by comparing the two. */}
+      {memoTotal !== '' && Math.abs(n(memoTotal) - total) > 0.5 && (
+        <div className="flex items-start gap-2 rounded-xl border border-red-300 bg-red-50 p-3">
+          <AlertTriangle size={15} className="mt-0.5 flex-shrink-0 text-red-600" />
+          <p className="text-sm text-red-900">
+            <strong>
+              Their memo says {formatBDT(n(memoTotal))}; these lines come to {formatBDT(total)}.
+            </strong>{' '}
+            A gap of {formatBDT(Math.abs(n(memoTotal) - total))}. Check the receipt&apos;s
+            arithmetic before confirming — if one of their lines is mis-multiplied, this is
+            where it shows up.
+          </p>
         </div>
       )}
 
