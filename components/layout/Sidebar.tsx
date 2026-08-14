@@ -53,6 +53,7 @@ const navItems: NavItem[] = [
   { href: '/availability', label: 'Availability', icon: CalendarSearch, module: 'availability' },
   { href: '/coffee-shop',  label: 'Coffee Shop',  icon: Coffee,         module: 'coffee_shop' },
   { href: '/menus',        label: 'Meal Menus',   icon: UtensilsCrossed, module: 'menus' },
+  { href: '/kitchen/requisitions', label: 'Kitchen Requisitions', icon: ClipboardList, module: 'kitchen' },
   { href: '/inventory',    label: 'Inventory',    icon: Boxes,          module: 'inventory' },
   { href: '/crm',          label: 'Corporate Sales', icon: Building2,    module: 'crm' },
   { href: '/crm/field-visits', label: 'Field Visits', icon: ClipboardList, module: 'field_visits' },

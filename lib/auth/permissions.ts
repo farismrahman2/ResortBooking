@@ -26,7 +26,7 @@ export interface UserContext {
   permissions: Record<ModuleSlug, PermissionLevel>
 }
 
-const ALL_MODULES: ModuleSlug[] = ['bookings', 'checkout', 'expenses', 'hr', 'reports', 'settings', 'availability', 'attendance', 'coffee_shop', 'inventory', 'crm', 'fixed_assets', 'qa', 'menus', 'enquiries', 'field_visits']
+const ALL_MODULES: ModuleSlug[] = ['bookings', 'checkout', 'expenses', 'hr', 'reports', 'settings', 'availability', 'attendance', 'coffee_shop', 'inventory', 'crm', 'fixed_assets', 'qa', 'menus', 'enquiries', 'field_visits', 'kitchen']
 
 function emptyPermissionMap(): Record<ModuleSlug, PermissionLevel> {
   const m = {} as Record<ModuleSlug, PermissionLevel>
