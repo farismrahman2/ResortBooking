@@ -9,7 +9,9 @@ import { saveRequisition, submitRequisition } from '@/lib/actions/kitchen'
 import { safeCall } from '@/lib/actions/safe-call'
 import { PaxBanner } from './PaxBanner'
 import { StartFromPrevious } from './StartFromPrevious'
+import { SaveAsTemplate } from './SaveAsTemplate'
 import type { CopyableRequisition } from '@/lib/queries/kitchen'
+import type { TemplateWithLines } from '@/lib/supabase/types-kitchen'
 import type { KitchenVendor, RequisitionWithLines } from '@/lib/supabase/types-kitchen'
 
 export interface PickerItem {
@@ -38,7 +40,7 @@ interface Line {
  * grouping is what the dispatch actually needs.
  */
 export function RequisitionForm({
-  requisitionId, initial, vendors, items, isNew, recent = [], amendmentOf,
+  requisitionId, initial, vendors, items, isNew, recent = [], templates = [], amendmentOf,
 }: {
   requisitionId: string
   initial: RequisitionWithLines | null
@@ -47,6 +49,8 @@ export function RequisitionForm({
   isNew: boolean
   /** Recent requisitions offered as a starting point. */
   recent?: CopyableRequisition[]
+  /** Standing lists offered ahead of them. */
+  templates?: TemplateWithLines[]
   /** Set when this sheet is an amendment — lines are CHANGES, not an order. */
   amendmentOf?: { id: string; requisition_no: string }
 }) {
@@ -131,6 +135,26 @@ export function RequisitionForm({
       notes: l.notes ?? '', is_extra: false,
     })))
     toast.success(`Copied ${src.lines.length} items from ${src.requisition_no}`, {
+      description: 'Adjust the quantities for today\u2019s headcount.',
+    })
+    touch()
+  }
+
+  /** Load a standing list. Same shape as copyFrom, different source of truth. */
+  function loadTemplate(t: TemplateWithLines) {
+    setLines(t.lines.map((l) => ({
+      item_id: l.item_id, item_name: l.item_name,
+      kitchen_vendor_id: l.kitchen_vendor_id,
+      // A template line may deliberately carry no quantity — "always order
+      // fish, decide the weight on the day" — so an empty box is meaningful
+      // here and must not become a 0 that submit then rejects.
+      qty: l.qty ? String(l.qty) : '',
+      piece_count: l.piece_count === null ? '' : String(l.piece_count),
+      unit_id: l.unit_id,
+      unit_label: items.find((i) => i.id === l.item_id)?.unit_label ?? null,
+      notes: l.notes ?? '', is_extra: false,
+    })))
+    toast.success(`Loaded "${t.name}"`, {
       description: 'Adjust the quantities for today\u2019s headcount.',
     })
     touch()
@@ -290,7 +314,10 @@ export function RequisitionForm({
       </div>
 
       {lines.length === 0 && !amendmentOf && (
-        <StartFromPrevious options={recent} onPick={copyFrom} />
+        <StartFromPrevious
+          options={recent} templates={templates}
+          onPick={copyFrom} onPickTemplate={loadTemplate}
+        />
       )}
 
       {/* Lines grouped by vendor */}
@@ -402,6 +429,10 @@ export function RequisitionForm({
       </label>
 
       {/* Sticky action bar */}
+      {!amendmentOf && lines.length > 0 && (
+        <SaveAsTemplate requisitionId={requisitionId} onBeforeSave={persist} />
+      )}
+
       <div className="fixed inset-x-0 bottom-0 z-20 mx-auto w-full max-w-[720px] border-t border-gray-200 bg-white px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <div className="flex items-center gap-3">
           <span className="flex flex-shrink-0 items-center gap-1 text-[11px] text-gray-500">

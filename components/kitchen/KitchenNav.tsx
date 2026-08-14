@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { ClipboardList, PackageCheck, Wallet, Scale, Tags } from 'lucide-react'
+import { ClipboardList, PackageCheck, Wallet, Scale, Tags, LayoutTemplate } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const TABS = [
@@ -7,6 +7,7 @@ const TABS = [
   { key: 'deliveries',   label: 'Deliveries', href: '/kitchen/deliveries',   icon: PackageCheck },
   { key: 'payments',     label: 'Payments',   href: '/kitchen/payments',     icon: Wallet },
   { key: 'ledger',       label: 'Ledger',     href: '/kitchen/ledger',       icon: Scale },
+  { key: 'templates',    label: 'Templates',  href: '/kitchen/templates',    icon: LayoutTemplate },
   { key: 'items',        label: 'Items',      href: '/kitchen/items',        icon: Tags },
 ] as const
 
