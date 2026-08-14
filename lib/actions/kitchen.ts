@@ -251,3 +251,26 @@ export async function setItemVendor(itemId: string, vendorId: string | null): Pr
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }
 }
+
+/**
+ * Tag many items at once. Tagging 76 items one dropdown at a time is the kind
+ * of chore people abandon halfway, leaving a half-configured system — so the
+ * bulk path is the primary one.
+ */
+export async function setItemVendorBulk(
+  itemIds: string[],
+  vendorId: string | null,
+): Promise<ActionData<{ updated: number }>> {
+  await requirePermission('kitchen', 'write')
+  try {
+    if (itemIds.length === 0) return { success: true, data: { updated: 0 } }
+    const { error } = await dbc().from('inv_items')
+      .update({ kitchen_vendor_id: vendorId }).in('id', itemIds)
+    if (error) return { success: false, error: error.message }
+    revalidatePath('/kitchen/items')
+    revalidatePath('/kitchen/requisitions')
+    return { success: true, data: { updated: itemIds.length } }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}

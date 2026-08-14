@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { ClipboardList, ChevronRight, AlertTriangle } from 'lucide-react'
+import { ClipboardList, ChevronRight, AlertTriangle, Tags } from 'lucide-react'
 import { Topbar } from '@/components/layout/Topbar'
 import { requirePermission, hasPermission } from '@/lib/auth/permissions'
 import { listRequisitions } from '@/lib/queries/kitchen'
@@ -29,6 +29,14 @@ export default async function RequisitionsPage({ searchParams }: PageProps) {
         />
         <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6">
           <div className="mx-auto max-w-4xl space-y-3">
+            {canWrite && (
+              <Link href="/kitchen/items"
+                className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700">
+                <Tags size={15} className="flex-shrink-0 text-gray-400" />
+                <span className="flex-1">Item vendors — set who supplies each item</span>
+                <ChevronRight size={15} className="text-gray-300" />
+              </Link>
+            )}
             {awaiting > 0 && (
               <Link href="/kitchen/requisitions?status=pending_approval"
                 className="flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5">
