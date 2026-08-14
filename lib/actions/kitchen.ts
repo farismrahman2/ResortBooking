@@ -54,8 +54,14 @@ async function nextRequisitionNo(db: ReturnType<typeof dbc>, attempt: number): P
 export async function saveRequisition(id: string, partial: unknown): Promise<ActionResult> {
   await requirePermission('kitchen', 'write')
   try {
-    const db    = dbc()
-    const input = requisitionDraftSchema.parse(partial ?? {})
+    const db = dbc()
+    // safeParse, not parse: a thrown ZodError's .message is the raw issue JSON,
+    // which is what the user ended up reading on screen.
+    const parsedInput = requisitionDraftSchema.safeParse(partial ?? {})
+    if (!parsedInput.success) {
+      return { success: false, error: parsedInput.error.issues[0]?.message ?? 'Could not save' }
+    }
+    const input = parsedInput.data
     const { lines, ...header } = input
 
     const { data: existing } = await db.from('kitchen_requisitions')
