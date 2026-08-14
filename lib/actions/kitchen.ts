@@ -1,6 +1,6 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, revalidateTag } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { requirePermission, getCurrentUserContext } from '@/lib/auth/permissions'
 import {
@@ -9,7 +9,8 @@ import {
 } from '@/lib/validators/kitchen'
 import { formatRequisitionNo } from '@/lib/kitchen/requisition-number'
 import { joinItemName } from '@/lib/kitchen/item-name'
-import { getRequisitionById } from '@/lib/queries/kitchen'
+import { getRequisitionById, KITCHEN_CATALOGUE_TAG } from '@/lib/queries/kitchen'
+import { getDayMealHeadcounts } from '@/lib/queries/menus'
 import type { ActionResult, ActionData } from './types'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -254,12 +255,55 @@ export async function discardRequisition(id: string): Promise<ActionResult> {
 
 /** Tag an item with its vendor from the requisition screen, so the fan-out
  *  improves as people use it rather than needing a separate setup pass. */
+export interface DayPax {
+  /** Largest single sitting of the day — what the kitchen actually cooks for. */
+  peak:      number
+  bookings:  number
+  meals:     Array<{ label: string; total: number }>
+}
+
+/**
+ * How many people are on site on a given day.
+ *
+ * The requisition never asked this, which is the module's biggest blind spot:
+ * a resort kitchen orders for pax, and the person filling the sheet was
+ * working from memory of who is checking in. The numbers already exist — the
+ * menus module derives them from live bookings with the same meal engine the
+ * daily report uses — so both screens agree by construction.
+ */
+export async function getDayPax(date: string): Promise<ActionData<DayPax>> {
+  await requirePermission('kitchen', 'read')
+  try {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { success: false, error: 'Bad date' }
+    const counts = await getDayMealHeadcounts(date)
+    const LABELS: Array<[string, string]> = [
+      ['breakfast', 'Breakfast'], ['lunch', 'Lunch'],
+      ['afternoon_snack', 'Snack'], ['dinner', 'Dinner'],
+    ]
+    const meals = LABELS
+      .map(([slug, label]) => ({ label, total: counts[slug]?.total ?? 0 }))
+      .filter((m) => m.total > 0)
+    return {
+      success: true,
+      data: {
+        peak:     Math.max(0, ...meals.map((m) => m.total)),
+        bookings: Math.max(0, ...LABELS.map(([slug]) => counts[slug]?.bookings ?? 0)),
+        meals,
+      },
+    }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
 export async function setItemVendor(itemId: string, vendorId: string | null): Promise<ActionResult> {
   await requirePermission('kitchen', 'write')
   try {
     const { error } = await dbc().from('inv_items')
       .update({ kitchen_vendor_id: vendorId }).eq('id', itemId)
     if (error) return { success: false, error: error.message }
+    revalidatePath('/kitchen/items')
+    revalidateTag(KITCHEN_CATALOGUE_TAG)
     return { success: true }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
@@ -282,6 +326,7 @@ export async function setItemVendorBulk(
       .update({ kitchen_vendor_id: vendorId }).in('id', itemIds)
     if (error) return { success: false, error: error.message }
     revalidatePath('/kitchen/items')
+    revalidateTag(KITCHEN_CATALOGUE_TAG)
     revalidatePath('/kitchen/requisitions')
     return { success: true, data: { updated: itemIds.length } }
   } catch (err) {
@@ -327,6 +372,7 @@ export async function createKitchenVendor(input: unknown): Promise<ActionData<{ 
 
     revalidatePath('/kitchen/vendors')
     revalidatePath('/kitchen/items')
+    revalidateTag(KITCHEN_CATALOGUE_TAG)
     return { success: true, data: created }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
@@ -349,6 +395,7 @@ export async function updateKitchenVendor(id: string, input: unknown): Promise<A
     if (error) return { success: false, error: error.message }
     revalidatePath('/kitchen/vendors')
     revalidatePath('/kitchen/items')
+    revalidateTag(KITCHEN_CATALOGUE_TAG)
     return { success: true }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
@@ -371,6 +418,7 @@ export async function deactivateKitchenVendor(id: string): Promise<ActionData<{ 
     if (error) return { success: false, error: error.message }
     revalidatePath('/kitchen/vendors')
     revalidatePath('/kitchen/items')
+    revalidateTag(KITCHEN_CATALOGUE_TAG)
     return { success: true, data: { items: count ?? 0 } }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
@@ -425,6 +473,8 @@ export async function createKitchenItem(raw: unknown): Promise<ActionData<{ id: 
     if (!created) return { success: false, error: 'Could not allocate an item code' }
 
     revalidatePath('/kitchen/items')
+
+    revalidateTag(KITCHEN_CATALOGUE_TAG)
     return { success: true, data: created }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
@@ -454,6 +504,8 @@ export async function updateKitchenItem(itemId: string, raw: unknown): Promise<A
     if (error) return { success: false, error: error.message }
 
     revalidatePath('/kitchen/items')
+
+    revalidateTag(KITCHEN_CATALOGUE_TAG)
     return { success: true }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }

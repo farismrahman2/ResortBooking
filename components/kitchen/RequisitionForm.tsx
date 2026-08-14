@@ -7,6 +7,9 @@ import { cn } from '@/lib/utils'
 import { toast } from '@/lib/toast'
 import { saveRequisition, submitRequisition } from '@/lib/actions/kitchen'
 import { safeCall } from '@/lib/actions/safe-call'
+import { PaxBanner } from './PaxBanner'
+import { StartFromPrevious } from './StartFromPrevious'
+import type { CopyableRequisition } from '@/lib/queries/kitchen'
 import type { KitchenVendor, RequisitionWithLines } from '@/lib/supabase/types-kitchen'
 
 export interface PickerItem {
@@ -35,13 +38,15 @@ interface Line {
  * grouping is what the dispatch actually needs.
  */
 export function RequisitionForm({
-  requisitionId, initial, vendors, items, isNew,
+  requisitionId, initial, vendors, items, isNew, recent = [],
 }: {
   requisitionId: string
   initial: RequisitionWithLines | null
   vendors: KitchenVendor[]
   items: PickerItem[]
   isNew: boolean
+  /** Recent requisitions offered as a starting point. */
+  recent?: CopyableRequisition[]
 }) {
   const router = useRouter()
   const [eventDate, setEventDate] = useState(initial?.event_date ?? '')
@@ -107,6 +112,25 @@ export function RequisitionForm({
       notes: '', is_extra: !isNew && (initial?.lines.length ?? 0) > 0,
     }])
     setSearch('')
+    touch()
+  }
+
+  /** Replace the sheet with a copy of a previous one, quantities included. */
+  function copyFrom(src: CopyableRequisition) {
+    setLines(src.lines.map((l) => ({
+      item_id: l.item_id, item_name: l.item_name,
+      kitchen_vendor_id: l.kitchen_vendor_id,
+      qty: String(l.qty),
+      piece_count: l.piece_count === null ? '' : String(l.piece_count),
+      unit_id: l.unit_id,
+      // The unit label isn't stored on the line — recover it from the
+      // catalogue so the copied rows read the same as freshly added ones.
+      unit_label: items.find((i) => i.id === l.item_id)?.unit_label ?? null,
+      notes: l.notes ?? '', is_extra: false,
+    })))
+    toast.success(`Copied ${src.lines.length} items from ${src.requisition_no}`, {
+      description: 'Adjust the quantities for today\u2019s headcount.',
+    })
     touch()
   }
 
@@ -203,6 +227,8 @@ export function RequisitionForm({
         </label>
       </div>
 
+      <PaxBanner date={eventDate} />
+
       {/* Item picker */}
       <div className="rounded-xl border border-gray-200 bg-white p-3">
         <div className="relative">
@@ -247,6 +273,10 @@ export function RequisitionForm({
           </button>
         )}
       </div>
+
+      {lines.length === 0 && (
+        <StartFromPrevious options={recent} onPick={copyFrom} />
+      )}
 
       {/* Lines grouped by vendor */}
       {lines.length === 0 ? (
