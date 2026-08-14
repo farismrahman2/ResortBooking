@@ -6,6 +6,7 @@ import { Search, Check, AlertTriangle, Layers, X, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from '@/lib/toast'
 import { setItemVendorBulk, updateKitchenItem } from '@/lib/actions/kitchen'
+import { safeCall } from '@/lib/actions/safe-call'
 import { splitItemName, joinItemName } from '@/lib/kitchen/item-name'
 import type { KitchenVendor } from '@/lib/supabase/types-kitchen'
 
@@ -76,7 +77,7 @@ export function ItemTagger({
   function assign(ids: string[], vendorId: string | null, label: string) {
     if (ids.length === 0) return
     start(async () => {
-      const r = await setItemVendorBulk(ids, vendorId)
+      const r = await safeCall(() => setItemVendorBulk(ids, vendorId))
       if (!r.success) { toast.error(r.error); return }
       toast.success(
         vendorId ? `${r.data.updated} item${r.data.updated === 1 ? '' : 's'} → ${label}` : 'Vendor cleared',
@@ -294,9 +295,9 @@ function ItemDefaultsEditor({
   function save() {
     setError(null)
     start(async () => {
-      const r = await updateKitchenItem(item.id, {
+      const r = await safeCall(() => updateKitchenItem(item.id, {
         name_en: nameEn, name_bn: nameBn, unit_id: unitId, default_unit_price: price,
-      })
+      }))
       if (!r.success) { setError(r.error); return }
       toast.success(`${joinItemName(nameEn, nameBn)} updated`)
       onSaved()

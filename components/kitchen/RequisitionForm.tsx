@@ -6,6 +6,7 @@ import { Plus, Trash2, Search, Send, Check, CloudOff, Loader2 } from 'lucide-rea
 import { cn } from '@/lib/utils'
 import { toast } from '@/lib/toast'
 import { saveRequisition, submitRequisition } from '@/lib/actions/kitchen'
+import { safeCall } from '@/lib/actions/safe-call'
 import type { KitchenVendor, RequisitionWithLines } from '@/lib/supabase/types-kitchen'
 
 export interface PickerItem {
@@ -81,7 +82,7 @@ export function RequisitionForm({
   async function persist(): Promise<boolean> {
     if (!dirty.current) return true
     setSaving('saving')
-    const r = await saveRequisition(requisitionId, payload())
+    const r = await safeCall(() => saveRequisition(requisitionId, payload()))
     if (!r.success) { toast.error(r.error); setSaving('idle'); return false }
     dirty.current = false
     setSaving('saved')
@@ -161,7 +162,7 @@ export function RequisitionForm({
     // appeared next to a save error, having sent an incomplete requisition.
     const saved = await persist()
     if (!saved) { setSubmitting(false); return }
-    const r = await submitRequisition(requisitionId)
+    const r = await safeCall(() => submitRequisition(requisitionId))
     if (!r.success) { toast.error(r.error); setSubmitting(false); return }
     // Straight to the printable sheet: the store wants paper the moment the
     // list is closed, and going looking for a print button afterwards is how
