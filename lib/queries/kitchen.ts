@@ -133,3 +133,29 @@ export async function getVendorSections(requisitionId: string): Promise<VendorSe
   }
   return sections
 }
+
+/** Every kitchen-store item with its current vendor tag, for the tagging screen. */
+export async function listItemsForTagging(): Promise<Array<{
+  id: string; name: string; sku_code: string | null
+  category_slug: string | null; category_name: string | null
+  unit_label: string | null; kitchen_vendor_id: string | null
+}>> {
+  const { data: store } = await db().from('inv_stores').select('id').eq('slug', 'kitchen').maybeSingle()
+  if (!store) return []
+  const { data, error } = await db()
+    .from('inv_items')
+    .select('id, name, sku_code, kitchen_vendor_id, is_active, category:inv_categories(slug, display_name), unit:inv_units(abbreviation, name)')
+    .eq('store_id', store.id)
+    .eq('is_active', true)
+    .order('name')
+    .limit(2000)
+  if (error) throw new Error(`[kitchen.itemsForTagging] ${error.message}`)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((data ?? []) as any[]).map((i) => ({
+    id: i.id, name: i.name, sku_code: i.sku_code ?? null,
+    category_slug: i.category?.slug ?? null,
+    category_name: i.category?.display_name ?? null,
+    unit_label: i.unit?.abbreviation ?? i.unit?.name ?? null,
+    kitchen_vendor_id: i.kitchen_vendor_id ?? null,
+  }))
+}
