@@ -77,9 +77,11 @@ export async function saveDelivery(id: string, partial: unknown): Promise<Action
 
     if (!existing) {
       if (!hasDeliveryContent(input)) return { success: true }
-      if (!header.kitchen_vendor_id) {
-        return { success: false, error: 'Pick which supplier this delivery is from' }
-      }
+      // kitchen_vendor_id is NOT NULL, so the row can't be created without it —
+      // but people type the first item before touching the dropdown, and
+      // returning an error here meant an error toast every 1.2s until they
+      // did. Nothing is lost: the form re-sends its whole state next save.
+      if (!header.kitchen_vendor_id) return { success: true }
       const ctx = await getCurrentUserContext()
       let created = false
       for (let attempt = 0; attempt < 6 && !created; attempt++) {

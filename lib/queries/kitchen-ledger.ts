@@ -148,7 +148,15 @@ export async function buildDeliveryLinesFromRequisition(
   }))
 }
 
-/** Approved requisitions that still have something undelivered for a vendor. */
+/**
+ * Approved requisitions that still have something undelivered.
+ *
+ * Vendor pairs already received are removed, not just the fully-received
+ * requisitions: the beef supplier delivering doesn't mean the vegetable
+ * supplier has. Without this the prompt at the top of the deliveries screen
+ * accumulated every approved order ever raised, and a list that never clears
+ * is a list nobody reads.
+ */
 export async function listRequisitionsAwaitingDelivery(vendorId?: string): Promise<Array<{
   id: string; requisition_no: string; event_date: string
   vendors: string[]
@@ -160,11 +168,28 @@ export async function listRequisitionsAwaitingDelivery(vendorId?: string): Promi
     .order('event_date', { ascending: false })
     .limit(30)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return ((data ?? []) as any[])
+  const rows = (data ?? []) as any[]
+  if (rows.length === 0) return []
+
+  // A cancelled delivery doesn't count as received — the goods still haven't
+  // arrived, and the prompt has to come back.
+  const { data: done } = await db()
+    .from('kitchen_deliveries')
+    .select('requisition_id, kitchen_vendor_id')
+    .in('requisition_id', rows.map((r) => r.id))
+    .neq('status', 'cancelled')
+  const received = new Set(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ((done ?? []) as any[]).map((d) => `${d.requisition_id}:${d.kitchen_vendor_id}`),
+  )
+
+  return rows
     .map((r) => ({
       id: r.id, requisition_no: r.requisition_no, event_date: r.event_date,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      vendors: [...new Set(((r.lines ?? []) as any[]).map((l) => l.kitchen_vendor_id).filter(Boolean))] as string[],
+      vendors: [...new Set(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ((r.lines ?? []) as any[]).map((l) => l.kitchen_vendor_id).filter(Boolean),
+      )].filter((v) => !received.has(`${r.id}:${v}`)) as string[],
     }))
     .filter((r) => (vendorId ? r.vendors.includes(vendorId) : r.vendors.length > 0))
 }

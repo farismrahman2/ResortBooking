@@ -196,6 +196,10 @@ export async function listRequisitionsForCopy(limit = 5): Promise<CopyableRequis
     .from('kitchen_requisitions')
     .select('id, requisition_no, event_date, lines:kitchen_requisition_lines(item_id, item_name, kitchen_vendor_id, qty, piece_count, unit_id, notes, sort_order)')
     .neq('status', 'cancelled')
+    // Amendments carry deltas, including negative lines. Copied into a fresh
+    // requisition they become "-2 kg beef", which submit then refuses — and
+    // the person who tapped it has no idea why.
+    .is('parent_requisition_id', null)
     .order('event_date', { ascending: false })
     .order('created_at', { ascending: false })
     .limit(limit)
@@ -358,7 +362,12 @@ export async function getRequisitionFamily(id: string): Promise<RequisitionFamil
   const parent = await getRequisitionById(id)
   if (!parent) return null
   // A child id may be passed in — resolve to the head of the family first.
-  if (parent.parent_requisition_id) return getRequisitionFamily(parent.parent_requisition_id)
+  // Guarded against a row pointing at itself: amendments are one level deep by
+  // construction, but a bad parent link would otherwise hang the request
+  // rather than render a wrong page.
+  if (parent.parent_requisition_id && parent.parent_requisition_id !== id) {
+    return getRequisitionFamily(parent.parent_requisition_id)
+  }
 
   const { data } = await db()
     .from('kitchen_requisitions')

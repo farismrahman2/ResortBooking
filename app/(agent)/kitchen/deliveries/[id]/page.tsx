@@ -36,7 +36,9 @@ export default async function DeliveryDetailPage({ params }: { params: { id: str
       del.requisition_id ? getRequisitionById(del.requisition_id) : Promise.resolve(null),
       // The list row carries what has been paid against this delivery; the
       // detail query deliberately doesn't re-derive it in a second place.
-      listDeliveries({ vendorId: del.kitchen_vendor_id }),
+      // Pass this delivery's own status, or a cancelled one drops out of its
+      // own detail page and shows a fabricated zero balance.
+      listDeliveries({ vendorId: del.kitchen_vendor_id, status: del.status }),
       listKitchenDocuments('delivery', del.id),
     ])
     const row = rows.find((r) => r.id === del.id)
