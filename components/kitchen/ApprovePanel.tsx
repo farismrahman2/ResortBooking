@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { CheckCircle2, Send, AlertCircle, Ban, Printer } from 'lucide-react'
+import { CheckCircle2, Send, AlertCircle, Ban, Printer, PackageCheck } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
 import { approveRequisition, submitRequisition, cancelRequisition } from '@/lib/actions/kitchen'
@@ -64,6 +64,14 @@ export function ApprovePanel({
           className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white text-sm font-semibold text-gray-700"
         >
           <Printer size={15} /> Print the sheet
+        </Link>
+        {/* The next step after the order goes out. Without a link from here,
+            the deliveries screen is reachable only by knowing it exists. */}
+        <Link
+          href="/kitchen/deliveries"
+          className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white text-sm font-semibold text-gray-700"
+        >
+          <PackageCheck size={15} /> Record what arrives
         </Link>
       </div>
     )
