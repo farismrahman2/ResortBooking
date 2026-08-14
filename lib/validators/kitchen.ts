@@ -234,3 +234,29 @@ export const paymentSchema = z.object({
     })
   }
 })
+
+// ─── Requisition templates ──────────────────────────────────────────────────
+
+export const templateLineSchema = z.object({
+  sort_order:        z.number().int().min(0).default(0),
+  item_id:           z.string().uuid().nullish().transform((v) => v || null),
+  item_name:         z.string().trim().min(1).max(200),
+  kitchen_vendor_id: z.string().uuid().nullish().transform((v) => v || null),
+  /**
+   * Zero is legal here, unlike on a requisition line. "Always order fish,
+   * decide the weight on the day" is a real standing instruction, and the
+   * template is a checklist as much as it is a set of numbers.
+   */
+  qty:               z.coerce.number().min(0).catch(0).default(0),
+  piece_count:       z.preprocess((v) => (v === '' || v === null || v === undefined ? null : v),
+                       z.coerce.number().min(0).nullable()),
+  unit_id:           z.string().uuid().nullish().transform((v) => v || null),
+  notes:             nullableStr,
+})
+
+export const templateSchema = z.object({
+  name:        z.string().trim().min(1, 'Give the template a name').max(60),
+  description: nullableStr,
+  is_active:   z.boolean().default(true),
+  lines:       z.array(templateLineSchema).default([]),
+})

@@ -236,3 +236,33 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   nagad:         'Nagad',
   adjustment:    'Adjustment',
 }
+
+// ─── Requisition templates ──────────────────────────────────────────────────
+
+export interface TemplateLine {
+  id:                string
+  template_id:       string
+  sort_order:        number
+  item_id:           string | null
+  item_name:         string
+  kitchen_vendor_id: string | null
+  qty:               number
+  piece_count:       number | null
+  unit_id:           string | null
+  notes:             string | null
+}
+
+export interface RequisitionTemplate {
+  id:          string
+  name:        string
+  description: string | null
+  sort_order:  number
+  is_active:   boolean
+  created_by:  string | null
+  created_at:  string
+  updated_at:  string
+}
+
+export interface TemplateWithLines extends RequisitionTemplate {
+  lines: TemplateLine[]
+}

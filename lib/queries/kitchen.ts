@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { cachedRef } from '@/lib/cache'
 import type {
   KitchenVendor, RequisitionWithLines, RequisitionListRow, VendorSection, VendorLine,
-  RequisitionLine,
+  RequisitionLine, TemplateWithLines,
 } from '@/lib/supabase/types-kitchen'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -413,4 +413,52 @@ export async function getRequisitionFamily(id: string): Promise<RequisitionFamil
     .filter((e) => e.net !== 0)
 
   return { parent, amendments, effective }
+}
+
+// ─── Requisition templates ──────────────────────────────────────────────────
+
+/**
+ * The standing lists, newest-decided first.
+ *
+ * Deliberately NOT cached with the catalogue: a template is edited by a person
+ * who then immediately wants to use it, and a ten-minute stale window would
+ * have them looking at the version they just replaced.
+ */
+export async function listTemplates(includeHidden = false): Promise<TemplateWithLines[]> {
+  let q = db().from('kitchen_requisition_templates')
+    .select('*, lines:kitchen_requisition_template_lines(*)')
+    .order('sort_order').order('name')
+  if (!includeHidden) q = q.eq('is_active', true)
+  const { data, error } = await q
+  if (error) throw new Error(`[kitchen.templates] ${error.message}`)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((data ?? []) as any[]).map((t) => ({
+    ...t,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    lines: ((t.lines ?? []) as any[])
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map((l) => ({
+        ...l,
+        qty: Number(l.qty),
+        piece_count: l.piece_count === null ? null : Number(l.piece_count),
+      })),
+  })) as TemplateWithLines[]
+}
+
+export async function getTemplateById(id: string): Promise<TemplateWithLines | null> {
+  const { data, error } = await db()
+    .from('kitchen_requisition_templates')
+    .select('*, lines:kitchen_requisition_template_lines(*)')
+    .eq('id', id).maybeSingle()
+  if (error) throw new Error(`[kitchen.template] ${error.message}`)
+  if (!data) return null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const lines = ((data.lines ?? []) as any[])
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map((l) => ({
+      ...l,
+      qty: Number(l.qty),
+      piece_count: l.piece_count === null ? null : Number(l.piece_count),
+    }))
+  return { ...data, lines } as TemplateWithLines
 }
