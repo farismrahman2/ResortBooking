@@ -2,13 +2,22 @@ import { z } from 'zod'
 
 const nullableStr = z.string().trim().max(500).nullish().transform((v) => v || null)
 
+/**
+ * A line as it exists WHILE TYPING. Deliberately permissive: adding an item
+ * puts a row on screen before any quantity is entered, and the autosave fires
+ * a moment later. Requiring qty > 0 here rejected the entire requisition on
+ * every save until every single line had a number in it.
+ *
+ * saveRequisition drops qty <= 0 rows before writing, so a blank line simply
+ * doesn't persist. The real check happens at submit.
+ */
 export const requisitionLineSchema = z.object({
   id:                z.string().uuid().optional(),
   sort_order:        z.number().int().min(0).default(0),
   item_id:           z.string().uuid().nullish().transform((v) => v || null),
-  item_name:         z.string().trim().min(1, 'Item name is required').max(200),
+  item_name:         z.string().trim().max(200).default(''),
   kitchen_vendor_id: z.string().uuid().nullish().transform((v) => v || null),
-  qty:               z.coerce.number().positive('Quantity must be more than zero'),
+  qty:               z.coerce.number().min(0).catch(0).default(0),
   piece_count:       z.coerce.number().min(0).nullish().transform((v) => (v ? v : null)),
   unit_id:           z.string().uuid().nullish().transform((v) => v || null),
   notes:             nullableStr,
@@ -31,6 +40,16 @@ export const requisitionDraftSchema = z.object({
 export const requisitionSubmitSchema = z.object({
   event_date: z.string().min(1, 'Event date is required'),
   lines:      z.array(requisitionLineSchema).min(1, 'Add at least one item'),
+}).superRefine((data, ctx) => {
+  // Only persisted lines reach here, and those already have qty > 0 — but
+  // check anyway so a future caller can't slip a zero-quantity order past.
+  const bad = (data.lines ?? []).find((l) => !(Number(l.qty) > 0))
+  if (bad) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom, path: ['lines'],
+      message: `"${bad.item_name || 'An item'}" has no quantity`,
+    })
+  }
 })
 
 export const approveSchema = z.object({

@@ -78,13 +78,14 @@ export function RequisitionForm({
     }
   }
 
-  async function persist() {
-    if (!dirty.current) return
+  async function persist(): Promise<boolean> {
+    if (!dirty.current) return true
     setSaving('saving')
     const r = await saveRequisition(requisitionId, payload())
-    if (!r.success) { toast.error(r.error); setSaving('idle'); return }
+    if (!r.success) { toast.error(r.error); setSaving('idle'); return false }
     dirty.current = false
     setSaving('saved')
+    return true
   }
 
   function touch() {
@@ -156,7 +157,10 @@ export function RequisitionForm({
     setSubmitting(true)
     if (timer.current) clearTimeout(timer.current)
     dirty.current = true
-    await persist()
+    // Don't submit on top of a failed save — that's how "Sent for approval"
+    // appeared next to a save error, having sent an incomplete requisition.
+    const saved = await persist()
+    if (!saved) { setSubmitting(false); return }
     const r = await submitRequisition(requisitionId)
     if (!r.success) { toast.error(r.error); setSubmitting(false); return }
     toast.success('Sent for approval')
