@@ -9,6 +9,7 @@ import { useConfirm } from '@/components/ui/ConfirmDialog'
 import {
   createKitchenVendor, updateKitchenVendor, deactivateKitchenVendor,
 } from '@/lib/actions/kitchen'
+import { safeCall } from '@/lib/actions/safe-call'
 import type { KitchenVendor } from '@/lib/supabase/types-kitchen'
 
 /**
@@ -38,11 +39,11 @@ export function VendorManager({
     const name = newName.trim()
     if (!name) return
     start(async () => {
-      const r = await createKitchenVendor({
+      const r = await safeCall(() => createKitchenVendor({
         display_name: name,
         sort_order: (vendors[vendors.length - 1]?.sort_order ?? 0) + 1,
         is_active: true,
-      })
+      }))
       if (!r.success) { toast.error(r.error); return }
       toast.success(`${name} added`)
       setNewName(''); setAdding(false)
@@ -54,9 +55,9 @@ export function VendorManager({
     const name = editName.trim()
     if (!name) return
     start(async () => {
-      const r = await updateKitchenVendor(v.id, {
+      const r = await safeCall(() => updateKitchenVendor(v.id, {
         display_name: name, sort_order: v.sort_order, is_active: v.is_active,
-      })
+      }))
       if (!r.success) { toast.error(r.error); return }
       toast.success('Vendor renamed')
       setEditId(null)
@@ -76,13 +77,13 @@ export function VendorManager({
           confirmLabel: 'Hide it', danger: count > 0,
         })
         if (!ok) return
-        const r = await deactivateKitchenVendor(v.id)
+        const r = await safeCall(() => deactivateKitchenVendor(v.id))
         if (!r.success) { toast.error(r.error); return }
         toast.success(`${v.display_name} hidden`)
       } else {
-        const r = await updateKitchenVendor(v.id, {
+        const r = await safeCall(() => updateKitchenVendor(v.id, {
           display_name: v.display_name, sort_order: v.sort_order, is_active: true,
-        })
+        }))
         if (!r.success) { toast.error(r.error); return }
         toast.success(`${v.display_name} restored`)
       }
@@ -92,11 +93,11 @@ export function VendorManager({
 
   function move(v: KitchenVendor, dir: -1 | 1) {
     start(async () => {
-      const r = await updateKitchenVendor(v.id, {
+      const r = await safeCall(() => updateKitchenVendor(v.id, {
         display_name: v.display_name,
         sort_order: Math.max(0, v.sort_order + dir * 15),
         is_active: v.is_active,
-      })
+      }))
       if (!r.success) { toast.error(r.error); return }
       router.refresh()
     })

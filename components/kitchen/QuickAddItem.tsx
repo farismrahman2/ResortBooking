@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Plus, X } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { createKitchenItem } from '@/lib/actions/kitchen'
+import { safeCall } from '@/lib/actions/safe-call'
 import { joinItemName } from '@/lib/kitchen/item-name'
 import type { KitchenVendor } from '@/lib/supabase/types-kitchen'
 
@@ -45,14 +46,14 @@ export function QuickAddItem({
   function submit() {
     setError(null)
     start(async () => {
-      const r = await createKitchenItem({
+      const r = await safeCall(() => createKitchenItem({
         name_en: nameEn,
         name_bn: nameBn,
         kitchen_vendor_id: vendorId || null,
         category_id: categoryId || null,
         unit_id: unitId,
         default_unit_price: price,
-      })
+      }))
       if (!r.success) { setError(r.error); return }
       toast.success(`${preview} added`)
       // Keep the vendor, unit and category — adding five vegetables in a row

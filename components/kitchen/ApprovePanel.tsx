@@ -7,6 +7,7 @@ import { CheckCircle2, Send, AlertCircle, Ban, Printer } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
 import { approveRequisition, submitRequisition, cancelRequisition } from '@/lib/actions/kitchen'
+import { safeCall } from '@/lib/actions/safe-call'
 import type { RequisitionStatus } from '@/lib/supabase/types-kitchen'
 import type { SalesEmployee } from '@/lib/supabase/types'
 
@@ -75,7 +76,7 @@ export function ApprovePanel({
         <button
           type="button"
           onClick={() => start(async () => {
-            const r = await submitRequisition(requisitionId)
+            const r = await safeCall(() => submitRequisition(requisitionId))
             if (!r.success) { setError(r.error); return }
             toast.success('Sent for approval', { description: 'Here is the sheet to print.' })
             router.push(`/kitchen/requisitions/${requisitionId}/print`)
@@ -131,9 +132,9 @@ export function ApprovePanel({
         type="button"
         onClick={() => start(async () => {
           setError(null)
-          const r = await approveRequisition(requisitionId, {
+          const r = await safeCall(() => approveRequisition(requisitionId, {
             approved_by_employee_id: employeeId, approval_notes: notes || null,
-          })
+          }))
           if (!r.success) { setError(r.error); return }
           toast.success('Requisition approved 🎉', { description: 'Now send it to the suppliers.' })
           router.refresh()
@@ -180,7 +181,7 @@ export function ApprovePanel({
               type="button"
               disabled={pending || cancelReason.trim().length < 2}
               onClick={() => start(async () => {
-                const r = await cancelRequisition(requisitionId, cancelReason)
+                const r = await safeCall(() => cancelRequisition(requisitionId, cancelReason))
                 if (!r.success) { setError(r.error); return }
                 toast.success('Requisition cancelled')
                 router.refresh()
