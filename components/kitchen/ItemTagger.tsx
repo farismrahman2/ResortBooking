@@ -8,6 +8,8 @@ import { toast } from '@/lib/toast'
 import { setItemVendorBulk, updateKitchenItem } from '@/lib/actions/kitchen'
 import { safeCall } from '@/lib/actions/safe-call'
 import { splitItemName, joinItemName } from '@/lib/kitchen/item-name'
+import { buildSearchIndex, scoreItem } from '@/lib/kitchen/item-search'
+import { phoneticKey } from '@/lib/kitchen/bangla-translit'
 import type { KitchenVendor } from '@/lib/supabase/types-kitchen'
 
 export interface TaggableItem {
@@ -53,14 +55,18 @@ export function ItemTagger({
   const vendorById = useMemo(() => new Map(vendors.map((v) => [v.id, v])), [vendors])
   const untaggedCount = items.filter((i) => !i.kitchen_vendor_id).length
 
+  const searchIndex = useMemo(() => buildSearchIndex(items), [items])
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return items.filter((i) => {
-      if (!showTagged && i.kitchen_vendor_id) return false
-      if (!q) return true
-      return i.name.toLowerCase().includes(q) || (i.category_name ?? '').toLowerCase().includes(q)
-    })
-  }, [items, search, showTagged])
+    const qKey = phoneticKey(q)
+    const pool = items.filter((i) => showTagged || !i.kitchen_vendor_id)
+    if (!q) return pool
+    // Category is searchable here too — "vegetable" should pull the whole
+    // group on the screen whose job is assigning them to a supplier.
+    return pool.filter((i) =>
+      (i.category_name ?? '').toLowerCase().includes(q)
+      || scoreItem(searchIndex.get(i.id), q, qKey) > 0)
+  }, [items, search, showTagged, searchIndex])
 
   /** Categories present in the current view — powers the bulk shortcut. */
   const categories = useMemo(() => {
@@ -154,7 +160,7 @@ export function ItemTagger({
           <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="search" value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search items…"
+            placeholder="Search — English or Bangla in English (tel, alu)…"
             className="min-h-[44px] w-full rounded-xl border border-gray-300 pl-9 pr-3 text-sm focus:border-forest-500 focus:outline-none"
           />
         </div>

@@ -9,6 +9,7 @@ import { saveRequisition, submitRequisition } from '@/lib/actions/kitchen'
 import { safeCall } from '@/lib/actions/safe-call'
 import { PaxBanner } from './PaxBanner'
 import { StartFromPrevious } from './StartFromPrevious'
+import { buildSearchIndex, searchItems } from '@/lib/kitchen/item-search'
 import { SaveAsTemplate } from './SaveAsTemplate'
 import type { CopyableRequisition } from '@/lib/queries/kitchen'
 import type { TemplateWithLines } from '@/lib/supabase/types-kitchen'
@@ -181,12 +182,13 @@ export function RequisitionForm({
     touch()
   }
 
+  // Built once per catalogue, not per keystroke — transliteration is cheap but
+  // this runs on a phone while somebody is typing.
+  const searchIndex = useMemo(() => buildSearchIndex(items), [items])
   const matches = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (q.length < 1) return []
     const chosen = new Set(lines.map((l) => l.item_id).filter(Boolean))
-    return items.filter((i) => !chosen.has(i.id) && i.name.toLowerCase().includes(q)).slice(0, 8)
-  }, [search, items, lines])
+    return searchItems(items, searchIndex, search, { exclude: chosen })
+  }, [search, items, searchIndex, lines])
 
   // Group for display — vendor order, untagged last so it's visible.
   const grouped = useMemo(() => {
@@ -276,7 +278,7 @@ export function RequisitionForm({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && matches.length === 0) { e.preventDefault(); addFreeText() } }}
-            placeholder="Search an item to add…"
+            placeholder="Search — English or Bangla typed in English (tel, alu)…"
             className="min-h-[44px] w-full rounded-xl border border-gray-300 pl-9 pr-3 text-base focus:border-forest-500 focus:outline-none"
           />
         </div>

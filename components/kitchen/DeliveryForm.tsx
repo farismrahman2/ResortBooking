@@ -8,6 +8,7 @@ import { toast } from '@/lib/toast'
 import { saveDelivery, confirmDelivery } from '@/lib/actions/kitchen-ledger'
 import { safeCall } from '@/lib/actions/safe-call'
 import { formatBDT } from '@/lib/formatters/currency'
+import { buildSearchIndex, searchItems } from '@/lib/kitchen/item-search'
 import type { KitchenVendor, DeliveryWithLines } from '@/lib/supabase/types-kitchen'
 import type { PickerItemRow } from '@/lib/queries/kitchen'
 import type { SalesEmployee } from '@/lib/supabase/types'
@@ -183,13 +184,11 @@ export function DeliveryForm({
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [])
 
   const chosen = useMemo(() => new Set(lines.map((l) => l.item_id).filter(Boolean)), [lines])
-  const matches = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return []
-    return items
-      .filter((i) => !chosen.has(i.id) && i.name.toLowerCase().includes(q))
-      .slice(0, 8)
-  }, [search, items, chosen])
+  const searchIndex = useMemo(() => buildSearchIndex(items), [items])
+  const matches = useMemo(
+    () => searchItems(items, searchIndex, search, { exclude: chosen }),
+    [search, items, searchIndex, chosen],
+  )
 
   function addItem(it: PickerItemRow) {
     setLines((prev) => [...prev, {
