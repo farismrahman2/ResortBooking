@@ -9,7 +9,13 @@ import { createSupplier, updateSupplier } from '@/lib/actions/inventory'
 import type { SupplierFormInput } from '@/lib/validators/inventory'
 import type { InvSupplier } from '@/lib/supabase/types-inventory'
 
-export function SupplierForm({ supplier }: { supplier?: InvSupplier }) {
+export function SupplierForm({
+  supplier, kitchenVendors = [],
+}: {
+  supplier?: InvSupplier
+  /** The six kitchen supplier slots. Empty = kitchen module not migrated. */
+  kitchenVendors?: { id: string; display_name: string }[]
+}) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -20,6 +26,7 @@ export function SupplierForm({ supplier }: { supplier?: InvSupplier }) {
     contact_email:   supplier?.contact_email ?? '',
     contact_address: supplier?.contact_address ?? '',
     notes:           supplier?.notes ?? '',
+    kitchen_vendor_id: (supplier as { kitchen_vendor_id?: string | null })?.kitchen_vendor_id ?? '',
   })
 
   function set<K extends keyof typeof form>(k: K, v: string) { setForm((f) => ({ ...f, [k]: v })) }
@@ -33,6 +40,7 @@ export function SupplierForm({ supplier }: { supplier?: InvSupplier }) {
       contact_address: form.contact_address.trim() || null,
       notes:           form.notes.trim() || null,
       expense_payee_id: supplier?.expense_payee_id ?? null,
+      kitchen_vendor_id: form.kitchen_vendor_id || null,
     }
     startTransition(async () => {
       const res = supplier ? await updateSupplier(supplier.id, payload) : await createSupplier(payload)
@@ -53,6 +61,24 @@ export function SupplierForm({ supplier }: { supplier?: InvSupplier }) {
         <Input label="Email" type="email" value={form.contact_email} onChange={(e) => set('contact_email', e.target.value)} />
       </div>
       <Input label="Address" value={form.contact_address} onChange={(e) => set('contact_address', e.target.value)} />
+      {kitchenVendors.length > 0 && (
+        <label className="block">
+          <span className="field-label">Kitchen vendor</span>
+          <select
+            value={form.kitchen_vendor_id}
+            onChange={(e) => set('kitchen_vendor_id', e.target.value)}
+            className="min-h-[42px] w-full rounded-lg border border-gray-300 bg-white px-2.5 text-sm focus:border-forest-600 focus:outline-none"
+          >
+            <option value="">— not a kitchen supplier —</option>
+            {kitchenVendors.map((v) => <option key={v.id} value={v.id}>{v.display_name}</option>)}
+          </select>
+          <span className="mt-1 block text-xs text-gray-500">
+            Which of the six daily-requisition slots this supplier fills. Leave blank for
+            housekeeping or amenities suppliers.
+          </span>
+        </label>
+      )}
+
       <Textarea label="Notes" value={form.notes} onChange={(e) => set('notes', e.target.value)} />
       {!supplier && (
         <p className="text-xs text-gray-500">
