@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { cachedRef } from '@/lib/cache'
 import type {
   KitchenVendor, RequisitionWithLines, RequisitionListRow, VendorSection, VendorLine,
+  RequisitionLine,
 } from '@/lib/supabase/types-kitchen'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -312,3 +313,95 @@ export const getUnitLabels = cachedRef<Record<string, string>>(
   },
   { tags: [KITCHEN_CATALOGUE_TAG], revalidate: 600 },
 )
+
+// ─── Dispatch log ───────────────────────────────────────────────────────────
+
+/** vendor id → when its message was last copied. Empty means nothing sent. */
+export async function getDispatchStatus(requisitionId: string): Promise<Record<string, string>> {
+  const { data, error } = await db()
+    .from('kitchen_requisition_dispatches')
+    .select('kitchen_vendor_id, sent_at')
+    .eq('requisition_id', requisitionId)
+  if (error) return {}
+  const map: Record<string, string> = {}
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const d of ((data ?? []) as any[])) map[d.kitchen_vendor_id] = d.sent_at
+  return map
+}
+
+// ─── Amendments ─────────────────────────────────────────────────────────────
+
+export interface RequisitionFamily {
+  parent:     RequisitionWithLines
+  amendments: RequisitionWithLines[]
+  /** Parent + approved amendments, netted per item — the order as it now stands. */
+  effective:  Array<{
+    item_key: string; item_name: string
+    kitchen_vendor_id: string | null
+    unit_id: string | null
+    original: number; change: number; net: number
+  }>
+}
+
+/**
+ * A requisition together with its amendments, and the netted result.
+ *
+ * The netted view exists because the person receiving goods at 6am needs ONE
+ * list. Handing them the original plus two change notes and asking them to do
+ * the arithmetic on a clipboard is how 3kg becomes 30kg.
+ *
+ * Only APPROVED amendments count toward the net. An amendment still awaiting
+ * approval has not been authorised and has not been sent — including it would
+ * show an order nobody agreed to.
+ */
+export async function getRequisitionFamily(id: string): Promise<RequisitionFamily | null> {
+  const parent = await getRequisitionById(id)
+  if (!parent) return null
+  // A child id may be passed in — resolve to the head of the family first.
+  if (parent.parent_requisition_id) return getRequisitionFamily(parent.parent_requisition_id)
+
+  const { data } = await db()
+    .from('kitchen_requisitions')
+    .select('*, lines:kitchen_requisition_lines(*)')
+    .eq('parent_requisition_id', id)
+    .order('amendment_seq')
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const amendments = ((data ?? []) as any[]).map((a) => ({
+    ...a,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    lines: ((a.lines ?? []) as any[]).sort((x, y) => x.sort_order - y.sort_order),
+  })) as RequisitionWithLines[]
+
+  const acc = new Map<string, RequisitionFamily['effective'][number]>()
+  // Group by item id where there is one; free-text lines fall back to their
+  // name, so "2kg tomato" typed twice still nets rather than double-counting.
+  const keyOf = (l: RequisitionLine) => l.item_id ?? `name:${l.item_name.toLowerCase()}`
+
+  for (const l of parent.lines) {
+    const k = keyOf(l)
+    const cur = acc.get(k) ?? {
+      item_key: k, item_name: l.item_name, kitchen_vendor_id: l.kitchen_vendor_id,
+      unit_id: l.unit_id, original: 0, change: 0, net: 0,
+    }
+    cur.original += Number(l.qty)
+    acc.set(k, cur)
+  }
+  for (const a of amendments.filter((x) => x.status === 'approved')) {
+    for (const l of a.lines) {
+      const k = keyOf(l)
+      const cur = acc.get(k) ?? {
+        item_key: k, item_name: l.item_name, kitchen_vendor_id: l.kitchen_vendor_id,
+        unit_id: l.unit_id, original: 0, change: 0, net: 0,
+      }
+      cur.change += Number(l.qty)
+      acc.set(k, cur)
+    }
+  }
+
+  const effective = [...acc.values()]
+    .map((e) => ({ ...e, net: e.original + e.change }))
+    // A line amended down to nothing is not part of the order any more.
+    .filter((e) => e.net !== 0)
+
+  return { parent, amendments, effective }
+}

@@ -5,9 +5,9 @@ import { createClient } from '@/lib/supabase/server'
 import { requirePermission, getCurrentUserContext } from '@/lib/auth/permissions'
 import {
   requisitionDraftSchema, requisitionSubmitSchema, approveSchema, vendorSchema,
-  kitchenItemCreateSchema, kitchenItemUpdateSchema,
+  kitchenItemCreateSchema, kitchenItemUpdateSchema, noNegativeLines,
 } from '@/lib/validators/kitchen'
-import { formatRequisitionNo } from '@/lib/kitchen/requisition-number'
+import { formatRequisitionNo, formatAmendmentNo } from '@/lib/kitchen/requisition-number'
 import { joinItemName } from '@/lib/kitchen/item-name'
 import { getRequisitionById, KITCHEN_CATALOGUE_TAG } from '@/lib/queries/kitchen'
 import { getDayMealHeadcounts } from '@/lib/queries/menus'
@@ -109,8 +109,11 @@ export async function saveRequisition(id: string, partial: unknown): Promise<Act
     // Lines are replace-all — the form re-sends its whole state on each save.
     if (lines) {
       await db.from('kitchen_requisition_lines').delete().eq('requisition_id', id)
+      // `!== 0`, not `> 0`: an amendment line of "-2 kg" is a real instruction
+      // to cancel part of an order, and dropping it here would silently
+      // discard exactly the change somebody came to record.
       const rows = lines
-        .filter((l) => l.item_name?.trim() && Number(l.qty) > 0)
+        .filter((l) => l.item_name?.trim() && Number(l.qty) !== 0)
         .map((l, i) => ({
           requisition_id: id, sort_order: i,
           item_id: l.item_id ?? null, item_name: l.item_name.trim(),
@@ -146,6 +149,13 @@ export async function submitRequisition(id: string): Promise<ActionResult> {
     const parsed = requisitionSubmitSchema.safeParse({ event_date: req.event_date, lines: req.lines })
     if (!parsed.success) {
       return { success: false, error: parsed.error.issues[0]?.message ?? 'Incomplete requisition' }
+    }
+    // Negative quantities are the amendment mechanism and are meaningless on a
+    // first order — a "-2 kg" line there would reach the supplier as a request
+    // to deliver minus two kilos.
+    if (!req.parent_requisition_id) {
+      const bad = noNegativeLines(req.lines)
+      if (bad) return { success: false, error: bad }
     }
 
     const { error } = await db.from('kitchen_requisitions')
@@ -507,6 +517,150 @@ export async function updateKitchenItem(itemId: string, raw: unknown): Promise<A
 
     revalidateTag(KITCHEN_CATALOGUE_TAG)
     return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+// ─── Dispatch log ───────────────────────────────────────────────────────────
+
+/**
+ * Record that a vendor's message was copied.
+ *
+ * Fired by the copy button. Non-blocking by design — a failure here must never
+ * stop somebody sending an order — but the record is what lets everything
+ * downstream tell an edit from an amendment, and what answers "did anyone
+ * actually send the vegetable order?"
+ *
+ * Upsert rather than insert: re-copying a message is normal (the paste went
+ * to the wrong chat), and it should refresh the timestamp, not stack rows.
+ */
+export async function recordDispatch(
+  requisitionId: string, vendorId: string, message: string,
+): Promise<ActionResult> {
+  await requirePermission('kitchen', 'write')
+  try {
+    const ctx = await getCurrentUserContext()
+    const { error } = await dbc().from('kitchen_requisition_dispatches').upsert({
+      requisition_id:    requisitionId,
+      kitchen_vendor_id: vendorId,
+      sent_at:           new Date().toISOString(),
+      sent_by_user_id:   ctx?.user_id ?? null,
+      message_snapshot:  message.slice(0, 4000),
+    }, { onConflict: 'requisition_id,kitchen_vendor_id' })
+    if (error) return { success: false, error: error.message }
+    revalidatePath(`/kitchen/requisitions/${requisitionId}/dispatch`)
+    revalidatePath(`/kitchen/requisitions/${requisitionId}`)
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+// ─── Amendments ─────────────────────────────────────────────────────────────
+
+/**
+ * Approved but nothing sent yet — put it back for another look.
+ *
+ * Goes to pending_approval, not draft: the work of writing the requisition is
+ * done, only the authorisation is void. Dropping it to draft would make the
+ * approver's queue lose it entirely.
+ *
+ * Refuses once ANY vendor has been dispatched. At that point a supplier is
+ * holding the order and a silent edit is how 5kg becomes 8kg with nobody able
+ * to say who decided that.
+ */
+export async function reopenRequisition(id: string): Promise<ActionResult> {
+  await requirePermission('kitchen', 'write')
+  try {
+    const db = dbc()
+    const { data: req } = await db.from('kitchen_requisitions')
+      .select('status, requisition_no').eq('id', id).maybeSingle()
+    if (!req) return { success: false, error: 'Requisition not found' }
+    if (req.status !== 'approved') {
+      return { success: false, error: `This requisition is ${req.status.replace('_', ' ')}, not approved.` }
+    }
+
+    const { count } = await db.from('kitchen_requisition_dispatches')
+      .select('id', { count: 'exact', head: true }).eq('requisition_id', id)
+    if ((count ?? 0) > 0) {
+      return {
+        success: false,
+        error: 'This order has already gone to suppliers — raise an amendment instead of editing it.',
+      }
+    }
+
+    const ctx = await getCurrentUserContext()
+    const { error } = await db.from('kitchen_requisitions').update({
+      status: 'pending_approval',
+      approved_by_employee_id: null, approved_by_user_id: null,
+      approved_at: null, approval_notes: null,
+      updated_at: new Date().toISOString(),
+    }).eq('id', id)
+    if (error) return { success: false, error: error.message }
+
+    await logHistory(id, 'edited', 'reopened', {
+      requisition_no: req.requisition_no, by_user: ctx?.email ?? null,
+    })
+    revalidatePath('/kitchen/requisitions')
+    revalidatePath(`/kitchen/requisitions/${id}`)
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/**
+ * Start an amendment to a dispatched requisition.
+ *
+ * Creates an empty child, numbered off the parent (RQ-0008-A), and returns its
+ * id so the caller can open the form on it. Lines are entered as CHANGES —
+ * "+3 kg potato", "−2 kg beef" — never as a restated order, because the
+ * supplier already has the original and a re-sent full list gets delivered
+ * twice.
+ */
+export async function createAmendment(parentId: string): Promise<ActionData<{ id: string }>> {
+  await requirePermission('kitchen', 'write')
+  try {
+    const db  = dbc()
+    const { data: parent } = await db.from('kitchen_requisitions')
+      .select('id, requisition_no, event_date, status, parent_requisition_id')
+      .eq('id', parentId).maybeSingle()
+    if (!parent) return { success: false, error: 'Requisition not found' }
+    if (parent.parent_requisition_id) {
+      return { success: false, error: 'This is already an amendment — amend the original instead.' }
+    }
+    if (parent.status !== 'approved') {
+      return { success: false, error: 'Only an approved requisition can be amended.' }
+    }
+
+    const ctx = await getCurrentUserContext()
+    let created: { id: string } | null = null
+    for (let attempt = 0; attempt < 6 && !created; attempt++) {
+      // Re-read the count each attempt: two people amending the same order at
+      // once is exactly the situation a fixed sequence would collide on.
+      const { count } = await db.from('kitchen_requisitions')
+        .select('id', { count: 'exact', head: true }).eq('parent_requisition_id', parentId)
+      const seq = (count ?? 0) + 1 + attempt
+      const { data, error } = await db.from('kitchen_requisitions').insert({
+        requisition_no:        formatAmendmentNo(parent.requisition_no, seq),
+        amendment_seq:         seq,
+        parent_requisition_id: parentId,
+        event_date:            parent.event_date,
+        status:                'draft',
+        is_emergency:          false,
+        created_by:            ctx?.user_id ?? null,
+      }).select('id').single()
+      if (!error) { created = data; break }
+      if (error.code !== '23505') return { success: false, error: error.message }
+    }
+    if (!created) return { success: false, error: 'Could not allocate an amendment number' }
+
+    await logHistory(created.id, 'created', 'amendment_started', {
+      parent: parent.requisition_no,
+    })
+    revalidatePath(`/kitchen/requisitions/${parentId}`)
+    return { success: true, data: created }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }
