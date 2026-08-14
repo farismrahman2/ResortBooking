@@ -60,6 +60,16 @@ function push(
   message: string,
   opts?: { description?: string; action?: ToastAction; duration?: number },
 ): number {
+  // A repeating failure — a debounced autosave that keeps erroring — would
+  // otherwise stack identical toasts. Refresh the existing one instead.
+  const twin = toasts.find((t) => t.kind === kind && t.message === message
+    && t.description === opts?.description)
+  if (twin) {
+    toasts = [...toasts.filter((t) => t.id !== twin.id), twin]
+    emit()
+    return twin.id
+  }
+
   const id = nextId++
   const duration = opts?.duration ?? DEFAULT_DURATION[kind]
   const t: Toast = {
