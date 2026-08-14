@@ -4,7 +4,7 @@ import { Topbar } from '@/components/layout/Topbar'
 import { requirePermission } from '@/lib/auth/permissions'
 import { listItemsForTagging, listKitchenVendors } from '@/lib/queries/kitchen'
 import { ItemTagger } from '@/components/kitchen/ItemTagger'
-import { MigrationErrorBanner } from '@/components/crm/MigrationErrorBanner'
+import { MigrationErrorBanner } from '@/components/ui/MigrationErrorBanner'
 
 export const dynamic = 'force-dynamic'
 
@@ -32,7 +32,7 @@ export default async function KitchenItemsPage() {
   } catch (err) {
     return (
       <div className="px-4 py-6">
-        <MigrationErrorBanner error={err instanceof Error ? err.message : String(err)} />
+        <MigrationErrorBanner error={err instanceof Error ? err.message : String(err)} moduleName="Kitchen" migrationPath="migrations/kitchen-module/000_create_requisitions.sql" />
       </div>
     )
   }

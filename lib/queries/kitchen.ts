@@ -20,7 +20,7 @@ export async function listKitchenItems(): Promise<Array<{
 }>> {
   const { data, error } = await db()
     .from('inv_items')
-    .select('id, name, kitchen_vendor_id, unit_id, is_active, unit:inv_units(abbreviation, name), category:inv_categories(display_name)')
+    .select('id, name, kitchen_vendor_id, unit_id, is_active, unit:inv_units(abbreviation, display_name), category:inv_categories(display_name)')
     .eq('is_active', true)
     .order('name')
     .limit(2000)
@@ -30,7 +30,7 @@ export async function listKitchenItems(): Promise<Array<{
     id: i.id, name: i.name,
     kitchen_vendor_id: i.kitchen_vendor_id ?? null,
     unit_id: i.unit_id ?? null,
-    unit_label: i.unit?.abbreviation ?? i.unit?.name ?? null,
+    unit_label: i.unit?.abbreviation ?? i.unit?.display_name ?? null,
     category_name: i.category?.display_name ?? null,
   }))
 }
@@ -93,11 +93,11 @@ export async function getVendorSections(requisitionId: string): Promise<VendorSe
   const [req, vendors, unitsRes] = await Promise.all([
     getRequisitionById(requisitionId),
     listKitchenVendors(),
-    db().from('inv_units').select('id, abbreviation, name'),
+    db().from('inv_units').select('id, abbreviation, display_name'),
   ])
   if (!req) return []
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const unitById = new Map(((unitsRes.data ?? []) as any[]).map((u) => [u.id, u.abbreviation ?? u.name]))
+  const unitById = new Map(((unitsRes.data ?? []) as any[]).map((u) => [u.id, u.abbreviation ?? u.display_name]))
 
   const byVendor = new Map<string, VendorLine[]>()
   for (const l of req.lines) {
@@ -144,7 +144,7 @@ export async function listItemsForTagging(): Promise<Array<{
   if (!store) return []
   const { data, error } = await db()
     .from('inv_items')
-    .select('id, name, sku_code, kitchen_vendor_id, is_active, category:inv_categories(slug, display_name), unit:inv_units(abbreviation, name)')
+    .select('id, name, sku_code, kitchen_vendor_id, is_active, category:inv_categories(slug, display_name), unit:inv_units(abbreviation, display_name)')
     .eq('store_id', store.id)
     .eq('is_active', true)
     .order('name')
@@ -155,7 +155,7 @@ export async function listItemsForTagging(): Promise<Array<{
     id: i.id, name: i.name, sku_code: i.sku_code ?? null,
     category_slug: i.category?.slug ?? null,
     category_name: i.category?.display_name ?? null,
-    unit_label: i.unit?.abbreviation ?? i.unit?.name ?? null,
+    unit_label: i.unit?.abbreviation ?? i.unit?.display_name ?? null,
     kitchen_vendor_id: i.kitchen_vendor_id ?? null,
   }))
 }
