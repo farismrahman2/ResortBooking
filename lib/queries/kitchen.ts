@@ -44,13 +44,22 @@ export interface PickerItemRow {
 export const listKitchenItems = cachedRef<PickerItemRow[]>(
   'kitchen-items',
   async (sdb) => {
+    // Scoped to the kitchen store. Inventory seeds a 'housekeeping' store too
+    // (linen, towels, amenities, cleaning supplies) and without this filter all
+    // of it showed up in the requisition picker — searchable, addable, and with
+    // no kitchen vendor, so it would have gone out to nobody.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (sdb as any)
+    const { data: store } = await (sdb as any)
+      .from('inv_stores').select('id').eq('slug', 'kitchen').maybeSingle()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let q = (sdb as any)
       .from('inv_items')
       .select('id, name, kitchen_vendor_id, unit_id, default_unit_price, is_active, unit:inv_units(abbreviation, display_name), category:inv_categories(display_name)')
       .eq('is_active', true)
       .order('name')
       .limit(2000)
+    if (store) q = q.eq('store_id', store.id)
+    const { data, error } = await q
     if (error) return []
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return ((data ?? []) as any[]).map((i) => ({

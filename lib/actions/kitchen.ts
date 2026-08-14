@@ -115,7 +115,12 @@ export async function saveRequisition(id: string, partial: unknown): Promise<Act
 
     if (!rpcErr) {
       if (rpc && rpc.ok === false) return { success: false, error: String(rpc.error) }
-      revalidatePath('/kitchen/requisitions')
+      // Deliberately NO revalidatePath here. In Next 14 a revalidate inside a
+      // server action makes the action's response carry a freshly rendered
+      // flight payload for the current route — so every 1.2s autosave was also
+      // re-running the edit page's queries and re-shipping the whole item
+      // catalogue. Nothing on screen depends on the list being fresh mid-edit;
+      // submit, approve and cancel all revalidate it.
       return { success: true }
     }
     // Migration 008 not applied yet — fall through to the original path rather
@@ -182,7 +187,6 @@ export async function saveRequisition(id: string, partial: unknown): Promise<Act
       }
     }
 
-    revalidatePath('/kitchen/requisitions')
     return { success: true }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
@@ -244,8 +248,19 @@ export async function approveRequisition(id: string, input: unknown): Promise<Ac
     const { data: req } = await db.from('kitchen_requisitions')
       .select('status, requisition_no').eq('id', id).maybeSingle()
     if (!req) return { success: false, error: 'Requisition not found' }
-    if (req.status === 'approved')  return { success: false, error: 'Already approved' }
-    if (req.status === 'cancelled') return { success: false, error: 'This requisition is cancelled' }
+    // Only a requisition that has actually been submitted may be approved.
+    // Listing the two forbidden states left `draft` approvable, which skipped
+    // submitRequisition entirely — and with it the event-date check, the
+    // at-least-one-line check and the no-negative-quantities rule. A draft
+    // could go straight to approved and out to suppliers with no date on it.
+    if (req.status !== 'pending_approval') {
+      return {
+        success: false,
+        error: req.status === 'approved'  ? 'Already approved'
+             : req.status === 'cancelled' ? 'This requisition is cancelled'
+             : 'This is still a draft — send it for approval first.',
+      }
+    }
 
     const { error } = await db.from('kitchen_requisitions').update({
       status:                  'approved',
@@ -594,6 +609,15 @@ export async function recordDispatch(
 ): Promise<ActionResult> {
   await requirePermission('kitchen', 'write')
   try {
+    // The dispatch page invites you to PREVIEW the messages before approval,
+    // and every Copy button stayed live. Recording those previews marked the
+    // requisition as sent, which permanently blocks "reopen for editing" and
+    // offers no amendment path either (amendments need an approved parent) —
+    // one curious tap locked a draft into read-only forever.
+    const { data: req } = await dbc().from('kitchen_requisitions')
+      .select('status').eq('id', requisitionId).maybeSingle()
+    if (req?.status !== 'approved') return { success: true }
+
     const ctx = await getCurrentUserContext()
     const { error } = await dbc().from('kitchen_requisition_dispatches').upsert({
       requisition_id:    requisitionId,
