@@ -138,21 +138,61 @@ with the cheque number as reference. No new expense row, so totals stay correct.
 | `/kitchen/requisitions/[id]` | Detail + **Approve** (named approver) |
 | `/kitchen/requisitions/[id]/dispatch` | **6 WhatsApp messages**, one per vendor, copy each |
 | `/kitchen/requisitions/[id]/print` | Paper form matching the current layout |
-| `/kitchen/deliveries` | Record a delivery against a requisition (supplier's receipt no + rates) |
+| `/kitchen/deliveries` | Record a delivery against a requisition (supplier's receipt no + rates) — **and copy the bill message for the group** |
 | `/kitchen/payments` | Cheque run: pick supplier → tick unpaid bills → cheque details + photo |
 | `/settings/kitchen-vendors` | The 6 slots, item tagging, supplier rates |
 
-The dispatch message reuses the existing `WhatsAppOutput` copy-to-clipboard
-pattern and reproduces the format already in use:
+### Two WhatsApp messages per vendor, not one
+
+Both reuse the existing `WhatsAppOutput` copy-to-clipboard pattern.
+
+**1. The ORDER** — copied after approval, on the dispatch screen. Tells the
+vendor what to bring. Includes `No order` when that vendor has nothing for the
+day, which the groups already do.
+
+**2. The DELIVERY / BILL** — copied after the goods arrive, on the delivery
+screen, once the supplier's receipt number and rates are entered. This is the
+message that actually appears in the groups today:
 
 ```
+Receipt : 465
+Supply date : 13 August 2026
+────────────────
 Event date : 13 August 2026
 Requisition : RQ 08
-Receipt : —
-Cow meat : 24 kg @ 700 = 16,800/-
-─────────
-TOTAL DUE : 16,800/-
+Chicken sonali (40 pcs( 31x335) = 10,385
+Broiler: ( 2pcs)  3.6x180/- = 648/-
+Eggs = (200×11.34) = Tk 2,268/-
+────────────────
+Total due : 13,301/-
 ```
+
+**The templates differ per vendor and must stay that way.** The beef group uses
+a compact `Event date / Requisition / Receipt / line / TOTAL DUE` form; the
+chicken group leads with the receipt and supply date and breaks each bird type
+onto its own line. Suppliers read these at a glance every night — normalising
+them into one house format would make the system's output look wrong to the
+people receiving it. So the message template is **per vendor**, stored and
+editable, not hardcoded.
+
+### Poultry lines carry two quantities
+
+`Chicken sonali (40 pcs( 31x335)` = **40 birds, 31 kg total, billed at 335/kg**.
+Same for broiler: `( 3pcs) 4.4x180`. The count and the billed weight are both
+recorded, and the bill is computed on the weight.
+
+`inv_movement_lines` has a single `quantity`, so the piece count has nowhere to
+go and would be lost. Therefore:
+
+```
+inv_movement_lines += piece_count NUMERIC(12,3)   -- nullable; birds, packs, crates
+kitchen_requisition_lines += piece_count           -- same, for the order side
+```
+
+Eggs are the counter-example — `Eggs = (200 × 11.34)` is billed per piece, so
+`quantity = 200` and `piece_count` stays null. The rule is: `quantity` is
+always what the money is calculated from; `piece_count` is the extra human
+detail when it differs.
 
 ---
 
