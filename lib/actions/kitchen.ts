@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { requirePermission, getCurrentUserContext } from '@/lib/auth/permissions'
 import {
-  requisitionDraftSchema, requisitionSubmitSchema, approveSchema,
+  requisitionDraftSchema, requisitionSubmitSchema, approveSchema, vendorSchema,
 } from '@/lib/validators/kitchen'
 import { formatRequisitionNo } from '@/lib/kitchen/requisition-number'
 import { getRequisitionById } from '@/lib/queries/kitchen'
@@ -270,6 +270,141 @@ export async function setItemVendorBulk(
     revalidatePath('/kitchen/items')
     revalidatePath('/kitchen/requisitions')
     return { success: true, data: { updated: itemIds.length } }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+// ─── Vendor slots ───────────────────────────────────────────────────────────
+
+/** Derive a stable slug from a display name. */
+function slugify(name: string): string {
+  return name.toLowerCase().trim()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 40) || 'vendor'
+}
+
+export async function createKitchenVendor(input: unknown): Promise<ActionData<{ id: string }>> {
+  await requirePermission('kitchen', 'write')
+  try {
+    const parsed = vendorSchema.safeParse(input)
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0]?.message ?? 'Invalid vendor' }
+    }
+    const db = dbc()
+    const base = parsed.data.slug ?? slugify(parsed.data.display_name)
+
+    // Retry with a numeric suffix on slug collision rather than failing —
+    // "Fish" and "Fish (dry)" both slugify close enough to clash.
+    let created: { id: string } | null = null
+    for (let attempt = 0; attempt < 6 && !created; attempt++) {
+      const slug = attempt === 0 ? base : `${base}_${attempt + 1}`
+      const { data, error } = await db.from('kitchen_vendors').insert({
+        slug,
+        display_name: parsed.data.display_name,
+        sort_order:   parsed.data.sort_order,
+        is_active:    parsed.data.is_active,
+      }).select('id').single()
+      if (!error) { created = data; break }
+      if (error.code !== '23505') return { success: false, error: error.message }
+    }
+    if (!created) return { success: false, error: 'Could not create a unique vendor key' }
+
+    revalidatePath('/kitchen/vendors')
+    revalidatePath('/kitchen/items')
+    return { success: true, data: created }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/** Rename / reorder / reactivate. The slug is deliberately not editable. */
+export async function updateKitchenVendor(id: string, input: unknown): Promise<ActionResult> {
+  await requirePermission('kitchen', 'write')
+  try {
+    const parsed = vendorSchema.safeParse(input)
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0]?.message ?? 'Invalid vendor' }
+    }
+    const { error } = await dbc().from('kitchen_vendors').update({
+      display_name: parsed.data.display_name,
+      sort_order:   parsed.data.sort_order,
+      is_active:    parsed.data.is_active,
+    }).eq('id', id)
+    if (error) return { success: false, error: error.message }
+    revalidatePath('/kitchen/vendors')
+    revalidatePath('/kitchen/items')
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/**
+ * Deactivate rather than delete. Items and past requisition lines point at
+ * this row; removing it would blank the vendor on historical orders and lose
+ * what was actually sent to whom.
+ */
+export async function deactivateKitchenVendor(id: string): Promise<ActionData<{ items: number }>> {
+  await requirePermission('kitchen', 'write')
+  try {
+    const db = dbc()
+    const { count } = await db.from('inv_items')
+      .select('id', { count: 'exact', head: true }).eq('kitchen_vendor_id', id)
+    const { error } = await db.from('kitchen_vendors')
+      .update({ is_active: false }).eq('id', id)
+    if (error) return { success: false, error: error.message }
+    revalidatePath('/kitchen/vendors')
+    revalidatePath('/kitchen/items')
+    return { success: true, data: { items: count ?? 0 } }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/** Create an item straight from the kitchen screens, with its vendor set. */
+export async function createKitchenItem(input: {
+  name: string; kitchen_vendor_id: string | null
+  category_id: string | null; unit_id: string
+}): Promise<ActionData<{ id: string }>> {
+  await requirePermission('kitchen', 'write')
+  try {
+    const db = dbc()
+    const name = input.name.trim()
+    if (!name) return { success: false, error: 'Item name is required' }
+    if (!input.unit_id) return { success: false, error: 'Pick a unit' }
+
+    const { data: store } = await db.from('inv_stores').select('id').eq('slug', 'kitchen').maybeSingle()
+    if (!store) return { success: false, error: 'No kitchen store configured' }
+
+    const { data: dupe } = await db.from('inv_items')
+      .select('id').eq('store_id', store.id).ilike('name', name).maybeSingle()
+    if (dupe) return { success: false, error: `"${name}" already exists in the kitchen store.` }
+
+    let created: { id: string } | null = null
+    for (let attempt = 0; attempt < 6 && !created; attempt++) {
+      const { data: maxRow } = await db.from('inv_items')
+        .select('sku_code').like('sku_code', 'KIT-%')
+        .order('sku_code', { ascending: false }).limit(1).maybeSingle()
+      const next = (parseInt(String(maxRow?.sku_code ?? 'KIT-0000').replace('KIT-', ''), 10) || 0) + 1 + attempt
+      const { data, error } = await db.from('inv_items').insert({
+        sku_code:          `KIT-${String(next).padStart(4, '0')}`,
+        store_id:          store.id,
+        category_id:       input.category_id,
+        name,
+        unit_id:           input.unit_id,
+        kitchen_vendor_id: input.kitchen_vendor_id,
+        item_type:         'consumable',
+        is_active:         true,
+      }).select('id').single()
+      if (!error) { created = data; break }
+      if (error.code !== '23505') return { success: false, error: error.message }
+    }
+    if (!created) return { success: false, error: 'Could not allocate an item code' }
+
+    revalidatePath('/kitchen/items')
+    return { success: true, data: created }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }

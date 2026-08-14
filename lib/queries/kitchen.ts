@@ -159,3 +159,40 @@ export async function listItemsForTagging(): Promise<Array<{
     kitchen_vendor_id: i.kitchen_vendor_id ?? null,
   }))
 }
+
+/** Vendor slots including hidden ones, with how many items point at each. */
+export async function listVendorsWithCounts(): Promise<{
+  vendors: KitchenVendor[]
+  counts:  Record<string, number>
+}> {
+  const [{ data: vendors, error }, { data: items }] = await Promise.all([
+    db().from('kitchen_vendors').select('*').order('sort_order'),
+    db().from('inv_items').select('kitchen_vendor_id').not('kitchen_vendor_id', 'is', null),
+  ])
+  if (error) throw new Error(`[kitchen.vendorsWithCounts] ${error.message}`)
+  const counts: Record<string, number> = {}
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const i of ((items ?? []) as any[])) {
+    counts[i.kitchen_vendor_id] = (counts[i.kitchen_vendor_id] ?? 0) + 1
+  }
+  return { vendors: (vendors ?? []) as KitchenVendor[], counts }
+}
+
+/** Kitchen-store categories and all units — for the quick add-item form. */
+export async function listItemFormOptions(): Promise<{
+  categories: { id: string; display_name: string }[]
+  units:      { id: string; display_name: string; abbreviation: string }[]
+}> {
+  const { data: store } = await db().from('inv_stores').select('id').eq('slug', 'kitchen').maybeSingle()
+  const [cats, units] = await Promise.all([
+    store
+      ? db().from('inv_categories').select('id, display_name')
+          .eq('store_id', store.id).eq('is_active', true).order('display_order')
+      : Promise.resolve({ data: [] }),
+    db().from('inv_units').select('id, display_name, abbreviation').order('display_order'),
+  ])
+  return {
+    categories: (cats.data ?? []) as { id: string; display_name: string }[],
+    units:      (units.data ?? []) as { id: string; display_name: string; abbreviation: string }[],
+  }
+}
