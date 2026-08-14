@@ -85,9 +85,15 @@ export async function saveRequisition(id: string, partial: unknown): Promise<Act
     }
 
     const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
-    if (header.event_date !== undefined)   patch.event_date = header.event_date
+    // event_date is NOT NULL. The zod schema turns an empty date input into
+    // `null` (not undefined), so a `!== undefined` guard let that null through
+    // and the UPDATE wiped the value the INSERT had just defaulted — every
+    // autosave before a date was picked failed with a not-null violation.
+    // Only write a real date; leave the existing one alone otherwise.
+    if (header.event_date)                 patch.event_date = header.event_date
     if (header.notes !== undefined)        patch.notes = header.notes
-    if (header.is_emergency !== undefined) patch.is_emergency = header.is_emergency
+    // is_emergency is NOT NULL too — a null here would fail the same way.
+    if (typeof header.is_emergency === 'boolean') patch.is_emergency = header.is_emergency
     const { error: upErr } = await db.from('kitchen_requisitions').update(patch).eq('id', id)
     if (upErr) return { success: false, error: upErr.message }
 
