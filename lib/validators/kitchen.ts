@@ -37,3 +37,13 @@ export const approveSchema = z.object({
   approved_by_employee_id: z.string().uuid('Choose who is approving this'),
   approval_notes:          nullableStr,
 })
+
+export const vendorSchema = z.object({
+  display_name: z.string().trim().min(1, 'Name is required').max(60),
+  /** Stable key used by code and by the seed. Generated from the name on
+   *  create, and NOT editable afterwards — renaming a slug would orphan any
+   *  item already pointing at it. */
+  slug:         z.string().trim().regex(/^[a-z0-9_]+$/, 'Lowercase letters, numbers and underscores only').optional(),
+  sort_order:   z.coerce.number().int().min(0).default(0),
+  is_active:    z.boolean().default(true),
+})
