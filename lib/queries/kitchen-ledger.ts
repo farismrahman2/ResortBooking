@@ -29,7 +29,13 @@ export async function getDeliveryById(id: string): Promise<DeliveryWithLines | n
       unit_price:    Number(l.unit_price),
       line_total:    Number(l.line_total),
     }))
-  return { ...data, total_amount: Number(data.total_amount), lines } as DeliveryWithLines
+  return {
+    ...data,
+    total_amount: Number(data.total_amount),
+    supplier_memo_total: data.supplier_memo_total === null || data.supplier_memo_total === undefined
+      ? null : Number(data.supplier_memo_total),
+    lines,
+  } as DeliveryWithLines
 }
 
 /**

@@ -7,9 +7,11 @@ import {
   getRequisitionById, getVendorSections, getDispatchStatus, getRequisitionFamily,
 } from '@/lib/queries/kitchen'
 import { listSalesEmployees } from '@/lib/queries/employees'
+import { listKitchenDocuments } from '@/lib/queries/kitchen-docs'
 import { ApprovePanel } from '@/components/kitchen/ApprovePanel'
 import { AmendPanel } from '@/components/kitchen/AmendPanel'
 import { EffectiveOrder } from '@/components/kitchen/EffectiveOrder'
+import { DocumentCapture } from '@/components/kitchen/DocumentCapture'
 import { MigrationErrorBanner } from '@/components/ui/MigrationErrorBanner'
 import { formatDate } from '@/lib/formatters/dates'
 import { REQUISITION_STATUS_LABELS, REQUISITION_STATUS_BADGE } from '@/lib/supabase/types-kitchen'
@@ -23,11 +25,12 @@ export default async function RequisitionDetailPage({ params }: { params: { id: 
   const canWrite = await hasPermission('kitchen', 'write')
 
   try {
-    const [req, sections, employees, dispatched] = await Promise.all([
+    const [req, sections, employees, dispatched, docs] = await Promise.all([
       getRequisitionById(params.id),
       getVendorSections(params.id),
       listSalesEmployees().catch(() => [] as SalesEmployee[]),
       getDispatchStatus(params.id),
+      listKitchenDocuments('requisition', params.id),
     ])
     if (!req) notFound()
 
@@ -128,6 +131,12 @@ export default async function RequisitionDetailPage({ params }: { params: { id: 
                   employees={employees}
                   approverName={approver}
                   canWrite={canWrite}
+                />
+                <DocumentCapture
+                  entityType="requisition" entityId={req.id} docs={docs}
+                  kind="requisition_form" label="Photos"
+                  hint="The signed paper sheet, if it was filled in by hand. Handy when somebody queries what was actually authorised."
+                  editable={canWrite}
                 />
                 {req.status === 'approved' && !req.parent_requisition_id && family && (
                   <AmendPanel

@@ -138,6 +138,8 @@ export interface KitchenDelivery {
   supplier_id:        string | null
   delivery_date:      string
   supplier_memo_no:   string | null
+  /** The total written on their paper. Null when nobody typed it in. */
+  supplier_memo_total: number | null
   received_by_employee_id: string | null
   status:             DeliveryStatus
   total_amount:       number

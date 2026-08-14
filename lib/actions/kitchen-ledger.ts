@@ -114,6 +114,7 @@ export async function saveDelivery(id: string, partial: unknown): Promise<Action
     if (header.requisition_id !== undefined)     patch.requisition_id = header.requisition_id
     if (header.supplier_id !== undefined)        patch.supplier_id = header.supplier_id
     if (header.supplier_memo_no !== undefined)   patch.supplier_memo_no = header.supplier_memo_no
+    if (header.supplier_memo_total !== undefined) patch.supplier_memo_total = header.supplier_memo_total
     if (header.received_by_employee_id !== undefined) {
       patch.received_by_employee_id = header.received_by_employee_id
     }

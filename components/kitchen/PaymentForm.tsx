@@ -92,6 +92,21 @@ export function PaymentForm({
     }
   }
 
+  /**
+   * Total every open receipt and set the payment to match — the actual habit
+   * this replaces: tally the vendor's slips, write one cheque for the lot.
+   * Fills the amount as well as the allocation, because with "settle all"
+   * the amount is a consequence of the bills, not an independent number.
+   */
+  function payAll() {
+    if (bills.length === 0) return
+    const next: Record<string, string> = {}
+    for (const b of bills) next[b.id] = String(Math.round(b.outstanding * 100) / 100)
+    setAlloc(next)
+    setAmount(String(Math.round(bills.reduce((n, b) => n + b.outstanding, 0) * 100) / 100))
+    setError(null)
+  }
+
   function submit() {
     setError(null)
     start(async () => {
@@ -205,15 +220,29 @@ export function PaymentForm({
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
         <div className="flex items-center justify-between gap-2 border-b border-gray-200 bg-gray-50 px-3 py-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-600">
-            Which bills does this settle?
+            Which receipts does this settle?
+            {bills.length > 0 && (
+              <span className="ml-1.5 font-normal normal-case text-gray-500">
+                {bills.length} open · {formatBDT(bills.reduce((n, b) => n + b.outstanding, 0))}
+              </span>
+            )}
           </p>
-          <button
-            type="button" onClick={autoAllocate}
-            disabled={!vendorId || bills.length === 0}
-            className="inline-flex min-h-[34px] items-center gap-1 rounded-lg border border-forest-300 bg-white px-2.5 text-xs font-semibold text-forest-800 disabled:opacity-40"
-          >
-            <Sparkles size={12} /> Oldest first
-          </button>
+          <div className="flex gap-1.5">
+            <button
+              type="button" onClick={payAll}
+              disabled={!vendorId || bills.length === 0}
+              className="inline-flex min-h-[34px] items-center gap-1 rounded-lg bg-forest-700 px-2.5 text-xs font-semibold text-white disabled:opacity-40"
+            >
+              <Sparkles size={12} /> Settle all
+            </button>
+            <button
+              type="button" onClick={autoAllocate}
+              disabled={!vendorId || bills.length === 0 || amountNum <= 0}
+              className="inline-flex min-h-[34px] items-center gap-1 rounded-lg border border-forest-300 bg-white px-2.5 text-xs font-semibold text-forest-800 disabled:opacity-40"
+            >
+              Oldest first
+            </button>
+          </div>
         </div>
 
         {!vendorId ? (
@@ -228,10 +257,16 @@ export function PaymentForm({
               <li key={b.id} className="flex items-center gap-2 p-3">
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm text-gray-900">
-                    {b.delivery_no}
+                    {/* Their receipt number leads. The tally is done off the
+                        receipt book — DL-0007 means nothing to anyone holding
+                        a stack of slips numbered 721, 725, 726. */}
+                    {b.supplier_memo_no
+                      ? <>Receipt {b.supplier_memo_no}<span className="ml-1.5 text-xs text-gray-400">{b.delivery_no}</span></>
+                      : b.delivery_no}
                     <span className="ml-1.5 text-xs text-gray-500">{formatDateShort(b.delivery_date)}</span>
                   </span>
                   <span className="block text-[11px] text-gray-500">
+                    {b.requisition_no ? `${b.requisition_no} · ` : ''}
                     Bill {formatBDT(b.total_amount)} · {formatBDT(b.outstanding)} due
                   </span>
                 </span>
