@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { ClipboardList, ChevronRight, AlertTriangle, Tags } from 'lucide-react'
 import { Topbar } from '@/components/layout/Topbar'
+import { KitchenNav } from '@/components/kitchen/KitchenNav'
 import { requirePermission, hasPermission } from '@/lib/auth/permissions'
 import { listRequisitions } from '@/lib/queries/kitchen'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -29,6 +30,7 @@ export default async function RequisitionsPage({ searchParams }: PageProps) {
         />
         <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6">
           <div className="mx-auto max-w-4xl space-y-3">
+            <KitchenNav current="requisitions" />
             {canWrite && (
               <Link href="/kitchen/items"
                 className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700">

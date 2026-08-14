@@ -38,7 +38,7 @@ interface Line {
  * grouping is what the dispatch actually needs.
  */
 export function RequisitionForm({
-  requisitionId, initial, vendors, items, isNew, recent = [],
+  requisitionId, initial, vendors, items, isNew, recent = [], amendmentOf,
 }: {
   requisitionId: string
   initial: RequisitionWithLines | null
@@ -47,6 +47,8 @@ export function RequisitionForm({
   isNew: boolean
   /** Recent requisitions offered as a starting point. */
   recent?: CopyableRequisition[]
+  /** Set when this sheet is an amendment — lines are CHANGES, not an order. */
+  amendmentOf?: { id: string; requisition_no: string }
 }) {
   const router = useRouter()
   const [eventDate, setEventDate] = useState(initial?.event_date ?? '')
@@ -227,7 +229,20 @@ export function RequisitionForm({
         </label>
       </div>
 
-      <PaxBanner date={eventDate} />
+      {amendmentOf ? (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5">
+          <p className="text-sm font-semibold text-amber-900">
+            Changes to {amendmentOf.requisition_no}
+          </p>
+          <p className="mt-0.5 text-xs leading-relaxed text-amber-800">
+            List only what changed. Use <strong>+</strong> for extra and <strong>−</strong> to
+            cancel part of what was ordered. The suppliers already have the original — anything
+            you repeat here they will deliver twice.
+          </p>
+        </div>
+      ) : (
+        <PaxBanner date={eventDate} />
+      )}
 
       {/* Item picker */}
       <div className="rounded-xl border border-gray-200 bg-white p-3">
@@ -274,7 +289,7 @@ export function RequisitionForm({
         )}
       </div>
 
-      {lines.length === 0 && (
+      {lines.length === 0 && !amendmentOf && (
         <StartFromPrevious options={recent} onPick={copyFrom} />
       )}
 
@@ -318,13 +333,37 @@ export function RequisitionForm({
                   <div className="mt-2 grid grid-cols-3 gap-2">
                     <label className="block">
                       <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-gray-500">
-                        Qty {l.unit_label ? `(${l.unit_label})` : ''}
+                        {amendmentOf ? 'Change' : 'Qty'} {l.unit_label ? `(${l.unit_label})` : ''}
                       </span>
-                      <input
-                        inputMode="decimal" value={l.qty}
-                        onChange={(e) => setLine(i, { qty: e.target.value.replace(/[^0-9.]/g, '') })}
-                        className="min-h-[42px] w-full rounded-lg border border-gray-300 px-2 text-base"
-                      />
+                      <div className="flex gap-1">
+                        {/* An amendment line is signed: + adds to the order the
+                            supplier already has, − cancels part of it. A typed
+                            minus is too easy to miss on a phone, so the sign is
+                            a button that shows its own state. */}
+                        {amendmentOf && (
+                          <button
+                            type="button"
+                            onClick={() => setLine(i, { qty: l.qty.startsWith('-')
+                              ? l.qty.slice(1) : `-${l.qty || ''}` })}
+                            aria-label={l.qty.startsWith('-') ? 'Cancelling' : 'Adding'}
+                            className={cn('min-h-[42px] w-9 flex-shrink-0 rounded-lg border text-base font-bold',
+                              l.qty.startsWith('-')
+                                ? 'border-red-400 bg-red-50 text-red-700'
+                                : 'border-green-400 bg-green-50 text-green-700')}
+                          >
+                            {l.qty.startsWith('-') ? '−' : '+'}
+                          </button>
+                        )}
+                        <input
+                          inputMode="decimal" value={l.qty}
+                          onChange={(e) => setLine(i, {
+                            qty: amendmentOf
+                              ? e.target.value.replace(/[^0-9.-]/g, '').replace(/(?!^)-/g, '')
+                              : e.target.value.replace(/[^0-9.]/g, ''),
+                          })}
+                          className="min-h-[42px] w-full rounded-lg border border-gray-300 px-2 text-base"
+                        />
+                      </div>
                     </label>
                     <label className="block">
                       <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-gray-500">Pieces</span>
@@ -375,7 +414,9 @@ export function RequisitionForm({
             disabled={submitting || lines.length === 0 || !eventDate}
             className="flex min-h-[48px] flex-1 items-center justify-center gap-1.5 rounded-xl bg-forest-700 px-4 text-base font-semibold text-white disabled:opacity-50"
           >
-            <Send size={16} /> {submitting ? 'Sending…' : 'Send for approval'}
+            <Send size={16} /> {submitting
+              ? 'Sending…'
+              : amendmentOf ? 'Send change for approval' : 'Send for approval'}
           </button>
         </div>
       </div>

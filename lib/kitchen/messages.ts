@@ -130,3 +130,50 @@ export function applyTemplate(
   if (!template?.trim()) return fallback
   return template.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? '')
 }
+
+/**
+ * The AMENDMENT message — a change to an order the supplier already has.
+ *
+ * Deliberately NOT a restated order. A supplier who receives what looks like a
+ * fresh list will deliver it, on top of the one they already have; the whole
+ * risk of amending by WhatsApp is that the second message reads like the
+ * first. So this one carries only the deltas, leads with a change marker in
+ * both languages, and names the order being changed on its own line.
+ */
+export function buildAmendmentMessage(input: {
+  parentRequisitionNo: string
+  amendmentNo:         string
+  eventDate:           string
+  vendorName:          string
+  lines: Array<{
+    item_name:   string
+    qty:         number       // signed: positive adds, negative cancels
+    piece_count: number | null
+    unit_label:  string | null
+    notes:       string | null
+  }>
+}): string {
+  const adds    = input.lines.filter((l) => l.qty > 0)
+  const cancels = input.lines.filter((l) => l.qty < 0)
+
+  const qtyOf = (l: { qty: number; piece_count: number | null; unit_label: string | null }) => {
+    const abs  = Math.abs(l.qty)
+    const unit = l.unit_label ? ` ${l.unit_label}` : ''
+    const pcs  = l.piece_count ? ` (${num(Math.abs(l.piece_count))} pcs)` : ''
+    return `${num(abs)}${unit}${pcs}`
+  }
+
+  return [
+    '⚠️ সংশোধন / CHANGE TO TODAY\'S ORDER',
+    `Order : ${input.parentRequisitionNo}  (change ${input.amendmentNo})`,
+    `Event date : ${longDate(input.eventDate)}`,
+    '────────────',
+    adds.length ? 'ADD / যোগ করুন :' : null,
+    ...adds.map((l) => `+ ${l.item_name} — ${qtyOf(l)}${l.notes ? ` (${l.notes})` : ''}`),
+    adds.length && cancels.length ? '' : null,
+    cancels.length ? 'CANCEL / বাদ দিন :' : null,
+    ...cancels.map((l) => `− ${l.item_name} — ${qtyOf(l)}${l.notes ? ` (${l.notes})` : ''}`),
+    '────────────',
+    'Everything else stays the same.',
+  ].filter((x) => x !== null && x !== undefined).join('\n')
+}

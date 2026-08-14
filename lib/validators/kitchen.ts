@@ -17,7 +17,10 @@ export const requisitionLineSchema = z.object({
   item_id:           z.string().uuid().nullish().transform((v) => v || null),
   item_name:         z.string().trim().max(200).default(''),
   kitchen_vendor_id: z.string().uuid().nullish().transform((v) => v || null),
-  qty:               z.coerce.number().min(0).catch(0).default(0),
+  // Negative is legal ONLY on an amendment, where "-2 kg" cancels part of
+  // an order already sent. submitRequisition enforces the sign against the
+  // parent link, because the schema can't see whether this is an amendment.
+  qty:               z.coerce.number().catch(0).default(0),
   piece_count:       z.coerce.number().min(0).nullish().transform((v) => (v ? v : null)),
   unit_id:           z.string().uuid().nullish().transform((v) => v || null),
   notes:             nullableStr,
@@ -41,9 +44,7 @@ export const requisitionSubmitSchema = z.object({
   event_date: z.string().min(1, 'Event date is required'),
   lines:      z.array(requisitionLineSchema).min(1, 'Add at least one item'),
 }).superRefine((data, ctx) => {
-  // Only persisted lines reach here, and those already have qty > 0 — but
-  // check anyway so a future caller can't slip a zero-quantity order past.
-  const bad = (data.lines ?? []).find((l) => !(Number(l.qty) > 0))
+  const bad = (data.lines ?? []).find((l) => Number(l.qty) === 0)
   if (bad) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom, path: ['lines'],
@@ -51,6 +52,21 @@ export const requisitionSubmitSchema = z.object({
     })
   }
 })
+
+/**
+ * The extra rule for a plain requisition: quantities must be positive.
+ *
+ * Negatives are the amendment mechanism — "-2 kg beef" cancels part of an
+ * order the supplier already has — and they are meaningless on a first order.
+ * Kept out of requisitionSubmitSchema because the schema cannot see whether
+ * the requisition has a parent; submitRequisition applies whichever fits.
+ */
+export const noNegativeLines = (lines: Array<{ qty: number; item_name: string }>): string | null => {
+  const bad = lines.find((l) => Number(l.qty) < 0)
+  return bad
+    ? `"${bad.item_name}" has a negative quantity. Negatives are only for amendments.`
+    : null
+}
 
 export const approveSchema = z.object({
   approved_by_employee_id: z.string().uuid('Choose who is approving this'),
@@ -102,4 +118,117 @@ export const vendorSchema = z.object({
   slug:         z.string().trim().regex(/^[a-z0-9_]+$/, 'Lowercase letters, numbers and underscores only').optional(),
   sort_order:   z.coerce.number().int().min(0).default(0),
   is_active:    z.boolean().default(true),
+})
+
+// ─── Deliveries ─────────────────────────────────────────────────────────────
+
+/**
+ * A delivery line while the storekeeper is typing at 6am.
+ *
+ * Permissive for the same reason the requisition line is: the row appears on
+ * screen before a weight is entered, and the autosave fires a second later.
+ * Zero-delivered is a legitimate saved state — it means "ordered, nothing
+ * came" — so unlike a requisition line it is NOT dropped on write.
+ */
+export const deliveryLineSchema = z.object({
+  id:                  z.string().uuid().optional(),
+  sort_order:          z.number().int().min(0).default(0),
+  requisition_line_id: z.string().uuid().nullish().transform((v) => v || null),
+  item_id:             z.string().uuid().nullish().transform((v) => v || null),
+  item_name:           z.string().trim().max(200).default(''),
+  qty_ordered:         z.coerce.number().nullish().transform((v) => (v === null || v === undefined ? null : Number(v))),
+  qty_delivered:       z.coerce.number().min(0).catch(0).default(0),
+  rejected_qty:        z.preprocess((v) => (v === '' || v === null || v === undefined ? null : v),
+                         z.coerce.number().min(0).nullable()),
+  reject_reason:       nullableStr,
+  piece_count:         z.preprocess((v) => (v === '' || v === null || v === undefined ? null : v),
+                         z.coerce.number().min(0).nullable()),
+  unit_id:             z.string().uuid().nullish().transform((v) => v || null),
+  unit_price:          z.coerce.number().min(0).catch(0).default(0),
+  is_unrequested:      z.boolean().default(false),
+  notes:               nullableStr,
+})
+
+export const deliveryDraftSchema = z.object({
+  requisition_id:    z.string().uuid().nullish().transform((v) => v || null),
+  kitchen_vendor_id: z.string().uuid().nullish().transform((v) => v || null),
+  supplier_id:       z.string().uuid().nullish().transform((v) => v || null),
+  delivery_date:     z.string().nullish().transform((v) => v || null),
+  supplier_memo_no:  nullableStr,
+  received_by_employee_id: z.string().uuid().nullish().transform((v) => v || null),
+  notes:             nullableStr,
+  lines:             z.array(deliveryLineSchema).default([]),
+}).partial()
+
+/**
+ * Confirming a delivery is the point it becomes money owed, so this is where
+ * the real checks live. A rate of zero is the one that matters: it produces a
+ * bill of zero, which reconciles against nothing and is never noticed until
+ * the supplier calls.
+ */
+export const deliveryConfirmSchema = z.object({
+  kitchen_vendor_id: z.string().uuid('Pick which supplier this is from'),
+  delivery_date:     z.string().min(1, 'Delivery date is required'),
+  lines:             z.array(deliveryLineSchema).min(1, 'Add at least one item'),
+}).superRefine((data, ctx) => {
+  const live = data.lines.filter((l) => Number(l.qty_delivered) > 0)
+  if (live.length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom, path: ['lines'],
+      message: 'Nothing was delivered — record a quantity, or cancel this delivery.',
+    })
+    return
+  }
+  const unpriced = live.find((l) => !(Number(l.unit_price) > 0))
+  if (unpriced) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom, path: ['lines'],
+      message: `"${unpriced.item_name || 'An item'}" has no rate — the bill would come to zero.`,
+    })
+  }
+  const overRejected = live.find((l) =>
+    l.rejected_qty !== null && Number(l.rejected_qty) > Number(l.qty_delivered))
+  if (overRejected) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom, path: ['lines'],
+      message: `"${overRejected.item_name}" rejects more than arrived.`,
+    })
+  }
+})
+
+// ─── Payments ───────────────────────────────────────────────────────────────
+
+export const paymentSchema = z.object({
+  kitchen_vendor_id: z.string().uuid('Pick a supplier'),
+  supplier_id:       z.string().uuid().nullish().transform((v) => v || null),
+  payment_date:      z.string().min(1, 'Payment date is required'),
+  method:            z.enum(['cheque', 'cash', 'bank_transfer', 'bkash', 'nagad', 'adjustment'])
+                       .default('cheque'),
+  cheque_no:         nullableStr,
+  cheque_date:       z.string().nullish().transform((v) => v || null),
+  bank_name:         nullableStr,
+  amount:            z.coerce.number().positive('Enter the amount paid'),
+  notes:             nullableStr,
+  /** delivery_id → amount. Settles specific bills; may be empty (on account). */
+  allocations:       z.array(z.object({
+                       delivery_id: z.string().uuid(),
+                       amount:      z.coerce.number().positive(),
+                     })).default([]),
+}).superRefine((data, ctx) => {
+  // A cheque with no number cannot be matched against the bank statement, and
+  // matching it later means going back through photographs.
+  if (data.method === 'cheque' && !data.cheque_no) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom, path: ['cheque_no'],
+      message: 'Cheque number is required',
+    })
+  }
+  const allocated = data.allocations.reduce((n, a) => n + Number(a.amount), 0)
+  // Rounding: allow a paisa either way rather than blocking on float noise.
+  if (allocated > Number(data.amount) + 0.01) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom, path: ['allocations'],
+      message: `Allocated ${allocated.toFixed(2)} against a payment of ${Number(data.amount).toFixed(2)}.`,
+    })
+  }
 })

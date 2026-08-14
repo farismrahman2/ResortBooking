@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { ChevronLeft, Settings2 } from 'lucide-react'
 import { Topbar } from '@/components/layout/Topbar'
+import { KitchenNav } from '@/components/kitchen/KitchenNav'
 import { requirePermission } from '@/lib/auth/permissions'
 import { listItemsForTagging, listKitchenVendors, listItemFormOptions } from '@/lib/queries/kitchen'
 import { ItemTagger } from '@/components/kitchen/ItemTagger'
@@ -22,6 +23,7 @@ export default async function KitchenItemsPage() {
         <Topbar title="Kitchen items" subtitle="Supplier, unit and standing rate for each item" />
         <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6">
           <div className="mx-auto max-w-4xl space-y-4">
+            <KitchenNav current="items" />
             <div className="flex items-center justify-between gap-2">
               <Link href="/kitchen/requisitions"
                 className="inline-flex items-center gap-1 text-sm text-forest-700 hover:underline">

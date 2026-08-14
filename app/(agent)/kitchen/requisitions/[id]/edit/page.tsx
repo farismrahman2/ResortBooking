@@ -21,11 +21,15 @@ export default async function EditRequisitionPage({ params }: { params: { id: st
     // Once it leaves draft it has gone to the approver — read-only from here.
     if (req && req.status !== 'draft') redirect(`/kitchen/requisitions/${params.id}`)
 
+    const parent = req?.parent_requisition_id
+      ? await getRequisitionById(req.parent_requisition_id)
+      : null
+
     return (
       <div className="flex h-full flex-col">
         <Topbar
           title={req ? req.requisition_no : 'New requisition'}
-          subtitle="Kitchen requisition"
+          subtitle={req?.parent_requisition_id ? 'Amendment' : 'Kitchen requisition'}
         />
         <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6">
           <RequisitionForm
@@ -36,6 +40,7 @@ export default async function EditRequisitionPage({ params }: { params: { id: st
             isNew={!req}
             // Don't offer this sheet as a source for itself.
             recent={recent.filter((r) => r.id !== params.id)}
+            amendmentOf={parent ? { id: parent.id, requisition_no: parent.requisition_no } : undefined}
           />
         </div>
       </div>
