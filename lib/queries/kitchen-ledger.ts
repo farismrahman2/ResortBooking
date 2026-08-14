@@ -1,5 +1,7 @@
+import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { listKitchenVendors, getUnitLabels } from './kitchen'
+import { getMealsForBookingOnDate } from '@/lib/engine/meals'
 import type {
   DeliveryWithLines, DeliveryListRow, KitchenDelivery,
   PaymentWithAllocations, KitchenPayment, VendorLedgerRow,
@@ -10,7 +12,7 @@ const db = () => createClient() as any
 
 // ─── Deliveries ─────────────────────────────────────────────────────────────
 
-export async function getDeliveryById(id: string): Promise<DeliveryWithLines | null> {
+export const getDeliveryById = cache(async (id: string): Promise<DeliveryWithLines | null> => {
   const { data, error } = await db()
     .from('kitchen_deliveries')
     .select('*, lines:kitchen_delivery_lines(*)')
@@ -36,7 +38,7 @@ export async function getDeliveryById(id: string): Promise<DeliveryWithLines | n
       ? null : Number(data.supplier_memo_total),
     lines,
   } as DeliveryWithLines
-}
+})
 
 /**
  * Deliveries with what has been paid against each.
@@ -53,8 +55,10 @@ export async function listDeliveries(filters: {
   let q = db().from('kitchen_deliveries')
     .select('*, requisition:kitchen_requisitions(requisition_no), allocations:kitchen_payment_allocations(amount_allocated, payment:kitchen_vendor_payments(status))')
     .order('delivery_date', { ascending: false })
+    // 200 rows, each with its allocations and their payments embedded, is a
+    // lot of JSON for a list nobody scrolls past the first screen of.
     .order('created_at', { ascending: false })
-    .limit(200)
+    .limit(80)
 
   if (filters.status)   q = q.eq('status', filters.status)
   else                  q = q.neq('status', 'cancelled')
@@ -220,7 +224,7 @@ export async function listPayments(filters: {
   let q = db().from('kitchen_vendor_payments')
     .select('*, allocations:kitchen_payment_allocations(amount_allocated)')
     .order('payment_date', { ascending: false })
-    .limit(200)
+    .limit(80)
   if (filters.vendorId) q = q.eq('kitchen_vendor_id', filters.vendorId)
   if (filters.from)     q = q.gte('payment_date', filters.from)
   if (filters.to)       q = q.lte('payment_date', filters.to)
@@ -333,3 +337,88 @@ export async function getDeliverySpend(from: string, to: string): Promise<{
 }
 
 export type { KitchenDelivery }
+
+/**
+ * Covers per day across a range, in ONE query.
+ *
+ * The ledger previously called getDayMealHeadcounts once per day — thirty
+ * round trips for a thirty-day window, each pulling every booking on or before
+ * that date with no lower bound. That single loop was most of why the page
+ * took seconds to appear.
+ *
+ * Same meal engine, so the numbers still agree with the menus module and the
+ * daily report; the difference is that the bookings are fetched once, bounded
+ * to those that actually overlap the window, and the days are walked in memory.
+ *
+ * A cover is one person at one main meal, and the day's figure is its busiest
+ * sitting — which is how the kitchen itself counts.
+ */
+export async function getCoversInRange(from: string, to: string): Promise<{
+  total: number
+  byDate: Record<string, number>
+}> {
+  const { data, error } = await db()
+    .from('bookings')
+    .select('package_type, visit_date, check_out_date, adults, children_paid, children_free, drivers, package_snapshot')
+    .neq('status', 'cancelled')
+    .neq('status', 'no_show')
+    // Overlap, not "everything up to `to`": a booking that checked out before
+    // the window started contributes nothing and should not be fetched.
+    .lte('visit_date', to)
+    .or(`check_out_date.gte.${from},check_out_date.is.null`)
+  if (error) return { total: 0, byDate: {} }
+
+  const days: string[] = []
+  for (const d = new Date(`${from}T00:00:00Z`); d <= new Date(`${to}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1)) {
+    days.push(d.toISOString().slice(0, 10))
+  }
+
+  const byDate: Record<string, number> = {}
+  for (const day of days) {
+    let breakfast = 0, lunch = 0, dinner = 0
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const b of ((data ?? []) as any[])) {
+      const snap = b.package_snapshot ?? {}
+      const meals = getMealsForBookingOnDate({
+        package_type:       b.package_type,
+        visit_date:         b.visit_date,
+        check_out_date:     b.check_out_date,
+        adults:             b.adults ?? 0,
+        children_paid:      b.children_paid ?? 0,
+        children_free:      b.children_free ?? 0,
+        includes_breakfast: snap.includes_breakfast,
+        includes_lunch:     snap.includes_lunch,
+        includes_dinner:    snap.includes_dinner,
+        includes_snacks:    snap.includes_snacks,
+      }, day)
+      // Drivers ride along with whichever meals their booking participates in.
+      const drivers = Number(b.drivers ?? 0)
+      if (meals.breakfast > 0) breakfast += meals.breakfast + drivers
+      if (meals.lunch     > 0) lunch     += meals.lunch + drivers
+      if (meals.dinner    > 0) dinner    += meals.dinner + drivers
+    }
+    byDate[day] = Math.max(breakfast, lunch, dinner)
+  }
+
+  return { total: Object.values(byDate).reduce((n, v) => n + v, 0), byDate }
+}
+
+/**
+ * What has been paid against ONE delivery.
+ *
+ * The detail page used to call listDeliveries and scan the result for its own
+ * row — up to 200 deliveries, each with its allocations and their payments
+ * embedded, to produce two numbers about a single record. This is the same
+ * arithmetic over the only rows that matter.
+ */
+export async function getDeliveryPaid(deliveryId: string): Promise<number> {
+  const { data, error } = await db()
+    .from('kitchen_payment_allocations')
+    .select('amount_allocated, payment:kitchen_vendor_payments(status)')
+    .eq('delivery_id', deliveryId)
+  if (error) return 0
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((data ?? []) as any[])
+    .filter((a) => a.payment?.status !== 'cancelled')
+    .reduce((n, a) => n + Number(a.amount_allocated ?? 0), 0)
+}

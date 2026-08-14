@@ -1,3 +1,4 @@
+import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { cachedRef } from '@/lib/cache'
 import type {
@@ -65,17 +66,28 @@ export const listKitchenItems = cachedRef<PickerItemRow[]>(
   { tags: [KITCHEN_CATALOGUE_TAG], revalidate: 600 },
 )
 
-export async function getRequisitionById(id: string): Promise<RequisitionWithLines | null> {
-  const { data, error } = await db()
-    .from('kitchen_requisitions')
-    .select('*, lines:kitchen_requisition_lines(*)')
-    .eq('id', id).maybeSingle()
-  if (error) throw new Error(`[kitchen.getById] ${error.message}`)
-  if (!data) return null
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const lines = ((data.lines ?? []) as any[]).sort((a, b) => a.sort_order - b.sort_order)
-  return { ...data, lines } as RequisitionWithLines
-}
+/**
+ * Deduplicated per request with React's `cache`.
+ *
+ * The detail page asked for the same requisition three times over — once
+ * directly, once inside getVendorSections, once inside getRequisitionFamily —
+ * and each call dragged every line row back with it. They are now one query,
+ * with no change to any call site. The same applies to the dispatch and print
+ * pages, which each fetch it twice.
+ */
+export const getRequisitionById = cache(
+  async (id: string): Promise<RequisitionWithLines | null> => {
+    const { data, error } = await db()
+      .from('kitchen_requisitions')
+      .select('*, lines:kitchen_requisition_lines(*)')
+      .eq('id', id).maybeSingle()
+    if (error) throw new Error(`[kitchen.getById] ${error.message}`)
+    if (!data) return null
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const lines = ((data.lines ?? []) as any[]).sort((a, b) => a.sort_order - b.sort_order)
+    return { ...data, lines } as RequisitionWithLines
+  },
+)
 
 export async function listRequisitions(filters: {
   from?: string; to?: string; status?: string; q?: string
@@ -124,7 +136,7 @@ export async function listRequisitions(filters: {
  * fan-out. Vendors with nothing are still returned, because the groups post
  * "No order" on a quiet day rather than staying silent.
  */
-export async function getVendorSections(requisitionId: string): Promise<VendorSection[]> {
+export const getVendorSections = cache(async (requisitionId: string): Promise<VendorSection[]> => {
   const [req, vendors, unitLabels] = await Promise.all([
     getRequisitionById(requisitionId),
     listKitchenVendors(),
@@ -166,7 +178,7 @@ export async function getVendorSections(requisitionId: string): Promise<VendorSe
     })
   }
   return sections
-}
+})
 
 export interface CopyableRequisition {
   id: string
@@ -303,6 +315,26 @@ export const listItemFormOptions = cachedRef<{
   { tags: [KITCHEN_CATALOGUE_TAG], revalidate: 600 },
 )
 
+/**
+ * The approver dropdown. Cached with the catalogue: the sales-employee list is
+ * reference data that changes when somebody joins, and it was being re-fetched
+ * on the requisition detail page, the print page and the delivery form.
+ */
+export const listApprovers = cachedRef<Array<{ id: string; full_name: string }>>(
+  'kitchen-approvers',
+  async (sdb) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data } = await (sdb as any)
+      .from('employees')
+      .select('id, full_name')
+      .in('employment_status', ['active', 'on_leave'])
+      .order('full_name')
+      .limit(300)
+    return (data ?? []) as Array<{ id: string; full_name: string }>
+  },
+  { tags: [KITCHEN_CATALOGUE_TAG], revalidate: 900 },
+)
+
 /** id → abbreviation, for labelling saved lines. Cached with the catalogue. */
 export const getUnitLabels = cachedRef<Record<string, string>>(
   'kitchen-unit-labels',
@@ -321,7 +353,7 @@ export const getUnitLabels = cachedRef<Record<string, string>>(
 // ─── Dispatch log ───────────────────────────────────────────────────────────
 
 /** vendor id → when its message was last copied. Empty means nothing sent. */
-export async function getDispatchStatus(requisitionId: string): Promise<Record<string, string>> {
+export const getDispatchStatus = cache(async (requisitionId: string): Promise<Record<string, string>> => {
   const { data, error } = await db()
     .from('kitchen_requisition_dispatches')
     .select('kitchen_vendor_id, sent_at')
@@ -331,7 +363,7 @@ export async function getDispatchStatus(requisitionId: string): Promise<Record<s
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const d of ((data ?? []) as any[])) map[d.kitchen_vendor_id] = d.sent_at
   return map
-}
+})
 
 // ─── Amendments ─────────────────────────────────────────────────────────────
 

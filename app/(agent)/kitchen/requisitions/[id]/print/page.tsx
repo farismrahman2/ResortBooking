@@ -1,12 +1,10 @@
 import { notFound } from 'next/navigation'
 import { requirePermission } from '@/lib/auth/permissions'
-import { getRequisitionById, getVendorSections } from '@/lib/queries/kitchen'
-import { listSalesEmployees } from '@/lib/queries/employees'
+import { getRequisitionById, getVendorSections, listApprovers } from '@/lib/queries/kitchen'
 import { RequisitionPrintDoc } from '@/components/kitchen/RequisitionPrintDoc'
 import { MigrationErrorBanner } from '@/components/ui/MigrationErrorBanner'
 import { formatDate } from '@/lib/formatters/dates'
 import { REQUISITION_STATUS_LABELS } from '@/lib/supabase/types-kitchen'
-import type { SalesEmployee } from '@/lib/supabase/types'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,7 +22,7 @@ export default async function RequisitionPrintPage({ params }: { params: { id: s
     const [req, sections, employees] = await Promise.all([
       getRequisitionById(params.id),
       getVendorSections(params.id),
-      listSalesEmployees().catch(() => [] as SalesEmployee[]),
+      listApprovers().catch(() => []),
     ])
     if (!req) notFound()
 

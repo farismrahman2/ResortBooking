@@ -3,9 +3,10 @@ import { notFound } from 'next/navigation'
 import { Pencil, ChevronLeft, Ban, Wallet } from 'lucide-react'
 import { Topbar } from '@/components/layout/Topbar'
 import { requirePermission, hasPermission } from '@/lib/auth/permissions'
-import { getDeliveryById, listDeliveries } from '@/lib/queries/kitchen-ledger'
-import { listKitchenVendors, getUnitLabels, getRequisitionById } from '@/lib/queries/kitchen'
-import { listSalesEmployees } from '@/lib/queries/employees'
+import { getDeliveryById, getDeliveryPaid } from '@/lib/queries/kitchen-ledger'
+import {
+  listKitchenVendors, getUnitLabels, getRequisitionById, listApprovers,
+} from '@/lib/queries/kitchen'
 import { listKitchenDocuments } from '@/lib/queries/kitchen-docs'
 import { BillMessage } from '@/components/kitchen/BillMessage'
 import { DocumentCapture } from '@/components/kitchen/DocumentCapture'
@@ -15,7 +16,6 @@ import { formatDate } from '@/lib/formatters/dates'
 import { formatBDT } from '@/lib/formatters/currency'
 import { num } from '@/lib/kitchen/messages'
 import { DELIVERY_STATUS_LABELS, DELIVERY_STATUS_BADGE } from '@/lib/supabase/types-kitchen'
-import type { SalesEmployee } from '@/lib/supabase/types'
 
 export const dynamic = 'force-dynamic'
 
@@ -28,20 +28,18 @@ export default async function DeliveryDetailPage({ params }: { params: { id: str
       getDeliveryById(params.id),
       listKitchenVendors(),
       getUnitLabels(),
-      listSalesEmployees().catch(() => [] as SalesEmployee[]),
+      listApprovers().catch(() => []),
     ])
     if (!del) notFound()
 
-    const [req, rows, docs] = await Promise.all([
+    const [req, paid, docs] = await Promise.all([
       del.requisition_id ? getRequisitionById(del.requisition_id) : Promise.resolve(null),
-      // The list row carries what has been paid against this delivery; the
-      // detail query deliberately doesn't re-derive it in a second place.
-      // Pass this delivery's own status, or a cancelled one drops out of its
-      // own detail page and shows a fabricated zero balance.
-      listDeliveries({ vendorId: del.kitchen_vendor_id, status: del.status }),
+      // Two numbers about one record. This used to pull up to 200 deliveries
+      // with their allocations embedded and scan the result for its own row.
+      getDeliveryPaid(del.id),
       listKitchenDocuments('delivery', del.id),
     ])
-    const row = rows.find((r) => r.id === del.id)
+    const row = { paid_amount: paid, outstanding: Math.max(0, del.total_amount - paid) }
 
     const vendor   = vendors.find((v) => v.id === del.kitchen_vendor_id)
     const receiver = del.received_by_employee_id
