@@ -2,10 +2,11 @@
 
 import { useState, useMemo, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, Check, AlertTriangle, Layers, X } from 'lucide-react'
+import { Search, Check, AlertTriangle, Layers, X, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from '@/lib/toast'
-import { setItemVendorBulk } from '@/lib/actions/kitchen'
+import { setItemVendorBulk, updateKitchenItem } from '@/lib/actions/kitchen'
+import { splitItemName, joinItemName } from '@/lib/kitchen/item-name'
 import type { KitchenVendor } from '@/lib/supabase/types-kitchen'
 
 export interface TaggableItem {
@@ -14,9 +15,13 @@ export interface TaggableItem {
   sku_code: string | null
   category_slug: string | null
   category_name: string | null
+  unit_id: string | null
   unit_label: string | null
+  default_unit_price: number | null
   kitchen_vendor_id: string | null
 }
+
+export interface UnitOption { id: string; display_name: string; abbreviation: string }
 
 /**
  * Assigns each kitchen item to the supplier who provides it. Until an item is
@@ -28,16 +33,21 @@ export interface TaggableItem {
  * half-configured system that fails quietly.
  */
 export function ItemTagger({
-  items, vendors,
+  items, vendors, units,
 }: {
   items: TaggableItem[]
   vendors: KitchenVendor[]
+  units: UnitOption[]
 }) {
   const router = useRouter()
   const [pending, start] = useTransition()
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [showTagged, setShowTagged] = useState(false)
+  // Once everything is tagged the untagged-only view is empty, and the screen
+  // reads as broken — it is also where units and rates get edited, so show
+  // the full list rather than "Nothing left to tag."
+  const [showTagged, setShowTagged] = useState(() => items.every((i) => i.kitchen_vendor_id))
+  const [editing, setEditing] = useState<string | null>(null)
 
   const vendorById = useMemo(() => new Map(vendors.map((v) => [v.id, v])), [vendors])
   const untaggedCount = items.filter((i) => !i.kitchen_vendor_id).length
@@ -166,43 +176,66 @@ export function ItemTagger({
           {visible.map((i) => {
             const v = i.kitchen_vendor_id ? vendorById.get(i.kitchen_vendor_id) : null
             const checked = selected.has(i.id)
+            const isEditing = editing === i.id
             return (
-              <li key={i.id} className={cn('flex items-center gap-2 p-3', checked && 'bg-forest-50/50')}>
-                <button
-                  type="button" onClick={() => toggle(i.id)}
-                  aria-label={checked ? 'Deselect' : 'Select'}
-                  className={cn('flex h-6 w-6 flex-shrink-0 items-center justify-center rounded border-2',
-                    checked ? 'border-forest-600 bg-forest-600 text-white' : 'border-gray-300')}
-                >
-                  {checked && <Check size={13} />}
-                </button>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm text-gray-900">{i.name}</span>
-                  <span className="block text-[11px] text-gray-500">
-                    {i.category_name ?? 'no category'}{i.unit_label ? ` · ${i.unit_label}` : ''}
+              <li key={i.id} className={cn(checked && 'bg-forest-50/50', isEditing && 'bg-gray-50')}>
+                <div className="flex items-center gap-2 p-3">
+                  <button
+                    type="button" onClick={() => toggle(i.id)}
+                    aria-label={checked ? 'Deselect' : 'Select'}
+                    className={cn('flex h-6 w-6 flex-shrink-0 items-center justify-center rounded border-2',
+                      checked ? 'border-forest-600 bg-forest-600 text-white' : 'border-gray-300')}
+                  >
+                    {checked && <Check size={13} />}
+                  </button>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm text-gray-900">{i.name}</span>
+                    <span className="block text-[11px] text-gray-500">
+                      {i.category_name ?? 'no category'}
+                      {i.unit_label ? ` · ${i.unit_label}` : ' · no unit'}
+                      {i.default_unit_price !== null && ` · ৳${i.default_unit_price}`}
+                    </span>
                   </span>
-                </span>
-                <select
-                  value={i.kitchen_vendor_id ?? ''}
-                  disabled={pending}
-                  onChange={(e) => {
-                    const nv = vendors.find((x) => x.id === e.target.value)
-                    assign([i.id], e.target.value || null, nv?.display_name ?? 'none')
-                  }}
-                  className={cn('min-h-[40px] w-[140px] flex-shrink-0 rounded-lg border bg-white px-1.5 text-sm',
-                    v ? 'border-gray-300' : 'border-amber-400 bg-amber-50')}
-                >
-                  <option value="">— none —</option>
-                  {vendors.map((vv) => <option key={vv.id} value={vv.id}>{vv.display_name}</option>)}
-                </select>
+                  <button
+                    type="button"
+                    onClick={() => setEditing(isEditing ? null : i.id)}
+                    aria-label={`Edit ${i.name}`}
+                    className={cn('flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border',
+                      isEditing ? 'border-forest-500 bg-forest-50 text-forest-700' : 'border-gray-200 text-gray-500')}
+                  >
+                    <Pencil size={14} />
+                  </button>
+                  <select
+                    value={i.kitchen_vendor_id ?? ''}
+                    disabled={pending}
+                    onChange={(e) => {
+                      const nv = vendors.find((x) => x.id === e.target.value)
+                      assign([i.id], e.target.value || null, nv?.display_name ?? 'none')
+                    }}
+                    className={cn('min-h-[40px] w-[120px] flex-shrink-0 rounded-lg border bg-white px-1.5 text-sm sm:w-[140px]',
+                      v ? 'border-gray-300' : 'border-amber-400 bg-amber-50')}
+                  >
+                    <option value="">— none —</option>
+                    {vendors.map((vv) => <option key={vv.id} value={vv.id}>{vv.display_name}</option>)}
+                  </select>
+                </div>
+                {isEditing && (
+                  <ItemDefaultsEditor
+                    key={`${i.id}-${i.name}-${i.unit_id}-${i.default_unit_price}`}
+                    item={i} units={units}
+                    onDone={() => setEditing(null)}
+                    onSaved={() => { setEditing(null); router.refresh() }}
+                  />
+                )}
               </li>
             )
           })}
         </ul>
       )}
 
-      {/* Selection bar */}
-      {selected.size > 0 && (
+      {/* Selection bar — hidden while a row editor is open, or it covers the
+          Save button on a phone. */}
+      {selected.size > 0 && !editing && (
         <div className="fixed inset-x-0 bottom-0 z-20 border-t border-gray-200 bg-white px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           <div className="mx-auto flex max-w-4xl items-center gap-2">
             <button
@@ -230,6 +263,108 @@ export function ItemTagger({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * Per-item defaults: the two halves of the name, the unit it is ordered in,
+ * and the standing rate.
+ *
+ * Rendered inline under the row rather than in a modal — the point of this
+ * screen is working down a list of 77 items, and a dialog that has to be
+ * dismissed between each one turns that into a chore.
+ */
+function ItemDefaultsEditor({
+  item, units, onDone, onSaved,
+}: {
+  item:    TaggableItem
+  units:   UnitOption[]
+  onDone:  () => void
+  onSaved: () => void
+}) {
+  const initial = splitItemName(item.name)
+  const [pending, start] = useTransition()
+  const [nameEn, setNameEn] = useState(initial.en)
+  const [nameBn, setNameBn] = useState(initial.bn)
+  const [unitId, setUnitId] = useState(item.unit_id ?? '')
+  const [price, setPrice] = useState(item.default_unit_price === null ? '' : String(item.default_unit_price))
+  const [error, setError] = useState<string | null>(null)
+
+  function save() {
+    setError(null)
+    start(async () => {
+      const r = await updateKitchenItem(item.id, {
+        name_en: nameEn, name_bn: nameBn, unit_id: unitId, default_unit_price: price,
+      })
+      if (!r.success) { setError(r.error); return }
+      toast.success(`${joinItemName(nameEn, nameBn)} updated`)
+      onSaved()
+    })
+  }
+
+  return (
+    <div className="space-y-2.5 border-t border-gray-200 bg-gray-50 px-3 pb-3 pt-2.5">
+      <div className="grid gap-2 sm:grid-cols-2">
+        <label className="block">
+          <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-gray-500">English name</span>
+          <input
+            value={nameEn} onChange={(e) => setNameEn(e.target.value)}
+            className="min-h-[42px] w-full rounded-lg border border-gray-300 px-2.5 text-sm"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-gray-500">বাংলা নাম</span>
+          <input
+            value={nameBn} onChange={(e) => setNameBn(e.target.value)} lang="bn"
+            className="min-h-[42px] w-full rounded-lg border border-gray-300 px-2.5 text-sm"
+          />
+        </label>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block">
+          <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-gray-500">Default unit</span>
+          <select
+            value={unitId} onChange={(e) => setUnitId(e.target.value)}
+            className="min-h-[42px] w-full rounded-lg border border-gray-300 bg-white px-1.5 text-sm"
+          >
+            <option value="">— pick one —</option>
+            {units.map((u) => (
+              <option key={u.id} value={u.id}>{u.abbreviation} · {u.display_name}</option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-gray-500">Default rate / unit</span>
+          <input
+            value={price} onChange={(e) => setPrice(e.target.value)}
+            inputMode="decimal" placeholder="leave blank if it varies"
+            className="min-h-[42px] w-full rounded-lg border border-gray-300 px-2.5 text-sm"
+          />
+        </label>
+      </div>
+
+      {error && <p className="text-xs font-medium text-red-600">{error}</p>}
+
+      <div className="flex gap-2">
+        <button
+          type="button" onClick={onDone} disabled={pending}
+          className="min-h-[42px] flex-1 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700"
+        >
+          Cancel
+        </button>
+        <button
+          type="button" onClick={save} disabled={pending || !nameEn.trim() || !unitId}
+          className="min-h-[42px] flex-1 rounded-lg bg-forest-700 text-sm font-semibold text-white disabled:opacity-50"
+        >
+          {pending ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+      <p className="text-[11px] text-gray-500">
+        Saved as <span className="font-medium text-gray-700">{joinItemName(nameEn, nameBn) || '—'}</span>.
+        The rate is a starting point — it can still be changed on an individual order.
+      </p>
     </div>
   )
 }

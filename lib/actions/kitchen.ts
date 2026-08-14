@@ -5,8 +5,10 @@ import { createClient } from '@/lib/supabase/server'
 import { requirePermission, getCurrentUserContext } from '@/lib/auth/permissions'
 import {
   requisitionDraftSchema, requisitionSubmitSchema, approveSchema, vendorSchema,
+  kitchenItemCreateSchema, kitchenItemUpdateSchema,
 } from '@/lib/validators/kitchen'
 import { formatRequisitionNo } from '@/lib/kitchen/requisition-number'
+import { joinItemName } from '@/lib/kitchen/item-name'
 import { getRequisitionById } from '@/lib/queries/kitchen'
 import type { ActionResult, ActionData } from './types'
 
@@ -376,23 +378,29 @@ export async function deactivateKitchenVendor(id: string): Promise<ActionData<{ 
 }
 
 /** Create an item straight from the kitchen screens, with its vendor set. */
-export async function createKitchenItem(input: {
-  name: string; kitchen_vendor_id: string | null
-  category_id: string | null; unit_id: string
-}): Promise<ActionData<{ id: string }>> {
+export async function createKitchenItem(raw: unknown): Promise<ActionData<{ id: string }>> {
   await requirePermission('kitchen', 'write')
   try {
+    const parsed = kitchenItemCreateSchema.safeParse(raw)
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0]?.message ?? 'Could not add the item' }
+    }
+    const input = parsed.data
     const db = dbc()
-    const name = input.name.trim()
-    if (!name) return { success: false, error: 'Item name is required' }
-    if (!input.unit_id) return { success: false, error: 'Pick a unit' }
+    const name = joinItemName(input.name_en, input.name_bn)
 
     const { data: store } = await db.from('inv_stores').select('id').eq('slug', 'kitchen').maybeSingle()
     if (!store) return { success: false, error: 'No kitchen store configured' }
 
-    const { data: dupe } = await db.from('inv_items')
-      .select('id').eq('store_id', store.id).ilike('name', name).maybeSingle()
-    if (dupe) return { success: false, error: `"${name}" already exists in the kitchen store.` }
+    // Match on the English half too: "Pumpkin" and "Pumpkin / মিষ্টি কুমড়া" are
+    // the same vegetable, and two rows for it means two lines in one order.
+    const { data: dupes } = await db.from('inv_items')
+      .select('id, name').eq('store_id', store.id)
+      .or(`name.ilike.${name},name.ilike.${input.name_en},name.ilike.${input.name_en} /%`)
+      .limit(1)
+    if (dupes?.length) {
+      return { success: false, error: `"${dupes[0].name}" already exists in the kitchen store.` }
+    }
 
     let created: { id: string } | null = null
     for (let attempt = 0; attempt < 6 && !created; attempt++) {
@@ -401,14 +409,15 @@ export async function createKitchenItem(input: {
         .order('sku_code', { ascending: false }).limit(1).maybeSingle()
       const next = (parseInt(String(maxRow?.sku_code ?? 'KIT-0000').replace('KIT-', ''), 10) || 0) + 1 + attempt
       const { data, error } = await db.from('inv_items').insert({
-        sku_code:          `KIT-${String(next).padStart(4, '0')}`,
-        store_id:          store.id,
-        category_id:       input.category_id,
+        sku_code:           `KIT-${String(next).padStart(4, '0')}`,
+        store_id:           store.id,
+        category_id:        input.category_id,
         name,
-        unit_id:           input.unit_id,
-        kitchen_vendor_id: input.kitchen_vendor_id,
-        item_type:         'consumable',
-        is_active:         true,
+        unit_id:            input.unit_id,
+        default_unit_price: input.default_unit_price,
+        kitchen_vendor_id:  input.kitchen_vendor_id,
+        item_type:          'consumable',
+        is_active:          true,
       }).select('id').single()
       if (!error) { created = data; break }
       if (error.code !== '23505') return { success: false, error: error.message }
@@ -417,6 +426,35 @@ export async function createKitchenItem(input: {
 
     revalidatePath('/kitchen/items')
     return { success: true, data: created }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/**
+ * Edit an item's name, unit and standing rate after the fact.
+ *
+ * Deliberately does NOT touch kitchen_vendor_id — the tagging screen changes
+ * that with a single dropdown and no save step, and folding it in here would
+ * make an unrelated edit able to silently retag an item.
+ */
+export async function updateKitchenItem(itemId: string, raw: unknown): Promise<ActionResult> {
+  await requirePermission('kitchen', 'write')
+  try {
+    const parsed = kitchenItemUpdateSchema.safeParse(raw)
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0]?.message ?? 'Could not save the item' }
+    }
+    const input = parsed.data
+    const { error } = await dbc().from('inv_items').update({
+      name:               joinItemName(input.name_en, input.name_bn),
+      unit_id:            input.unit_id,
+      default_unit_price: input.default_unit_price,
+    }).eq('id', itemId)
+    if (error) return { success: false, error: error.message }
+
+    revalidatePath('/kitchen/items')
+    return { success: true }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }
