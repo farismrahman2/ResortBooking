@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { CheckCircle2, Send, AlertCircle, Ban } from 'lucide-react'
+import { CheckCircle2, Send, AlertCircle, Ban, Printer } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
 import { approveRequisition, submitRequisition, cancelRequisition } from '@/lib/actions/kitchen'
@@ -58,6 +58,12 @@ export function ApprovePanel({
         >
           <Send size={17} /> Send to suppliers
         </Link>
+        <Link
+          href={`/kitchen/requisitions/${requisitionId}/print`}
+          className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white text-sm font-semibold text-gray-700"
+        >
+          <Printer size={15} /> Print the sheet
+        </Link>
       </div>
     )
   }
@@ -71,8 +77,8 @@ export function ApprovePanel({
           onClick={() => start(async () => {
             const r = await submitRequisition(requisitionId)
             if (!r.success) { setError(r.error); return }
-            toast.success('Sent for approval')
-            router.refresh()
+            toast.success('Sent for approval', { description: 'Here is the sheet to print.' })
+            router.push(`/kitchen/requisitions/${requisitionId}/print`)
           })}
           disabled={pending}
           className="mt-3 flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-xl bg-forest-700 text-sm font-semibold text-white disabled:opacity-60"
@@ -88,6 +94,13 @@ export function ApprovePanel({
   return (
     <div className="space-y-3 rounded-xl border border-amber-300 bg-amber-50/60 p-4">
       <p className="text-sm font-semibold text-amber-900">Awaiting approval</p>
+
+      <Link
+        href={`/kitchen/requisitions/${requisitionId}/print`}
+        className="flex min-h-[42px] w-full items-center justify-center gap-2 rounded-lg border border-amber-300 bg-white text-xs font-semibold text-amber-900"
+      >
+        <Printer size={14} /> Print the sheet
+      </Link>
 
       <label className="block">
         <span className="mb-1 block text-xs font-medium text-gray-700">Approved by</span>

@@ -19,7 +19,7 @@ export default async function KitchenItemsPage() {
     ])
     return (
       <div className="flex h-full flex-col">
-        <Topbar title="Item vendors" subtitle="Which supplier provides each item" />
+        <Topbar title="Kitchen items" subtitle="Supplier, unit and standing rate for each item" />
         <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6">
           <div className="mx-auto max-w-4xl space-y-4">
             <div className="flex items-center justify-between gap-2">
@@ -34,7 +34,7 @@ export default async function KitchenItemsPage() {
             </div>
 
             <QuickAddItem vendors={vendors} categories={opts.categories} units={opts.units} />
-            <ItemTagger items={items} vendors={vendors} />
+            <ItemTagger items={items} vendors={vendors} units={opts.units} />
           </div>
         </div>
       </div>
@@ -42,7 +42,10 @@ export default async function KitchenItemsPage() {
   } catch (err) {
     return (
       <div className="px-4 py-6">
-        <MigrationErrorBanner error={err instanceof Error ? err.message : String(err)} moduleName="Kitchen" migrationPath="migrations/kitchen-module/000_create_requisitions.sql" />
+        {/* Points at 002, not 000: by the time anyone reaches this screen the
+            base migration has run, and the column this page newly reads is the
+            one likely to be missing. */}
+        <MigrationErrorBanner error={err instanceof Error ? err.message : String(err)} moduleName="Kitchen" migrationPath="migrations/kitchen-module/002_item_defaults.sql" />
       </div>
     )
   }

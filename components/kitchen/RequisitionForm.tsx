@@ -163,8 +163,11 @@ export function RequisitionForm({
     if (!saved) { setSubmitting(false); return }
     const r = await submitRequisition(requisitionId)
     if (!r.success) { toast.error(r.error); setSubmitting(false); return }
-    toast.success('Sent for approval')
-    router.push(`/kitchen/requisitions/${requisitionId}`)
+    // Straight to the printable sheet: the store wants paper the moment the
+    // list is closed, and going looking for a print button afterwards is how
+    // people end up hand-copying it. "Back to requisition" leads to approval.
+    toast.success('Sent for approval', { description: 'Here is the sheet to print.' })
+    router.push(`/kitchen/requisitions/${requisitionId}/print`)
   }
 
   return (

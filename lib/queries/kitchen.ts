@@ -138,13 +138,15 @@ export async function getVendorSections(requisitionId: string): Promise<VendorSe
 export async function listItemsForTagging(): Promise<Array<{
   id: string; name: string; sku_code: string | null
   category_slug: string | null; category_name: string | null
-  unit_label: string | null; kitchen_vendor_id: string | null
+  unit_id: string | null; unit_label: string | null
+  default_unit_price: number | null
+  kitchen_vendor_id: string | null
 }>> {
   const { data: store } = await db().from('inv_stores').select('id').eq('slug', 'kitchen').maybeSingle()
   if (!store) return []
   const { data, error } = await db()
     .from('inv_items')
-    .select('id, name, sku_code, kitchen_vendor_id, is_active, category:inv_categories(slug, display_name), unit:inv_units(abbreviation, display_name)')
+    .select('id, name, sku_code, kitchen_vendor_id, unit_id, default_unit_price, is_active, category:inv_categories(slug, display_name), unit:inv_units(abbreviation, display_name)')
     .eq('store_id', store.id)
     .eq('is_active', true)
     .order('name')
@@ -155,7 +157,10 @@ export async function listItemsForTagging(): Promise<Array<{
     id: i.id, name: i.name, sku_code: i.sku_code ?? null,
     category_slug: i.category?.slug ?? null,
     category_name: i.category?.display_name ?? null,
+    unit_id: i.unit_id ?? null,
     unit_label: i.unit?.abbreviation ?? i.unit?.display_name ?? null,
+    default_unit_price: i.default_unit_price === null || i.default_unit_price === undefined
+      ? null : Number(i.default_unit_price),
     kitchen_vendor_id: i.kitchen_vendor_id ?? null,
   }))
 }

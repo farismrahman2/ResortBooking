@@ -5,15 +5,21 @@ import { useRouter } from 'next/navigation'
 import { Plus, X } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { createKitchenItem } from '@/lib/actions/kitchen'
+import { joinItemName } from '@/lib/kitchen/item-name'
 import type { KitchenVendor } from '@/lib/supabase/types-kitchen'
 
 /**
- * Add a kitchen item with its vendor set at creation.
+ * Add a kitchen item with its vendor, unit and standing rate set at creation.
  *
  * The full inventory item form also works and carries more fields (par level,
  * reorder point, default supplier), but adding a new vegetable mid-requisition
- * shouldn't mean a trip into Inventory and back. This covers the four fields
- * that actually matter for ordering.
+ * shouldn't mean a trip into Inventory and back. This covers the fields that
+ * actually matter for ordering.
+ *
+ * The name is two boxes, not one. It is stored as a single `English / বাংলা`
+ * string to match the seeded catalogue, and typing that slash by hand is
+ * exactly the sort of thing that produces `Pumpkin/মিষ্টি কুমড়া` on half the
+ * rows — close enough to look fine, different enough to break a split later.
  */
 export function QuickAddItem({
   vendors, categories, units, defaultVendorId,
@@ -26,26 +32,35 @@ export function QuickAddItem({
   const router = useRouter()
   const [pending, start] = useTransition()
   const [open, setOpen] = useState(false)
-  const [name, setName] = useState('')
+  const [nameEn, setNameEn] = useState('')
+  const [nameBn, setNameBn] = useState('')
+  const [price, setPrice] = useState('')
   const [vendorId, setVendorId] = useState(defaultVendorId ?? '')
   const [categoryId, setCategoryId] = useState('')
   const [unitId, setUnitId] = useState(units.find((u) => u.abbreviation === 'kg')?.id ?? units[0]?.id ?? '')
   const [error, setError] = useState<string | null>(null)
 
+  const preview = joinItemName(nameEn, nameBn)
+
   function submit() {
     setError(null)
     start(async () => {
       const r = await createKitchenItem({
-        name,
+        name_en: nameEn,
+        name_bn: nameBn,
         kitchen_vendor_id: vendorId || null,
         category_id: categoryId || null,
         unit_id: unitId,
+        default_unit_price: price,
       })
       if (!r.success) { setError(r.error); return }
-      toast.success(`${name.trim()} added`)
-      // Keep the vendor and unit — adding five vegetables in a row shouldn't
-      // mean re-picking the same two dropdowns each time.
-      setName('')
+      toast.success(`${preview} added`)
+      // Keep the vendor, unit and category — adding five vegetables in a row
+      // shouldn't mean re-picking the same three dropdowns each time. The price
+      // clears, because it belongs to the item and not to the batch.
+      setNameEn('')
+      setNameBn('')
+      setPrice('')
       router.refresh()
     })
   }
@@ -71,15 +86,36 @@ export function QuickAddItem({
         </button>
       </div>
 
-      <input
-        value={name} onChange={(e) => setName(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter' && name.trim()) submit() }}
-        placeholder="Name — e.g. Pumpkin / মিষ্টি কুমড়া"
-        autoFocus
-        className="min-h-[44px] w-full rounded-lg border border-gray-300 px-2.5 text-base"
-      />
+      <div className="grid gap-2 sm:grid-cols-2">
+        <label className="block">
+          <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-gray-500">English name</span>
+          <input
+            value={nameEn} onChange={(e) => setNameEn(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && nameEn.trim()) submit() }}
+            placeholder="Pumpkin"
+            autoFocus
+            className="min-h-[44px] w-full rounded-lg border border-gray-300 px-2.5 text-base"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-gray-500">বাংলা নাম</span>
+          <input
+            value={nameBn} onChange={(e) => setNameBn(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && nameEn.trim()) submit() }}
+            placeholder="মিষ্টি কুমড়া"
+            lang="bn"
+            className="min-h-[44px] w-full rounded-lg border border-gray-300 px-2.5 text-base"
+          />
+        </label>
+      </div>
 
-      <div className="grid grid-cols-3 gap-2">
+      {preview && (
+        <p className="text-[11px] text-gray-500">
+          Saved as <span className="font-medium text-gray-700">{preview}</span>
+        </p>
+      )}
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <label className="block">
           <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-gray-500">Vendor</span>
           <select value={vendorId} onChange={(e) => setVendorId(e.target.value)}
@@ -103,18 +139,27 @@ export function QuickAddItem({
             {categories.map((c) => <option key={c.id} value={c.id}>{c.display_name}</option>)}
           </select>
         </label>
+        <label className="block">
+          <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-gray-500">Rate / unit</span>
+          <input
+            value={price} onChange={(e) => setPrice(e.target.value)}
+            inputMode="decimal" placeholder="optional"
+            className="min-h-[42px] w-full rounded-lg border border-gray-300 px-2 text-sm"
+          />
+        </label>
       </div>
 
       {error && <p className="text-xs font-medium text-red-600">{error}</p>}
 
       <button
-        type="button" onClick={submit} disabled={pending || !name.trim() || !unitId}
+        type="button" onClick={submit} disabled={pending || !nameEn.trim() || !unitId}
         className="min-h-[44px] w-full rounded-xl bg-forest-700 text-sm font-semibold text-white disabled:opacity-50"
       >
         {pending ? 'Adding…' : 'Add item'}
       </button>
       <p className="text-[11px] text-gray-500">
-        The vendor and unit stay selected, so adding several in a row is quick.
+        Vendor, unit and category stay selected, so adding several in a row is quick.
+        Leave the rate blank for anything whose price moves — fish, most vegetables.
       </p>
     </div>
   )

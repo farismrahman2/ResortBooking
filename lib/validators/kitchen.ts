@@ -57,6 +57,43 @@ export const approveSchema = z.object({
   approval_notes:          nullableStr,
 })
 
+/**
+ * An optional money field typed into a text input. An untouched box arrives as
+ * `''`, which `z.coerce.number()` would happily read as 0 — and a 0 default
+ * price is a lie the delivery screen would later pre-fill. Empty means "no
+ * standing rate", so it has to reach the database as null.
+ */
+const optionalPrice = z.preprocess(
+  (v) => (v === '' || v === null || v === undefined ? null : v),
+  z.coerce.number().min(0, 'Price cannot be negative').max(10_000_000).nullable(),
+)
+
+/**
+ * Names are stored as a single `English / বাংলা` string (see lib/kitchen/
+ * item-name.ts) but are typed as two fields, because merging them by hand
+ * meant people forgot the spaces around the slash and the halves stopped
+ * lining up with the seeded catalogue.
+ */
+const itemNameFields = {
+  name_en: z.string().trim().min(1, 'English name is required').max(120),
+  name_bn: z.string().trim().max(120).default(''),
+}
+
+export const kitchenItemCreateSchema = z.object({
+  ...itemNameFields,
+  kitchen_vendor_id:  z.string().uuid().nullish().transform((v) => v || null),
+  category_id:        z.string().uuid().nullish().transform((v) => v || null),
+  unit_id:            z.string().uuid('Pick a unit of measurement'),
+  default_unit_price: optionalPrice,
+})
+
+/** Editing an existing item's defaults — the vendor tag has its own action. */
+export const kitchenItemUpdateSchema = z.object({
+  ...itemNameFields,
+  unit_id:            z.string().uuid('Pick a unit of measurement'),
+  default_unit_price: optionalPrice,
+})
+
 export const vendorSchema = z.object({
   display_name: z.string().trim().min(1, 'Name is required').max(60),
   /** Stable key used by code and by the seed. Generated from the name on

@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { Pencil, Send } from 'lucide-react'
+import { Pencil, Printer, Send } from 'lucide-react'
 import { Topbar } from '@/components/layout/Topbar'
 import { requirePermission, hasPermission } from '@/lib/auth/permissions'
 import { getRequisitionById, listKitchenVendors, getVendorSections } from '@/lib/queries/kitchen'
@@ -52,6 +52,10 @@ export default async function RequisitionDetailPage({ params }: { params: { id: 
                     <Pencil size={12} /> Edit
                   </Link>
                 )}
+                <Link href={`/kitchen/requisitions/${req.id}/print`}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700">
+                  <Printer size={12} /> Print sheet
+                </Link>
                 <Link href={`/kitchen/requisitions/${req.id}/dispatch`}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700">
                   <Send size={12} /> Supplier messages
