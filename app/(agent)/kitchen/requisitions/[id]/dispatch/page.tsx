@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation'
 import { ChevronLeft } from 'lucide-react'
 import { Topbar } from '@/components/layout/Topbar'
 import { requirePermission } from '@/lib/auth/permissions'
-import { getRequisitionById, getVendorSections } from '@/lib/queries/kitchen'
+import { getRequisitionById, getVendorSections, getDispatchStatus } from '@/lib/queries/kitchen'
 import { VendorDispatch } from '@/components/kitchen/VendorDispatch'
 import { formatDate } from '@/lib/formatters/dates'
 
@@ -11,11 +11,18 @@ export const dynamic = 'force-dynamic'
 
 export default async function DispatchPage({ params }: { params: { id: string } }) {
   await requirePermission('kitchen', 'read')
-  const [req, sections] = await Promise.all([
+  const [req, sections, dispatched] = await Promise.all([
     getRequisitionById(params.id),
     getVendorSections(params.id),
+    getDispatchStatus(params.id),
   ])
   if (!req) notFound()
+
+  // An amendment carries only the changes, so it needs the parent's number to
+  // say WHICH order is being changed — a delta with no anchor is unreadable.
+  const parent = req.parent_requisition_id
+    ? await getRequisitionById(req.parent_requisition_id)
+    : null
 
   return (
     <div className="flex h-full flex-col">
@@ -34,7 +41,15 @@ export default async function DispatchPage({ params }: { params: { id: string } 
             </div>
           )}
 
-          <VendorDispatch requisition={req} sections={sections} />
+          <VendorDispatch
+            requisition={req}
+            sections={sections}
+            requisitionId={req.id}
+            dispatched={dispatched}
+            amendmentOf={parent
+              ? { parentRequisitionNo: parent.requisition_no, amendmentNo: req.requisition_no }
+              : undefined}
+          />
         </div>
       </div>
     </div>

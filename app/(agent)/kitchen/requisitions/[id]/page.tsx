@@ -3,9 +3,13 @@ import { notFound } from 'next/navigation'
 import { Pencil, Printer, Send } from 'lucide-react'
 import { Topbar } from '@/components/layout/Topbar'
 import { requirePermission, hasPermission } from '@/lib/auth/permissions'
-import { getRequisitionById, listKitchenVendors, getVendorSections } from '@/lib/queries/kitchen'
+import {
+  getRequisitionById, getVendorSections, getDispatchStatus, getRequisitionFamily,
+} from '@/lib/queries/kitchen'
 import { listSalesEmployees } from '@/lib/queries/employees'
 import { ApprovePanel } from '@/components/kitchen/ApprovePanel'
+import { AmendPanel } from '@/components/kitchen/AmendPanel'
+import { EffectiveOrder } from '@/components/kitchen/EffectiveOrder'
 import { MigrationErrorBanner } from '@/components/ui/MigrationErrorBanner'
 import { formatDate } from '@/lib/formatters/dates'
 import { REQUISITION_STATUS_LABELS, REQUISITION_STATUS_BADGE } from '@/lib/supabase/types-kitchen'
@@ -19,12 +23,21 @@ export default async function RequisitionDetailPage({ params }: { params: { id: 
   const canWrite = await hasPermission('kitchen', 'write')
 
   try {
-    const [req, sections, employees] = await Promise.all([
+    const [req, sections, employees, dispatched] = await Promise.all([
       getRequisitionById(params.id),
       getVendorSections(params.id),
       listSalesEmployees().catch(() => [] as SalesEmployee[]),
+      getDispatchStatus(params.id),
     ])
     if (!req) notFound()
+
+    // Amendments and the netted order only make sense on the head of a family;
+    // an amendment's own page shows the changes it carries, nothing more.
+    const family = req.parent_requisition_id ? null : await getRequisitionFamily(params.id)
+    const parent = req.parent_requisition_id
+      ? await getRequisitionById(req.parent_requisition_id)
+      : null
+    const dispatchedCount = Object.keys(dispatched).length
 
     const approver = req.approved_by_employee_id
       ? employees.find((e) => e.id === req.approved_by_employee_id)?.full_name ?? null
@@ -40,6 +53,11 @@ export default async function RequisitionDetailPage({ params }: { params: { id: 
               <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold ${REQUISITION_STATUS_BADGE[req.status]}`}>
                 {REQUISITION_STATUS_LABELS[req.status]}
               </span>
+              {parent && (
+                <span className="inline-flex rounded-full border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
+                  Change to {parent.requisition_no}
+                </span>
+              )}
               {req.is_emergency && (
                 <span className="inline-flex rounded-full border border-red-300 bg-red-50 px-2.5 py-0.5 text-xs font-semibold text-red-700">
                   Emergency
@@ -92,6 +110,9 @@ export default async function RequisitionDetailPage({ params }: { params: { id: 
                     </ul>
                   </div>
                 ))}
+                {family && family.amendments.some((a) => a.status === 'approved') && (
+                  <EffectiveOrder effective={family.effective} />
+                )}
                 {req.notes && (
                   <div className="rounded-xl border border-gray-200 bg-white p-4">
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Notes</p>
@@ -108,6 +129,14 @@ export default async function RequisitionDetailPage({ params }: { params: { id: 
                   approverName={approver}
                   canWrite={canWrite}
                 />
+                {req.status === 'approved' && !req.parent_requisition_id && family && (
+                  <AmendPanel
+                    requisitionId={req.id}
+                    dispatchedCount={dispatchedCount}
+                    amendments={family.amendments}
+                    canWrite={canWrite}
+                  />
+                )}
               </div>
             </div>
 
