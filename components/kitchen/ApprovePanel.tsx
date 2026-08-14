@@ -3,10 +3,14 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { CheckCircle2, Send, AlertCircle, Ban, Printer, PackageCheck } from 'lucide-react'
+import {
+  CheckCircle2, Send, AlertCircle, Ban, Printer, PackageCheck, Pencil,
+} from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
-import { approveRequisition, submitRequisition, cancelRequisition } from '@/lib/actions/kitchen'
+import {
+  approveRequisition, submitRequisition, cancelRequisition, reopenRequisition,
+} from '@/lib/actions/kitchen'
 import { safeCall } from '@/lib/actions/safe-call'
 import type { RequisitionStatus } from '@/lib/supabase/types-kitchen'
 import type { SalesEmployee } from '@/lib/supabase/types'
@@ -104,12 +108,34 @@ export function ApprovePanel({
     <div className="space-y-3 rounded-xl border border-amber-300 bg-amber-50/60 p-4">
       <p className="text-sm font-semibold text-amber-900">Awaiting approval</p>
 
-      <Link
-        href={`/kitchen/requisitions/${requisitionId}/print`}
-        className="flex min-h-[42px] w-full items-center justify-center gap-2 rounded-lg border border-amber-300 bg-white text-xs font-semibold text-amber-900"
-      >
-        <Printer size={14} /> Print the sheet
-      </Link>
+      <div className="flex gap-2">
+        <Link
+          href={`/kitchen/requisitions/${requisitionId}/print`}
+          className="flex min-h-[42px] flex-1 items-center justify-center gap-1.5 rounded-lg border border-amber-300 bg-white text-xs font-semibold text-amber-900"
+        >
+          <Printer size={14} /> Print
+        </Link>
+        {/* Nothing has been authorised and nothing has been sent — dispatch is
+            gated on approval — so editing here is completely safe. Before
+            this, a forgotten item after submitting meant cancelling the
+            requisition and starting again. */}
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => start(async () => {
+            setError(null)
+            const r = await safeCall(() => reopenRequisition(requisitionId))
+            if (!r.success) { setError(r.error); return }
+            toast.success('Pulled back for editing', {
+              description: 'Send it for approval again when you\u2019re done.',
+            })
+            router.push(`/kitchen/requisitions/${requisitionId}/edit`)
+          })}
+          className="flex min-h-[42px] flex-1 items-center justify-center gap-1.5 rounded-lg border border-amber-300 bg-white text-xs font-semibold text-amber-900 disabled:opacity-50"
+        >
+          <Pencil size={14} /> {pending ? 'Opening…' : 'Add / remove items'}
+        </button>
+      </div>
 
       <label className="block">
         <span className="mb-1 block text-xs font-medium text-gray-700">Approved by</span>
