@@ -3,11 +3,14 @@ import { Topbar } from '@/components/layout/Topbar'
 import { requirePermission } from '@/lib/auth/permissions'
 import { getSupplierById } from '@/lib/queries/inventory'
 import { SupplierForm } from '@/components/inventory/SupplierForm'
+import { listKitchenVendors } from '@/lib/queries/kitchen'
 
 export const dynamic = 'force-dynamic'
 
 export default async function EditSupplierPage({ params }: { params: { id: string } }) {
   await requirePermission('inventory', 'write')
+  // Empty when the kitchen module isn't migrated — the field then hides itself.
+  const vendors = await listKitchenVendors().catch(() => [])
   const supplier = await getSupplierById(params.id)
   if (!supplier) notFound()
 
@@ -16,7 +19,7 @@ export default async function EditSupplierPage({ params }: { params: { id: strin
       <Topbar title="Edit supplier" subtitle={supplier.name} />
       <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6">
         <div className="mx-auto max-w-2xl">
-          <SupplierForm supplier={supplier} />
+          <SupplierForm supplier={supplier} kitchenVendors={vendors} />
         </div>
       </div>
     </div>

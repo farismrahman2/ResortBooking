@@ -196,6 +196,8 @@ export async function createSupplier(
       contact_email:    input.contact_email ?? null,
       contact_address:  input.contact_address ?? null,
       notes:            input.notes ?? null,
+      kitchen_vendor_id:   input.kitchen_vendor_id ?? null,
+      is_kitchen_supplier: !!input.kitchen_vendor_id,
     }).select('id').single()
     if (error) return { success: false, error: error.message }
 
@@ -218,6 +220,8 @@ export async function updateSupplier(id: string, raw: SupplierFormInput): Promis
       contact_email:    input.contact_email ?? null,
       contact_address:  input.contact_address ?? null,
       notes:            input.notes ?? null,
+      kitchen_vendor_id:   input.kitchen_vendor_id ?? null,
+      is_kitchen_supplier: !!input.kitchen_vendor_id,
       updated_at:       new Date().toISOString(),
     }).eq('id', id)
     if (error) return { success: false, error: error.message }

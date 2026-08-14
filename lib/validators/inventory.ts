@@ -22,6 +22,10 @@ export const itemFormSchema = z.object({
 
 export const supplierFormSchema = z.object({
   name:             z.string().trim().min(1, 'Name required'),
+  /** Which of the six kitchen supplier slots this vendor fills (nullable —
+   *  a housekeeping or amenities supplier fills none of them). */
+  kitchen_vendor_id:   z.string().uuid().nullable().optional(),
+  is_kitchen_supplier: z.boolean().optional(),
   expense_payee_id: z.string().uuid().nullable().optional(),
   contact_phone:    nullableStr,
   contact_email:    z.string().trim().email('Invalid email').nullable().optional(),
