@@ -9,6 +9,7 @@ import { useConfirm } from '@/components/ui/ConfirmDialog'
 import { saveTemplate, deleteTemplate } from '@/lib/actions/kitchen-templates'
 import { safeCall } from '@/lib/actions/safe-call'
 import type { KitchenVendor, TemplateWithLines } from '@/lib/supabase/types-kitchen'
+import { buildSearchIndex, searchItems } from '@/lib/kitchen/item-search'
 import type { PickerItemRow } from '@/lib/queries/kitchen'
 
 interface Line {
@@ -64,11 +65,11 @@ export function TemplateForm({
 
   const vendorById = useMemo(() => new Map(vendors.map((v) => [v.id, v])), [vendors])
   const chosen = useMemo(() => new Set(lines.map((l) => l.item_id).filter(Boolean)), [lines])
-  const matches = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return []
-    return items.filter((i) => !chosen.has(i.id) && i.name.toLowerCase().includes(q)).slice(0, 8)
-  }, [search, items, chosen])
+  const searchIndex = useMemo(() => buildSearchIndex(items), [items])
+  const matches = useMemo(
+    () => searchItems(items, searchIndex, search, { exclude: chosen }),
+    [search, items, searchIndex, chosen],
+  )
 
   // Grouped by vendor, same as the requisition sheet — it's the same list, and
   // seeing it the way it will be ordered is how you spot a missing supplier.
@@ -161,7 +162,7 @@ export function TemplateForm({
           <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search an item to add…"
+            placeholder="Search — English or Bangla typed in English (tel, alu)…"
             className="min-h-[44px] w-full rounded-xl border border-gray-300 pl-9 pr-3 text-base focus:border-forest-500 focus:outline-none"
           />
         </div>
