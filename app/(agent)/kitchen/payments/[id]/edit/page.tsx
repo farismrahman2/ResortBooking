@@ -9,22 +9,27 @@ export const dynamic = 'force-dynamic'
 
 export default async function EditPaymentPage({ params }: { params: { id: string } }) {
   await requirePermission('kitchen', 'write')
-  const [payment, vendors, unpaid] = await Promise.all([
+  const [payment, vendors, vendorDeliveries] = await Promise.all([
     getPaymentById(params.id),
     listKitchenVendors(),
-    listDeliveries({ unpaidOnly: true }),
+    // One fetch, scoped to this payment's supplier. Previously two calls — the
+    // unpaid list across every vendor, then the same table again for this one.
+    listDeliveries({}),
   ])
   if (!payment) notFound()
+
+  const unpaid = vendorDeliveries.filter(
+    (d) => d.status === 'confirmed' && d.outstanding > 0.009,
+  )
   if (payment.status === 'cancelled') redirect(`/kitchen/payments/${params.id}`)
 
   // The bills this payment ALREADY settles no longer look outstanding, so
   // they'd vanish from the picker and the amounts would silently drop off on
   // save. Merge them back in at their pre-payment balance.
-  // Pull the real rows so the picker keeps the supplier's receipt number and
-  // requisition — hand-building the shape dropped both, and this is the one
-  // screen where the tally is done by receipt number.
-  const settledRows = await listDeliveries({ vendorId: payment.kitchen_vendor_id })
-  const byId = new Map(settledRows.map((d) => [d.id, d]))
+  // The real rows keep the supplier's receipt number and requisition —
+  // hand-building the shape dropped both, and this is the one screen where the
+  // tally is done by receipt number.
+  const byId = new Map(vendorDeliveries.map((d) => [d.id, d]))
 
   const settled = payment.allocations.map((a) => {
     const full = byId.get(a.delivery_id)

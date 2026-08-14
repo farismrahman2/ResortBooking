@@ -1,14 +1,14 @@
 import { redirect } from 'next/navigation'
 import { Topbar } from '@/components/layout/Topbar'
 import { requirePermission } from '@/lib/auth/permissions'
-import { listKitchenVendors, listKitchenItems, getRequisitionById } from '@/lib/queries/kitchen'
+import {
+  listKitchenVendors, listKitchenItems, getRequisitionById, listApprovers,
+} from '@/lib/queries/kitchen'
 import {
   getDeliveryById, buildDeliveryLinesFromRequisition,
 } from '@/lib/queries/kitchen-ledger'
-import { listSalesEmployees } from '@/lib/queries/employees'
 import { DeliveryForm } from '@/components/kitchen/DeliveryForm'
 import { MigrationErrorBanner } from '@/components/ui/MigrationErrorBanner'
-import type { SalesEmployee } from '@/lib/supabase/types'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,7 +24,7 @@ export default async function EditDeliveryPage({
       getDeliveryById(params.id),
       listKitchenVendors(),
       listKitchenItems(),
-      listSalesEmployees().catch(() => [] as SalesEmployee[]),
+      listApprovers().catch(() => []),
     ])
     // Confirmed means the supplier has been billed — read-only from here.
     if (existing && existing.status !== 'draft') redirect(`/kitchen/deliveries/${params.id}`)

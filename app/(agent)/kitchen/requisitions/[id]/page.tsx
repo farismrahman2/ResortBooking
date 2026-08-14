@@ -5,8 +5,8 @@ import { Topbar } from '@/components/layout/Topbar'
 import { requirePermission, hasPermission } from '@/lib/auth/permissions'
 import {
   getRequisitionById, getVendorSections, getDispatchStatus, getRequisitionFamily,
+  listApprovers,
 } from '@/lib/queries/kitchen'
-import { listSalesEmployees } from '@/lib/queries/employees'
 import { listKitchenDocuments } from '@/lib/queries/kitchen-docs'
 import { ApprovePanel } from '@/components/kitchen/ApprovePanel'
 import { AmendPanel } from '@/components/kitchen/AmendPanel'
@@ -16,7 +16,6 @@ import { MigrationErrorBanner } from '@/components/ui/MigrationErrorBanner'
 import { formatDate } from '@/lib/formatters/dates'
 import { REQUISITION_STATUS_LABELS, REQUISITION_STATUS_BADGE } from '@/lib/supabase/types-kitchen'
 import { num } from '@/lib/kitchen/messages'
-import type { SalesEmployee } from '@/lib/supabase/types'
 
 export const dynamic = 'force-dynamic'
 
@@ -28,7 +27,7 @@ export default async function RequisitionDetailPage({ params }: { params: { id: 
     const [req, sections, employees, dispatched, docs] = await Promise.all([
       getRequisitionById(params.id),
       getVendorSections(params.id),
-      listSalesEmployees().catch(() => [] as SalesEmployee[]),
+      listApprovers().catch(() => []),
       getDispatchStatus(params.id),
       listKitchenDocuments('requisition', params.id),
     ])

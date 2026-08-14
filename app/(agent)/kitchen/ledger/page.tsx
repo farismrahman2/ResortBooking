@@ -2,9 +2,7 @@ import Link from 'next/link'
 import { Wallet, PackageCheck, TrendingUp } from 'lucide-react'
 import { Topbar } from '@/components/layout/Topbar'
 import { requirePermission, hasPermission } from '@/lib/auth/permissions'
-import { getVendorLedger, getDeliverySpend } from '@/lib/queries/kitchen-ledger'
-import { getDayMealHeadcounts } from '@/lib/queries/menus'
-import type { DayMealHeadcounts } from '@/lib/queries/menus'
+import { getVendorLedger, getDeliverySpend, getCoversInRange } from '@/lib/queries/kitchen-ledger'
 import { KitchenNav } from '@/components/kitchen/KitchenNav'
 import { MigrationErrorBanner } from '@/components/ui/MigrationErrorBanner'
 import { formatDate } from '@/lib/formatters/dates'
@@ -33,28 +31,18 @@ export default async function LedgerPage({
     const from = searchParams.from ?? d.from
     const to   = searchParams.to   ?? d.to
 
-    const [ledger, spend] = await Promise.all([
+    const [ledger, spend, coverData] = await Promise.all([
       // No range: outstanding is a running position, not a period figure.
       // Filtering it by date would show a supplier as settled purely because
       // the delivery fell outside the window.
       getVendorLedger(),
       getDeliverySpend(from, to),
+      // One query for the whole window. This was thirty — one per day, each
+      // unbounded — and was most of why this page crawled.
+      getCoversInRange(from, to).catch(() => ({ total: 0, byDate: {} })),
     ])
 
-    // Cost per cover. Pax comes from live bookings via the same meal engine the
-    // daily report uses, so this can't drift from what the menus module says.
-    const days: string[] = []
-    for (let t = new Date(`${from}T00:00:00`); t <= new Date(`${to}T00:00:00`); t.setDate(t.getDate() + 1)) {
-      days.push(t.toISOString().slice(0, 10))
-    }
-    const headcounts = await Promise.all(
-      days.map((day) => getDayMealHeadcounts(day).catch(() => ({} as DayMealHeadcounts))),
-    )
-    // A cover is one person eating one main meal; the busiest sitting is the
-    // day's figure, matching how the kitchen itself counts.
-    const covers = headcounts.reduce<number>((n, h) => (
-      n + Math.max(0, ...(['breakfast', 'lunch', 'dinner'] as const).map((m) => h[m]?.total ?? 0))
-    ), 0)
+    const covers = coverData.total
     const perCover = covers > 0 ? spend.total / covers : null
 
     const owed = ledger.filter((r) => Math.abs(r.outstanding) > 0.009)
