@@ -195,9 +195,13 @@ export function RequisitionPrintDoc({
                       {l.is_extra && <strong> *</strong>}
                       {l.notes && <span style={{ fontSize: '7pt', color: '#4b5563' }}> — {l.notes}</span>}
                     </span>
+                    {/* An amendment line is signed. On a screen the minus is
+                        obvious in context; on a printed sheet handed to a
+                        storekeeper, "-2 kg" reads as a typo. Spell it out. */}
                     <span className="req-qty">
-                      {num(l.qty)}{l.unit_label ? ` ${l.unit_label}` : ''}
-                      {l.piece_count ? ` (${num(l.piece_count)} pcs)` : ''}
+                      {l.qty < 0 && <span style={{ color: '#b91c1c' }}>CANCEL </span>}
+                      {num(Math.abs(l.qty))}{l.unit_label ? ` ${l.unit_label}` : ''}
+                      {l.piece_count ? ` (${num(Math.abs(l.piece_count))} pcs)` : ''}
                     </span>
                   </div>
                 ))}

@@ -20,15 +20,25 @@ export default async function EditPaymentPage({ params }: { params: { id: string
   // The bills this payment ALREADY settles no longer look outstanding, so
   // they'd vanish from the picker and the amounts would silently drop off on
   // save. Merge them back in at their pre-payment balance.
-  const settled = payment.allocations.map((a) => ({
-    id: a.delivery_id,
-    delivery_no: a.delivery_no,
-    delivery_date: a.delivery_date,
-    kitchen_vendor_id: payment.kitchen_vendor_id,
-    total_amount: a.total_amount,
-    outstanding: a.amount_allocated,
-    // Only the fields the picker reads; the rest of DeliveryListRow is unused here.
-  })) as unknown as Awaited<ReturnType<typeof listDeliveries>>
+  // Pull the real rows so the picker keeps the supplier's receipt number and
+  // requisition — hand-building the shape dropped both, and this is the one
+  // screen where the tally is done by receipt number.
+  const settledRows = await listDeliveries({ vendorId: payment.kitchen_vendor_id })
+  const byId = new Map(settledRows.map((d) => [d.id, d]))
+
+  const settled = payment.allocations.map((a) => {
+    const full = byId.get(a.delivery_id)
+    return {
+      ...(full ?? {}),
+      id: a.delivery_id,
+      delivery_no: a.delivery_no,
+      delivery_date: a.delivery_date,
+      kitchen_vendor_id: payment.kitchen_vendor_id,
+      total_amount: a.total_amount,
+      // This payment's own allocation is what it can be re-spread over.
+      outstanding: (full?.outstanding ?? 0) + a.amount_allocated,
+    }
+  }) as unknown as Awaited<ReturnType<typeof listDeliveries>>
 
   const merged = [...unpaid.filter((u) => !settled.some((s) => s.id === u.id)), ...settled]
 

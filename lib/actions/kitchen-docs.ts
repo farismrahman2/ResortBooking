@@ -13,6 +13,18 @@ import type { ActionResult, ActionData } from './types'
 const dbc = () => createClient() as any
 
 /**
+ * entity type → route segment. Spelled out rather than appending an "s":
+ * 'delivery' + 's' is 'deliverys', so the delivery page was never revalidated
+ * and a photo added on one device stayed invisible on another until a hard
+ * reload.
+ */
+const ROUTE: Record<KitchenDocEntity, string> = {
+  requisition: 'requisitions',
+  delivery:    'deliveries',
+  payment:     'payments',
+}
+
+/**
  * Record a photo after the client has uploaded it to storage.
  *
  * Split the way the field-visits module does it: the browser uploads straight
@@ -52,7 +64,7 @@ export async function attachKitchenDocument(input: {
     }).select('id').single()
     if (error) return { success: false, error: error.message }
 
-    revalidatePath(`/kitchen/${input.entity_type}s/${input.entity_id}`)
+    revalidatePath(`/kitchen/${ROUTE[input.entity_type]}/${input.entity_id}`)
     return { success: true, data }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
@@ -81,7 +93,7 @@ export async function removeKitchenDocument(id: string): Promise<ActionResult> {
     const { error } = await db.from('kitchen_documents').delete().eq('id', id)
     if (error) return { success: false, error: error.message }
 
-    revalidatePath(`/kitchen/${doc.entity_type}s/${doc.entity_id}`)
+    revalidatePath(`/kitchen/${ROUTE[doc.entity_type as KitchenDocEntity]}/${doc.entity_id}`)
     return { success: true }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }

@@ -93,7 +93,11 @@ export function DeliveryForm({
         rejected_qty: l.rejected_qty === null ? '' : String(l.rejected_qty),
         reject_reason: l.reject_reason ?? '',
         piece_count: l.piece_count === null ? '' : String(l.piece_count),
-        unit_id: l.unit_id, unit_label: null,
+        unit_id: l.unit_id,
+        // Resolve from the catalogue: the label isn't stored on the line, and
+        // hardcoding null meant every "Got (kg)" lost its unit the moment a
+        // saved draft was reopened.
+        unit_label: items.find((i) => i.id === l.item_id)?.unit_label ?? null,
         unit_price: String(l.unit_price),
         is_unrequested: l.is_unrequested, notes: l.notes ?? '',
       }))
