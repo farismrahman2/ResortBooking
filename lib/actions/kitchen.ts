@@ -560,15 +560,20 @@ export async function recordDispatch(
 // ─── Amendments ─────────────────────────────────────────────────────────────
 
 /**
- * Approved but nothing sent yet — put it back for another look.
+ * Take a requisition back so it can be edited. Two cases, one button.
  *
- * Goes to pending_approval, not draft: the work of writing the requisition is
- * done, only the authorisation is void. Dropping it to draft would make the
- * approver's queue lose it entirely.
+ *   AWAITING APPROVAL → draft. Nothing has been authorised and, by definition,
+ *   nothing has been sent — dispatch requires approval. Editing here is
+ *   completely safe, and previously impossible: the sheet locked the moment it
+ *   was submitted, so a forgotten item meant cancelling and starting again.
+ *
+ *   APPROVED (nothing dispatched) → back to awaiting approval, not to draft.
+ *   The work of writing it is done, only the authorisation is void; dropping
+ *   it to draft would make the approver's queue lose it entirely.
  *
  * Refuses once ANY vendor has been dispatched. At that point a supplier is
  * holding the order and a silent edit is how 5kg becomes 8kg with nobody able
- * to say who decided that.
+ * to say who decided that — that case is an amendment.
  */
 export async function reopenRequisition(id: string): Promise<ActionResult> {
   await requirePermission('kitchen', 'write')
@@ -577,10 +582,17 @@ export async function reopenRequisition(id: string): Promise<ActionResult> {
     const { data: req } = await db.from('kitchen_requisitions')
       .select('status, requisition_no').eq('id', id).maybeSingle()
     if (!req) return { success: false, error: 'Requisition not found' }
-    if (req.status !== 'approved') {
-      return { success: false, error: `This requisition is ${req.status.replace('_', ' ')}, not approved.` }
+    if (req.status !== 'approved' && req.status !== 'pending_approval') {
+      return {
+        success: false,
+        error: req.status === 'draft'
+          ? 'This is already a draft — just edit it.'
+          : 'This requisition is cancelled.',
+      }
     }
 
+    // Only reachable when approved: dispatch is gated on approval. Checked
+    // anyway, because "only reachable" is a claim about today's code.
     const { count } = await db.from('kitchen_requisition_dispatches')
       .select('id', { count: 'exact', head: true }).eq('requisition_id', id)
     if ((count ?? 0) > 0) {
@@ -590,17 +602,21 @@ export async function reopenRequisition(id: string): Promise<ActionResult> {
       }
     }
 
+    const nextStatus = req.status === 'approved' ? 'pending_approval' : 'draft'
     const ctx = await getCurrentUserContext()
     const { error } = await db.from('kitchen_requisitions').update({
-      status: 'pending_approval',
+      status: nextStatus,
+      // Harmless on the pending_approval path — they are already null — and it
+      // keeps one write covering both cases.
       approved_by_employee_id: null, approved_by_user_id: null,
       approved_at: null, approval_notes: null,
       updated_at: new Date().toISOString(),
     }).eq('id', id)
     if (error) return { success: false, error: error.message }
 
-    await logHistory(id, 'edited', 'reopened', {
-      requisition_no: req.requisition_no, by_user: ctx?.email ?? null,
+    await logHistory(id, 'edited', nextStatus === 'draft' ? 'pulled_back' : 'reopened', {
+      requisition_no: req.requisition_no, from: req.status, to: nextStatus,
+      by_user: ctx?.email ?? null,
     })
     revalidatePath('/kitchen/requisitions')
     revalidatePath(`/kitchen/requisitions/${id}`)
