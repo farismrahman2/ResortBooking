@@ -6,7 +6,7 @@ import { requirePermission, hasPermission } from '@/lib/auth/permissions'
 import { getRequisitionById, listKitchenVendors, getVendorSections } from '@/lib/queries/kitchen'
 import { listSalesEmployees } from '@/lib/queries/employees'
 import { ApprovePanel } from '@/components/kitchen/ApprovePanel'
-import { MigrationErrorBanner } from '@/components/crm/MigrationErrorBanner'
+import { MigrationErrorBanner } from '@/components/ui/MigrationErrorBanner'
 import { formatDate } from '@/lib/formatters/dates'
 import { REQUISITION_STATUS_LABELS, REQUISITION_STATUS_BADGE } from '@/lib/supabase/types-kitchen'
 import { num } from '@/lib/kitchen/messages'
@@ -118,7 +118,7 @@ export default async function RequisitionDetailPage({ params }: { params: { id: 
     if (err && typeof err === 'object' && 'digest' in err) throw err
     return (
       <div className="px-4 py-6">
-        <MigrationErrorBanner error={err instanceof Error ? err.message : String(err)} />
+        <MigrationErrorBanner error={err instanceof Error ? err.message : String(err)} moduleName="Kitchen" migrationPath="migrations/kitchen-module/000_create_requisitions.sql" />
       </div>
     )
   }

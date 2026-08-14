@@ -3,7 +3,7 @@ import { Topbar } from '@/components/layout/Topbar'
 import { requirePermission } from '@/lib/auth/permissions'
 import { getRequisitionById, listKitchenVendors, listKitchenItems } from '@/lib/queries/kitchen'
 import { RequisitionForm } from '@/components/kitchen/RequisitionForm'
-import { MigrationErrorBanner } from '@/components/crm/MigrationErrorBanner'
+import { MigrationErrorBanner } from '@/components/ui/MigrationErrorBanner'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,10 +39,7 @@ export default async function EditRequisitionPage({ params }: { params: { id: st
     if (err && typeof err === 'object' && 'digest' in err) throw err
     return (
       <div className="px-4 py-6">
-        <MigrationErrorBanner error={err instanceof Error ? err.message : String(err)} />
-        <p className="mt-3 text-sm text-gray-600">
-          Run <code className="rounded bg-gray-100 px-1">migrations/kitchen-module/000_create_requisitions.sql</code>.
-        </p>
+        <MigrationErrorBanner error={err instanceof Error ? err.message : String(err)} moduleName="Kitchen" migrationPath="migrations/kitchen-module/000_create_requisitions.sql" />
       </div>
     )
   }

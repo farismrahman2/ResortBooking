@@ -4,7 +4,7 @@ import { Topbar } from '@/components/layout/Topbar'
 import { requirePermission, hasPermission } from '@/lib/auth/permissions'
 import { listRequisitions } from '@/lib/queries/kitchen'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { MigrationErrorBanner } from '@/components/crm/MigrationErrorBanner'
+import { MigrationErrorBanner } from '@/components/ui/MigrationErrorBanner'
 import { formatDate } from '@/lib/formatters/dates'
 import { REQUISITION_STATUS_LABELS, REQUISITION_STATUS_BADGE } from '@/lib/supabase/types-kitchen'
 
@@ -94,10 +94,7 @@ export default async function RequisitionsPage({ searchParams }: PageProps) {
       <div className="flex h-full flex-col">
         <Topbar title="Kitchen Requisitions" />
         <div className="px-4 py-6 sm:px-6">
-          <MigrationErrorBanner error={err instanceof Error ? err.message : String(err)} />
-          <p className="mt-3 text-sm text-gray-600">
-            Run <code className="rounded bg-gray-100 px-1">migrations/kitchen-module/000_create_requisitions.sql</code> in Supabase.
-          </p>
+          <MigrationErrorBanner error={err instanceof Error ? err.message : String(err)} moduleName="Kitchen" migrationPath="migrations/kitchen-module/000_create_requisitions.sql" />
         </div>
       </div>
     )
