@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { cachedRef } from '@/lib/cache'
 import type {
   KitchenVendor, RequisitionWithLines, RequisitionListRow, VendorSection, VendorLine,
 } from '@/lib/supabase/types-kitchen'
@@ -6,34 +7,62 @@ import type {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = () => createClient() as any
 
-export async function listKitchenVendors(): Promise<KitchenVendor[]> {
-  const { data, error } = await db()
-    .from('kitchen_vendors').select('*').eq('is_active', true).order('sort_order')
-  if (error) throw new Error(`[kitchen.vendors] ${error.message}`)
-  return (data ?? []) as KitchenVendor[]
+/**
+ * The six vendor slots and the ~77-item catalogue are reference data: they
+ * change when somebody adds an item, which is a handful of times a month, and
+ * they are read on EVERY kitchen navigation — the form, the detail page, the
+ * dispatch page and the tagging screen all need them. Paying two Supabase
+ * round-trips per tap for rows that did not change is most of why the module
+ * felt slow on a phone.
+ *
+ * Cached under the `kitchen-catalogue` tag; every action that writes to
+ * kitchen_vendors or inv_items calls revalidateTag on it.
+ */
+export const KITCHEN_CATALOGUE_TAG = 'kitchen-catalogue'
+
+export const listKitchenVendors = cachedRef<KitchenVendor[]>(
+  'kitchen-vendors',
+  async (sdb) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (sdb as any)
+      .from('kitchen_vendors').select('*').eq('is_active', true).order('sort_order')
+    if (error) throw new Error(`[kitchen.vendors] ${error.message}`)
+    return (data ?? []) as KitchenVendor[]
+  },
+  { tags: [KITCHEN_CATALOGUE_TAG], revalidate: 600 },
+)
+
+export interface PickerItemRow {
+  id: string; name: string; kitchen_vendor_id: string | null
+  unit_id: string | null; unit_label: string | null; category_name: string | null
+  default_unit_price: number | null
 }
 
 /** Items available to put on a requisition, with their vendor tag and unit. */
-export async function listKitchenItems(): Promise<Array<{
-  id: string; name: string; kitchen_vendor_id: string | null
-  unit_id: string | null; unit_label: string | null; category_name: string | null
-}>> {
-  const { data, error } = await db()
-    .from('inv_items')
-    .select('id, name, kitchen_vendor_id, unit_id, is_active, unit:inv_units(abbreviation, display_name), category:inv_categories(display_name)')
-    .eq('is_active', true)
-    .order('name')
-    .limit(2000)
-  if (error) return []
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return ((data ?? []) as any[]).map((i) => ({
-    id: i.id, name: i.name,
-    kitchen_vendor_id: i.kitchen_vendor_id ?? null,
-    unit_id: i.unit_id ?? null,
-    unit_label: i.unit?.abbreviation ?? i.unit?.display_name ?? null,
-    category_name: i.category?.display_name ?? null,
-  }))
-}
+export const listKitchenItems = cachedRef<PickerItemRow[]>(
+  'kitchen-items',
+  async (sdb) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (sdb as any)
+      .from('inv_items')
+      .select('id, name, kitchen_vendor_id, unit_id, default_unit_price, is_active, unit:inv_units(abbreviation, display_name), category:inv_categories(display_name)')
+      .eq('is_active', true)
+      .order('name')
+      .limit(2000)
+    if (error) return []
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return ((data ?? []) as any[]).map((i) => ({
+      id: i.id, name: i.name,
+      kitchen_vendor_id: i.kitchen_vendor_id ?? null,
+      unit_id: i.unit_id ?? null,
+      unit_label: i.unit?.abbreviation ?? i.unit?.display_name ?? null,
+      category_name: i.category?.display_name ?? null,
+      default_unit_price: i.default_unit_price === null || i.default_unit_price === undefined
+        ? null : Number(i.default_unit_price),
+    }))
+  },
+  { tags: [KITCHEN_CATALOGUE_TAG], revalidate: 600 },
+)
 
 export async function getRequisitionById(id: string): Promise<RequisitionWithLines | null> {
   const { data, error } = await db()
@@ -50,11 +79,16 @@ export async function getRequisitionById(id: string): Promise<RequisitionWithLin
 export async function listRequisitions(filters: {
   from?: string; to?: string; status?: string; q?: string
 } = {}): Promise<RequisitionListRow[]> {
+  // Only kitchen_vendor_id is read off the lines — pulling `id` as well meant
+  // dragging every line row of every requisition across the wire to produce
+  // two integers per card. At a couple of requisitions a day with 40 lines
+  // each, 500 headers is 20,000 line rows for a list nobody scrolls past the
+  // first screen of. The window is a date-descending 120 instead.
   let q = db().from('kitchen_requisitions')
-    .select('*, lines:kitchen_requisition_lines(id, kitchen_vendor_id)')
+    .select('*, lines:kitchen_requisition_lines(kitchen_vendor_id)')
     .order('event_date', { ascending: false })
     .order('created_at', { ascending: false })
-    .limit(500)
+    .limit(120)
 
   if (filters.status) q = q.eq('status', filters.status)
   else                q = q.neq('status', 'cancelled')
@@ -90,14 +124,13 @@ export async function listRequisitions(filters: {
  * "No order" on a quiet day rather than staying silent.
  */
 export async function getVendorSections(requisitionId: string): Promise<VendorSection[]> {
-  const [req, vendors, unitsRes] = await Promise.all([
+  const [req, vendors, unitLabels] = await Promise.all([
     getRequisitionById(requisitionId),
     listKitchenVendors(),
-    db().from('inv_units').select('id, abbreviation, display_name'),
+    getUnitLabels(),
   ])
   if (!req) return []
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const unitById = new Map(((unitsRes.data ?? []) as any[]).map((u) => [u.id, u.abbreviation ?? u.display_name]))
+  const unitById = new Map(Object.entries(unitLabels))
 
   const byVendor = new Map<string, VendorLine[]>()
   for (const l of req.lines) {
@@ -134,14 +167,69 @@ export async function getVendorSections(requisitionId: string): Promise<VendorSe
   return sections
 }
 
+export interface CopyableRequisition {
+  id: string
+  requisition_no: string
+  event_date: string
+  lines: Array<{
+    item_id: string | null; item_name: string
+    kitchen_vendor_id: string | null
+    qty: number; piece_count: number | null
+    unit_id: string | null; notes: string | null
+  }>
+}
+
+/**
+ * The last few requisitions, with their lines, to start a new sheet from.
+ *
+ * A resort orders very nearly the same forty things every day — the
+ * quantities move with the headcount, the list barely does. Retyping it daily
+ * is the single most tedious thing in this module, and the thing most likely
+ * to lose an item nobody notices missing until the kitchen needs it.
+ *
+ * Cancelled requisitions are excluded: they were cancelled for a reason, and
+ * they are the last thing anyone wants to accidentally reissue.
+ */
+export async function listRequisitionsForCopy(limit = 5): Promise<CopyableRequisition[]> {
+  const { data, error } = await db()
+    .from('kitchen_requisitions')
+    .select('id, requisition_no, event_date, lines:kitchen_requisition_lines(item_id, item_name, kitchen_vendor_id, qty, piece_count, unit_id, notes, sort_order)')
+    .neq('status', 'cancelled')
+    .order('event_date', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  if (error) return []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((data ?? []) as any[])
+    .map((r) => ({
+      id: r.id, requisition_no: r.requisition_no, event_date: r.event_date,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      lines: ((r.lines ?? []) as any[])
+        .sort((a, b) => a.sort_order - b.sort_order)
+        .map((l) => ({
+          item_id: l.item_id ?? null, item_name: l.item_name,
+          kitchen_vendor_id: l.kitchen_vendor_id ?? null,
+          qty: Number(l.qty), piece_count: l.piece_count === null ? null : Number(l.piece_count),
+          unit_id: l.unit_id ?? null, notes: l.notes ?? null,
+        })),
+    }))
+    .filter((r) => r.lines.length > 0)
+}
+
 /** Every kitchen-store item with its current vendor tag, for the tagging screen. */
-export async function listItemsForTagging(): Promise<Array<{
+export interface TaggingItemRow {
   id: string; name: string; sku_code: string | null
   category_slug: string | null; category_name: string | null
   unit_id: string | null; unit_label: string | null
   default_unit_price: number | null
   kitchen_vendor_id: string | null
-}>> {
+}
+
+export const listItemsForTagging = cachedRef<TaggingItemRow[]>(
+  'kitchen-items-tagging',
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async (sdb) => {
+  const db = () => sdb as any
   const { data: store } = await db().from('inv_stores').select('id').eq('slug', 'kitchen').maybeSingle()
   if (!store) return []
   const { data, error } = await db()
@@ -163,7 +251,9 @@ export async function listItemsForTagging(): Promise<Array<{
       ? null : Number(i.default_unit_price),
     kitchen_vendor_id: i.kitchen_vendor_id ?? null,
   }))
-}
+  },
+  { tags: [KITCHEN_CATALOGUE_TAG], revalidate: 600 },
+)
 
 /** Vendor slots including hidden ones, with how many items point at each. */
 export async function listVendorsWithCounts(): Promise<{
@@ -184,20 +274,41 @@ export async function listVendorsWithCounts(): Promise<{
 }
 
 /** Kitchen-store categories and all units — for the quick add-item form. */
-export async function listItemFormOptions(): Promise<{
+export const listItemFormOptions = cachedRef<{
   categories: { id: string; display_name: string }[]
   units:      { id: string; display_name: string; abbreviation: string }[]
-}> {
-  const { data: store } = await db().from('inv_stores').select('id').eq('slug', 'kitchen').maybeSingle()
-  const [cats, units] = await Promise.all([
-    store
-      ? db().from('inv_categories').select('id, display_name')
-          .eq('store_id', store.id).eq('is_active', true).order('display_order')
-      : Promise.resolve({ data: [] }),
-    db().from('inv_units').select('id, display_name, abbreviation').order('display_order'),
-  ])
-  return {
-    categories: (cats.data ?? []) as { id: string; display_name: string }[],
-    units:      (units.data ?? []) as { id: string; display_name: string; abbreviation: string }[],
-  }
-}
+}>(
+  'kitchen-item-form-options',
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async (sdb) => {
+    const db = () => sdb as any
+    const { data: store } = await db().from('inv_stores').select('id').eq('slug', 'kitchen').maybeSingle()
+    const [cats, units] = await Promise.all([
+      store
+        ? db().from('inv_categories').select('id, display_name')
+            .eq('store_id', store.id).eq('is_active', true).order('display_order')
+        : Promise.resolve({ data: [] }),
+      db().from('inv_units').select('id, display_name, abbreviation').order('display_order'),
+    ])
+    return {
+      categories: (cats.data ?? []) as { id: string; display_name: string }[],
+      units:      (units.data ?? []) as { id: string; display_name: string; abbreviation: string }[],
+    }
+  },
+  { tags: [KITCHEN_CATALOGUE_TAG], revalidate: 600 },
+)
+
+/** id → abbreviation, for labelling saved lines. Cached with the catalogue. */
+export const getUnitLabels = cachedRef<Record<string, string>>(
+  'kitchen-unit-labels',
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async (sdb) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data } = await (sdb as any).from('inv_units').select('id, abbreviation, display_name')
+    const map: Record<string, string> = {}
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const u of ((data ?? []) as any[])) map[u.id] = u.abbreviation ?? u.display_name
+    return map
+  },
+  { tags: [KITCHEN_CATALOGUE_TAG], revalidate: 600 },
+)

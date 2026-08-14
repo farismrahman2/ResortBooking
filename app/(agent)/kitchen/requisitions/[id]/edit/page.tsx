@@ -1,7 +1,9 @@
 import { redirect } from 'next/navigation'
 import { Topbar } from '@/components/layout/Topbar'
 import { requirePermission } from '@/lib/auth/permissions'
-import { getRequisitionById, listKitchenVendors, listKitchenItems } from '@/lib/queries/kitchen'
+import {
+  getRequisitionById, listKitchenVendors, listKitchenItems, listRequisitionsForCopy,
+} from '@/lib/queries/kitchen'
 import { RequisitionForm } from '@/components/kitchen/RequisitionForm'
 import { MigrationErrorBanner } from '@/components/ui/MigrationErrorBanner'
 
@@ -10,10 +12,11 @@ export const dynamic = 'force-dynamic'
 export default async function EditRequisitionPage({ params }: { params: { id: string } }) {
   await requirePermission('kitchen', 'write')
   try {
-    const [req, vendors, items] = await Promise.all([
+    const [req, vendors, items, recent] = await Promise.all([
       getRequisitionById(params.id),
       listKitchenVendors(),
       listKitchenItems(),
+      listRequisitionsForCopy(5),
     ])
     // Once it leaves draft it has gone to the approver — read-only from here.
     if (req && req.status !== 'draft') redirect(`/kitchen/requisitions/${params.id}`)
@@ -31,6 +34,8 @@ export default async function EditRequisitionPage({ params }: { params: { id: st
             vendors={vendors}
             items={items}
             isNew={!req}
+            // Don't offer this sheet as a source for itself.
+            recent={recent.filter((r) => r.id !== params.id)}
           />
         </div>
       </div>
