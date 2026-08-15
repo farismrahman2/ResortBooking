@@ -303,7 +303,25 @@ export async function cancelRequisition(id: string, reason: string): Promise<Act
     }).eq('id', id)
     if (error) return { success: false, error: error.message }
 
-    await logHistory(id, 'edited', 'cancelled', { requisition_no: req.requisition_no, reason })
+    // An amendment only exists to change its parent. Leaving it approved when
+    // the parent is cancelled leaves a live "+3 kg potato" order for an event
+    // that is not happening, still dispatchable from its own page.
+    const { data: children } = await db.from('kitchen_requisitions')
+      .select('id, requisition_no')
+      .eq('parent_requisition_id', id)
+      .neq('status', 'cancelled')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const kids = ((children ?? []) as any[])
+    if (kids.length > 0) {
+      await db.from('kitchen_requisitions').update({
+        status: 'cancelled',
+        cancel_reason: `Parent ${req?.requisition_no ?? ''} cancelled: ${reason.trim()}`,
+        updated_at: new Date().toISOString(),
+      }).in('id', kids.map((k) => k.id))
+    }
+
+    await logHistory(id, 'edited', 'cancelled', {
+      amendments_cancelled: kids.map((k) => k.requisition_no), requisition_no: req.requisition_no, reason })
     revalidatePath('/kitchen/requisitions')
     revalidatePath(`/kitchen/requisitions/${id}`)
     return { success: true }

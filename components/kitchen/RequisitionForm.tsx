@@ -135,7 +135,23 @@ export function RequisitionForm({
     timer.current = setTimeout(() => { void persist() }, 1200)
   }
 
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [])
+  useEffect(() => {
+    // Leaving with an edit still in the debounce window used to throw it away:
+    // type the last quantity, tap "Orders" in the tab bar within 1.2 seconds,
+    // and it was gone. The cleanup cancelled the timer without ever firing it.
+    // Flush instead — and warn if the browser is closing, where we cannot.
+    const warn = (e: BeforeUnloadEvent) => {
+      if (!dirty.current) return
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => {
+      window.removeEventListener('beforeunload', warn)
+      if (timer.current) clearTimeout(timer.current)
+      if (dirty.current) void persist()
+    }
+  }, [])   // eslint-disable-line react-hooks/exhaustive-deps
 
   function addItem(it: PickerItem) {
     // is_extra is always false here. It marks a line added to an order the
@@ -467,7 +483,7 @@ export function RequisitionForm({
       <label className="block">
         <span className="mb-1 block text-sm font-medium text-gray-800">Notes</span>
         <textarea
-          rows={2} value={notes}
+          rows={2} value={notes} maxLength={2000}
           onChange={(e) => { setNotes(e.target.value); touch() }}
           className="w-full rounded-xl border border-gray-300 px-3 py-2 text-base focus:border-forest-500 focus:outline-none"
         />

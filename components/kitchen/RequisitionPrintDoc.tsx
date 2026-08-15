@@ -41,7 +41,10 @@ export function RequisitionPrintDoc({
 
   const filled = sections.filter((s) => s.lines.length > 0)
   const itemCount = filled.reduce((n, s) => n + s.lines.length, 0)
-  const isDraft = header.status === 'draft'
+  // Anything not yet approved is unauthorised, and submitting takes you
+  // straight here — so the most commonly printed sheet of all was the one that
+  // carried no warning at all.
+  const isDraft = header.status !== 'approved'
 
   return (
     <>
@@ -156,7 +159,7 @@ export function RequisitionPrintDoc({
 
       {isDraft && (
         <div className="req-watermark" aria-hidden>
-          <span>DRAFT — NOT APPROVED</span>
+          <span>{header.status === 'draft' ? 'DRAFT' : 'AWAITING APPROVAL'} — NOT APPROVED</span>
         </div>
       )}
 

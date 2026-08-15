@@ -34,6 +34,20 @@ export const listKitchenVendors = cachedRef<KitchenVendor[]>(
   { tags: [KITCHEN_CATALOGUE_TAG], revalidate: 600 },
 )
 
+/** Every vendor slot, hidden ones included. Used where a line may still point
+ *  at a vendor somebody has since switched off. */
+export const listAllKitchenVendors = cachedRef<KitchenVendor[]>(
+  'kitchen-vendors-all',
+  async (sdb) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (sdb as any)
+      .from('kitchen_vendors').select('*').order('sort_order')
+    if (error) throw new Error(`[kitchen.allVendors] ${error.message}`)
+    return (data ?? []) as KitchenVendor[]
+  },
+  { tags: [KITCHEN_CATALOGUE_TAG], revalidate: 600 },
+)
+
 export interface PickerItemRow {
   id: string; name: string; kitchen_vendor_id: string | null
   unit_id: string | null; unit_label: string | null; category_name: string | null
@@ -60,7 +74,12 @@ export const listKitchenItems = cachedRef<PickerItemRow[]>(
       .limit(2000)
     if (store) q = q.eq('store_id', store.id)
     const { data, error } = await q
-    if (error) return []
+    // THROW, never return []. This function body is the unstable_cache
+    // callback, so a returned empty array is CACHED for ten minutes — one
+    // transient blip and the item picker is empty for everybody until the
+    // window expires. A throw is not cached: the page shows an error, the
+    // next request retries, and it heals itself.
+    if (error) throw new Error(`[kitchen.items] ${error.message}`)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return ((data ?? []) as any[]).map((i) => ({
       id: i.id, name: i.name,
@@ -146,9 +165,16 @@ export async function listRequisitions(filters: {
  * "No order" on a quiet day rather than staying silent.
  */
 export const getVendorSections = cache(async (requisitionId: string): Promise<VendorSection[]> => {
-  const [req, vendors, unitLabels] = await Promise.all([
+  const [req, vendors, allVendors, unitLabels] = await Promise.all([
     getRequisitionById(requisitionId),
     listKitchenVendors(),
+    // Including hidden ones. Deactivating a vendor does NOT clear the tag on
+    // its items, so lines still point at it — and keying the sections off the
+    // ACTIVE list alone meant those lines matched no section and no untagged
+    // bucket either. They silently disappeared from the detail page, from
+    // every supplier message and from the printed sheet: ordered by nobody,
+    // missed by everybody.
+    listAllKitchenVendors(),
     getUnitLabels(),
   ])
   if (!req) return []
@@ -172,6 +198,19 @@ export const getVendorSections = cache(async (requisitionId: string): Promise<Ve
   const sections: VendorSection[] = vendors.map((v) => ({
     vendor: v, lines: byVendor.get(v.id) ?? [],
   }))
+
+  // Any vendor that is hidden but still has lines gets a section of its own,
+  // flagged, rather than being dropped on the floor.
+  for (const v of allVendors) {
+    if (v.is_active) continue
+    const orphaned = byVendor.get(v.id)
+    if (orphaned?.length) {
+      sections.push({
+        vendor: { ...v, display_name: `${v.display_name} (hidden vendor)`, sort_order: 998 },
+        lines: orphaned,
+      })
+    }
+  }
 
   // Untagged lines would otherwise vanish from every message — surface them
   // as their own pseudo-section so nobody silently fails to order something.
@@ -350,7 +389,11 @@ export const getUnitLabels = cachedRef<Record<string, string>>(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async (sdb) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data } = await (sdb as any).from('inv_units').select('id, abbreviation, display_name')
+    const { data, error } = await (sdb as any).from('inv_units').select('id, abbreviation, display_name')
+    // Same negative-caching trap, and worse consequences: an empty unit map
+    // caches for ten minutes and every supplier message in that window goes
+    // out as "5" instead of "5 kg".
+    if (error) throw new Error(`[kitchen.unitLabels] ${error.message}`)
     const map: Record<string, string> = {}
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const u of ((data ?? []) as any[])) map[u.id] = u.abbreviation ?? u.display_name

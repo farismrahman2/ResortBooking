@@ -13,14 +13,20 @@ export const dynamic = 'force-dynamic'
 export default async function EditRequisitionPage({ params }: { params: { id: string } }) {
   await requirePermission('kitchen', 'write')
   try {
-    const [req, vendors, items, recent, templates] = await Promise.all([
-      getRequisitionById(params.id),
+    // Two round trips and a sizeable payload — five requisitions with every
+    // line, plus every template with every line — for a card that is only
+    // rendered when the sheet is EMPTY. Resuming a 40-line draft was paying
+    // for both and showing neither.
+    const req = await getRequisitionById(params.id)
+    const wantsStartingPoint = (req?.lines.length ?? 0) === 0
+
+    const [vendors, items, recent, templates] = await Promise.all([
       listKitchenVendors(),
       listKitchenItems(),
-      listRequisitionsForCopy(5),
+      wantsStartingPoint ? listRequisitionsForCopy(5) : Promise.resolve([]),
       // Never fatal: a missing templates table (migration not yet run) must
       // not take down the form people order from.
-      listTemplates().catch(() => []),
+      wantsStartingPoint ? listTemplates().catch(() => []) : Promise.resolve([]),
     ])
     // Once it leaves draft it has gone to the approver — read-only from here.
     if (req && req.status !== 'draft') redirect(`/kitchen/requisitions/${params.id}`)

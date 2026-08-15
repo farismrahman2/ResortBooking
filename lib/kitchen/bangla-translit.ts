@@ -160,3 +160,32 @@ export function phoneticKey(input: string): string {
   s = s.replace(/(.)\1+/g, '$1')
   return s
 }
+
+/**
+ * Vowel-insensitive form: every vowel becomes the same letter, runs collapse.
+ *
+ * Sits between the exact romanisation and the consonant skeleton. "aloo" is by
+ * far the commonest way people write আলু, whose romanisation is "alu" — the
+ * substring tiers miss it on one vowel, and the skeleton tier can't save it
+ * because dropping the vowels from a three-letter word leaves "l", which is
+ * too short to be allowed to match anything.
+ *
+ * Folding rather than deleting keeps the shape of the word, so it stays far
+ * more precise than the skeleton while forgiving exactly the disagreement that
+ * romanised Bangla is full of.
+ */
+export function vowelFold(input: string): string {
+  let s = input.toLowerCase().replace(/[^a-z0-9]/g, '')
+  for (const [re, to] of DIGRAPHS) s = s.replace(re, to)
+  // h, w and y written on their own are hiatus, not sound: people spell দই
+  // ("doi") as "dohi" and দুধ as "dudh". The digraphs are already collapsed by
+  // this point, so nothing meaningful is lost.
+  s = s.replace(/[hwy]/g, '')
+  s = s.replace(/[aeiou]/g, 'a')
+  return s.replace(/(.)\1+/g, '$1')
+}
+
+/** Does this string contain Bengali script? */
+export function hasBengali(input: string): boolean {
+  return /[\u0980-\u09FF]/.test(input)
+}

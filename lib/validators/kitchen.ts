@@ -3,6 +3,14 @@ import { z } from 'zod'
 const nullableStr = z.string().trim().max(500).nullish().transform((v) => v || null)
 
 /**
+ * Notes get a pasted WhatsApp instruction from the manager, which is routinely
+ * longer than 500 characters. Sharing the 500-cap made every autosave fail
+ * from the moment the paste happened — and the message named no field, so the
+ * only symptom was a save that would not stop erroring.
+ */
+const longNote = z.string().trim().max(2000).nullish().transform((v) => v || null)
+
+/**
  * A line as it exists WHILE TYPING. Deliberately permissive: adding an item
  * puts a row on screen before any quantity is entered, and the autosave fires
  * a moment later. Requiring qty > 0 here rejected the entire requisition on
@@ -30,7 +38,7 @@ export const requisitionLineSchema = z.object({
 /** Draft — permissive, so a half-written requisition always saves. */
 export const requisitionDraftSchema = z.object({
   event_date:   z.string().nullish().transform((v) => v || null),
-  notes:        nullableStr,
+  notes:        longNote,
   is_emergency: z.boolean().default(false),
   parent_requisition_id: z.string().uuid().nullish().transform((v) => v || null),
   lines:        z.array(requisitionLineSchema).default([]),
@@ -70,7 +78,7 @@ export const noNegativeLines = (lines: Array<{ qty: number; item_name: string }>
 
 export const approveSchema = z.object({
   approved_by_employee_id: z.string().uuid('Choose who is approving this'),
-  approval_notes:          nullableStr,
+  approval_notes:          longNote,
 })
 
 /**
