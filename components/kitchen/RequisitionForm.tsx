@@ -76,7 +76,28 @@ export function RequisitionForm({
 
   const vendorById = useMemo(() => new Map(vendors.map((v) => [v.id, v])), [vendors])
 
+  /**
+   * The form's live state, mirrored into a ref on every render.
+   *
+   * `touch()` schedules a timer that closes over the render it ran in — and it
+   * runs in the SAME handler as the setState that changed things, so that
+   * closure holds the state from BEFORE the edit. Every debounced save was
+   * therefore one edit stale, and since nothing follows the last edit, the last
+   * edit was simply never written. Add an item, type a quantity, wait for the
+   * "Saved" tick, reload: the item was gone.
+   *
+   * A ref is read at fire time, not at schedule time, which is the only thing
+   * that makes a debounce correct here.
+   */
+  const live = useRef({ eventDate, notes, isEmergency, lines })
+  live.current = { eventDate, notes, isEmergency, lines }
+
+  /** Bumped by every edit. A save that finishes while newer edits are pending
+   *  must NOT clear the dirty flag, or those edits are lost too. */
+  const revision = useRef(0)
+
   function payload() {
+    const { eventDate, notes, isEmergency, lines } = live.current
     return {
       event_date: eventDate || null,
       notes: notes || null,
@@ -93,30 +114,57 @@ export function RequisitionForm({
 
   async function persist(): Promise<boolean> {
     if (!dirty.current) return true
+    const sentAt = revision.current
     setSaving('saving')
     const r = await safeCall(() => saveRequisition(requisitionId, payload()))
     if (!r.success) { toast.error(r.error); setSaving('idle'); return false }
-    dirty.current = false
-    setSaving('saved')
+    // Only clear the flag if nothing changed while the request was in flight.
+    // On a kitchen 4G connection a save takes a second or two, and edits made
+    // during it used to be marked clean and never sent.
+    if (revision.current === sentAt) {
+      dirty.current = false
+      setSaving('saved')
+    }
     return true
   }
 
   function touch() {
     dirty.current = true
+    revision.current += 1
     if (timer.current) clearTimeout(timer.current)
     timer.current = setTimeout(() => { void persist() }, 1200)
   }
 
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [])
+  useEffect(() => {
+    // Leaving with an edit still in the debounce window used to throw it away:
+    // type the last quantity, tap "Orders" in the tab bar within 1.2 seconds,
+    // and it was gone. The cleanup cancelled the timer without ever firing it.
+    // Flush instead — and warn if the browser is closing, where we cannot.
+    const warn = (e: BeforeUnloadEvent) => {
+      if (!dirty.current) return
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => {
+      window.removeEventListener('beforeunload', warn)
+      if (timer.current) clearTimeout(timer.current)
+      if (dirty.current) void persist()
+    }
+  }, [])   // eslint-disable-line react-hooks/exhaustive-deps
 
   function addItem(it: PickerItem) {
-    // An approved requisition has already gone out; anything added afterwards
-    // is flagged so the supplier can see it's an addition.
+    // is_extra is always false here. It marks a line added to an order the
+    // suppliers ALREADY HAVE, and this form only ever edits a draft — anything
+    // after dispatch goes through an amendment. It used to be derived from
+    // `isNew`, which flips to false the moment the first autosave re-renders
+    // the page with the now-existing row, so every item added after the first
+    // 1.2 seconds was silently stamped "extra" on a brand new sheet.
     setLines((prev) => [...prev, {
       item_id: it.id, item_name: it.name,
       kitchen_vendor_id: it.kitchen_vendor_id,
       qty: '', piece_count: '', unit_id: it.unit_id, unit_label: it.unit_label,
-      notes: '', is_extra: !isNew && (initial?.lines.length ?? 0) > 0,
+      notes: '', is_extra: false,
     }])
     setSearch('')
     touch()
@@ -207,6 +255,17 @@ export function RequisitionForm({
   }, [lines, vendorById])
 
   async function handleSubmit() {
+    // Checked HERE because the server cannot: blank lines are dropped before
+    // they are written, so by the time submitRequisition reads the row back
+    // the offending item is already gone and the requisition looks complete.
+    // Without this, an item you can see on screen is silently not ordered.
+    const blank = lines.find((l) => !(Number(l.qty) !== 0))
+    if (blank) {
+      toast.error(`"${blank.item_name}" has no quantity`, {
+        description: 'Give it a number, or remove the line.',
+      })
+      return
+    }
     setSubmitting(true)
     if (timer.current) clearTimeout(timer.current)
     dirty.current = true
@@ -424,7 +483,7 @@ export function RequisitionForm({
       <label className="block">
         <span className="mb-1 block text-sm font-medium text-gray-800">Notes</span>
         <textarea
-          rows={2} value={notes}
+          rows={2} value={notes} maxLength={2000}
           onChange={(e) => { setNotes(e.target.value); touch() }}
           className="w-full rounded-xl border border-gray-300 px-3 py-2 text-base focus:border-forest-500 focus:outline-none"
         />

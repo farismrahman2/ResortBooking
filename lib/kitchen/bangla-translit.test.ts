@@ -64,3 +64,29 @@ describe('searchItems', () => {
     expect(searchItems(items, index, 'tel', { exclude: new Set(['1']) })).toHaveLength(0)
   })
 })
+
+describe('the spellings that used to return nothing', () => {
+  const items = [
+    { id: '1', name: 'Potato / আলু' },
+    { id: '2', name: 'Cooking oil / তেল' },
+    { id: '3', name: 'Yoghurt / দই' },
+    { id: '4', name: 'Cucumber / শসা' },
+    { id: '5', name: 'Garlic / রসুন' },
+  ]
+  const index = buildSearchIndex(items)
+  const find = (q: string) => searchItems(items, index, q).map((i) => i.id)
+
+  it('finds short names through vowel disagreement', () => {
+    expect(find('aloo')).toContain('1')   // আলু romanises "alu"
+    expect(find('alu')).toContain('1')
+    expect(find('dohi')).toContain('3')   // দই romanises "doi"
+    expect(find('sosa')).toContain('4')   // শসা romanises "shosa"
+    expect(find('shosha')).toContain('4')
+  })
+
+  it('accepts a query typed on a Bangla keyboard', () => {
+    expect(find('আলু')).toContain('1')
+    expect(find('তেল')).toContain('2')
+    expect(find('রসুন')).toContain('5')
+  })
+})

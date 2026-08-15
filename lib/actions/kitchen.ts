@@ -16,6 +16,23 @@ import type { ActionResult, ActionData } from './types'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const dbc = () => createClient() as any
 
+/**
+ * Is this "the function isn't there" rather than "the call failed"?
+ *
+ * Migrations are applied by hand here, so a deploy can reach production before
+ * its SQL does. The save path falls back to the older multi-statement version
+ * in that window rather than breaking the screen people order from — but only
+ * for a genuinely missing function, never for a real error.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function isMissingRpc(err: any): boolean {
+  const code = String(err?.code ?? '')
+  const msg  = String(err?.message ?? '').toLowerCase()
+  return code === 'PGRST202'
+    || code === '42883'
+    || (msg.includes('kitchen_save_requisition') && (msg.includes('does not exist') || msg.includes('schema cache')))
+}
+
 /** Non-fatal history logging — never blocks the write. */
 async function logHistory(
   id: string,
@@ -66,13 +83,55 @@ export async function saveRequisition(id: string, partial: unknown): Promise<Act
     }
     const input = parsedInput.data
     const { lines, ...header } = input
+    const ctx = await getCurrentUserContext()
+
+    // One atomic call instead of four sequential ones (read, update header,
+    // delete lines, insert lines). The autosave fires every 1.2s while
+    // somebody types, so on a phone those four round trips were most of a
+    // second of network per keystroke burst — and a delete that succeeded
+    // before a failing insert left the requisition with no lines at all.
+    const { data: rpc, error: rpcErr } = await db.rpc('kitchen_save_requisition', {
+      p_id:           id,
+      p_event_date:   header.event_date || null,
+      p_notes:          header.notes ?? null,
+      p_notes_provided: header.notes !== undefined,
+      p_is_emergency: typeof header.is_emergency === 'boolean' ? header.is_emergency : null,
+      p_parent:       header.parent_requisition_id ?? null,
+      p_created_by:   ctx?.user_id ?? null,
+      p_lines:        (lines ?? []).map((l, i) => ({
+        sort_order: i,
+        item_id: l.item_id ?? null,
+        item_name: (l.item_name ?? '').trim(),
+        kitchen_vendor_id: l.kitchen_vendor_id ?? null,
+        qty: l.qty,
+        piece_count: l.piece_count ?? null,
+        unit_id: l.unit_id ?? null,
+        notes: l.notes ?? null,
+        is_extra: l.is_extra ?? false,
+      })),
+      p_write_lines:       lines !== undefined,
+      p_create_if_missing: hasContent(input),
+    })
+
+    if (!rpcErr) {
+      if (rpc && rpc.ok === false) return { success: false, error: String(rpc.error) }
+      // Deliberately NO revalidatePath here. In Next 14 a revalidate inside a
+      // server action makes the action's response carry a freshly rendered
+      // flight payload for the current route — so every 1.2s autosave was also
+      // re-running the edit page's queries and re-shipping the whole item
+      // catalogue. Nothing on screen depends on the list being fresh mid-edit;
+      // submit, approve and cancel all revalidate it.
+      return { success: true }
+    }
+    // Migration 008 not applied yet — fall through to the original path rather
+    // than break the screen people order from. Any other error is real.
+    if (!isMissingRpc(rpcErr)) return { success: false, error: rpcErr.message }
 
     const { data: existing } = await db.from('kitchen_requisitions')
       .select('status, requisition_no').eq('id', id).maybeSingle()
 
     if (!existing) {
       if (!hasContent(input)) return { success: true }   // nothing to save yet
-      const ctx = await getCurrentUserContext()
       let created = false
       for (let attempt = 0; attempt < 6 && !created; attempt++) {
         const { error } = await db.from('kitchen_requisitions').insert({
@@ -128,7 +187,6 @@ export async function saveRequisition(id: string, partial: unknown): Promise<Act
       }
     }
 
-    revalidatePath('/kitchen/requisitions')
     return { success: true }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
@@ -190,8 +248,19 @@ export async function approveRequisition(id: string, input: unknown): Promise<Ac
     const { data: req } = await db.from('kitchen_requisitions')
       .select('status, requisition_no').eq('id', id).maybeSingle()
     if (!req) return { success: false, error: 'Requisition not found' }
-    if (req.status === 'approved')  return { success: false, error: 'Already approved' }
-    if (req.status === 'cancelled') return { success: false, error: 'This requisition is cancelled' }
+    // Only a requisition that has actually been submitted may be approved.
+    // Listing the two forbidden states left `draft` approvable, which skipped
+    // submitRequisition entirely — and with it the event-date check, the
+    // at-least-one-line check and the no-negative-quantities rule. A draft
+    // could go straight to approved and out to suppliers with no date on it.
+    if (req.status !== 'pending_approval') {
+      return {
+        success: false,
+        error: req.status === 'approved'  ? 'Already approved'
+             : req.status === 'cancelled' ? 'This requisition is cancelled'
+             : 'This is still a draft — send it for approval first.',
+      }
+    }
 
     const { error } = await db.from('kitchen_requisitions').update({
       status:                  'approved',
@@ -234,7 +303,25 @@ export async function cancelRequisition(id: string, reason: string): Promise<Act
     }).eq('id', id)
     if (error) return { success: false, error: error.message }
 
-    await logHistory(id, 'edited', 'cancelled', { requisition_no: req.requisition_no, reason })
+    // An amendment only exists to change its parent. Leaving it approved when
+    // the parent is cancelled leaves a live "+3 kg potato" order for an event
+    // that is not happening, still dispatchable from its own page.
+    const { data: children } = await db.from('kitchen_requisitions')
+      .select('id, requisition_no')
+      .eq('parent_requisition_id', id)
+      .neq('status', 'cancelled')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const kids = ((children ?? []) as any[])
+    if (kids.length > 0) {
+      await db.from('kitchen_requisitions').update({
+        status: 'cancelled',
+        cancel_reason: `Parent ${req?.requisition_no ?? ''} cancelled: ${reason.trim()}`,
+        updated_at: new Date().toISOString(),
+      }).in('id', kids.map((k) => k.id))
+    }
+
+    await logHistory(id, 'edited', 'cancelled', {
+      amendments_cancelled: kids.map((k) => k.requisition_no), requisition_no: req.requisition_no, reason })
     revalidatePath('/kitchen/requisitions')
     revalidatePath(`/kitchen/requisitions/${id}`)
     return { success: true }
@@ -540,6 +627,15 @@ export async function recordDispatch(
 ): Promise<ActionResult> {
   await requirePermission('kitchen', 'write')
   try {
+    // The dispatch page invites you to PREVIEW the messages before approval,
+    // and every Copy button stayed live. Recording those previews marked the
+    // requisition as sent, which permanently blocks "reopen for editing" and
+    // offers no amendment path either (amendments need an approved parent) —
+    // one curious tap locked a draft into read-only forever.
+    const { data: req } = await dbc().from('kitchen_requisitions')
+      .select('status').eq('id', requisitionId).maybeSingle()
+    if (req?.status !== 'approved') return { success: true }
+
     const ctx = await getCurrentUserContext()
     const { error } = await dbc().from('kitchen_requisition_dispatches').upsert({
       requisition_id:    requisitionId,

@@ -1,4 +1,4 @@
-import { banglaToLatin, phoneticKey } from './bangla-translit'
+import { banglaToLatin, phoneticKey, vowelFold, hasBengali } from './bangla-translit'
 import { splitItemName } from './item-name'
 
 /**
@@ -32,6 +32,8 @@ export interface SearchIndexEntry {
   latin:    string
   /** Consonant skeleton of the romanised Bangla AND the English half. */
   key:      string
+  /** Vowel-insensitive romanisation — catches "aloo" for আলু ("alu"). */
+  fold:     string
 }
 
 export type SearchIndex = Map<string, SearchIndexEntry>
@@ -51,6 +53,7 @@ export function buildSearchIndex(items: SearchableItem[]): SearchIndex {
       // Both halves feed the skeleton: "oil" should still find it when
       // somebody types "ol", and the English name is often the shorter word.
       key:   `${phoneticKey(latin)} ${phoneticKey(en)}`.trim(),
+      fold:  `${vowelFold(latin)} ${vowelFold(en)}`.trim(),
     })
   }
   return index
@@ -67,6 +70,10 @@ export function scoreItem(
   // Word-initial inside the Bangla half: "kumra" in "misti kumora".
   if (entry.latin.includes(` ${query}`))      return 60
   if (entry.latin.includes(query))            return 40
+  // Vowel-insensitive before the skeleton: more precise, and it rescues the
+  // short names the skeleton tier is forced to refuse.
+  const folded = vowelFold(query)
+  if (folded.length >= 2 && entry.fold.includes(folded)) return 30
   if (queryKey.length >= 2 && entry.key.includes(queryKey)) return 20
   return 0
 }
@@ -79,8 +86,12 @@ export function searchItems<T extends SearchableItem>(
   items: T[], index: SearchIndex, rawQuery: string,
   opts: { limit?: number; exclude?: Set<string | null> } = {},
 ): T[] {
-  const query = rawQuery.trim().toLowerCase()
+  let query = rawQuery.trim().toLowerCase()
   if (!query) return []
+  // Somebody typing on a Bangla keyboard gets the same treatment as somebody
+  // typing romanised Bangla: without this, only an exact substring of the
+  // stored name matched, so any spelling variant returned nothing at all.
+  if (hasBengali(query)) query = banglaToLatin(query).toLowerCase() || query
   const queryKey = phoneticKey(query)
   const exclude = opts.exclude
 
