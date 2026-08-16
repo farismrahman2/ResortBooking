@@ -5,7 +5,7 @@ import {
   listKitchenVendors, listKitchenItems, getRequisitionById, listApprovers, getUnitLabels,
 } from '@/lib/queries/kitchen'
 import {
-  getDeliveryById, buildDeliveryLinesFromRequisition,
+  getDeliveryById, buildDeliveryLinesFromRequisition, listSubstitutableLines,
 } from '@/lib/queries/kitchen-ledger'
 import { listKitchenDocuments } from '@/lib/queries/kitchen-docs'
 import { DeliveryForm } from '@/components/kitchen/DeliveryForm'
@@ -47,6 +47,14 @@ export default async function EditDeliveryPage({
         ])
       : [undefined, null]
 
+    // Undelivered lines tagged to OTHER vendors on this requisition — offered
+    // as "came from this vendor instead" picks on the form.
+    const effectiveReqId    = existing?.requisition_id ?? reqId ?? null
+    const effectiveVendorId = existing?.kitchen_vendor_id ?? vendorId ?? null
+    const substitutable = effectiveReqId
+      ? await listSubstitutableLines(effectiveReqId, effectiveVendorId).catch(() => [])
+      : []
+
     return (
       <div className="flex h-full flex-col">
         <Topbar
@@ -66,6 +74,7 @@ export default async function EditDeliveryPage({
             requisitionId={existing ? null : (reqId ?? null)}
             defaultVendorId={existing ? null : (vendorId ?? null)}
             unitOptions={unitOptions}
+            substitutable={substitutable}
             receiptCapture={
               /* Rendered right under the memo fields: photograph the
                  supplier's receipt-book page as proof at the moment the memo

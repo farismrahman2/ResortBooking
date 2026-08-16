@@ -2,13 +2,16 @@
 
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Trash2, Check, CheckCircle2, CloudOff, Loader2, AlertTriangle } from 'lucide-react'
+import { Trash2, Check, CheckCircle2, CloudOff, Loader2, AlertTriangle, Plus, Search, ArrowRightLeft } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from '@/lib/toast'
 import { saveDelivery, confirmDelivery } from '@/lib/actions/kitchen-ledger'
 import { safeCall } from '@/lib/actions/safe-call'
 import { formatBDT } from '@/lib/formatters/currency'
 import { todayDhaka } from '@/lib/dates'
+import { buildSearchIndex, searchItems } from '@/lib/kitchen/item-search'
+import { num } from '@/lib/kitchen/messages'
+import type { SubstitutableLine } from '@/lib/queries/kitchen-ledger'
 import type { KitchenVendor, DeliveryWithLines } from '@/lib/supabase/types-kitchen'
 import type { PickerItemRow } from '@/lib/queries/kitchen'
 import type { SalesEmployee } from '@/lib/supabase/types'
@@ -65,7 +68,7 @@ const n = (v: string) => Number(v) || 0
 export function DeliveryForm({
   deliveryId, initial, vendors, items, employees, prefill, isNew,
   requisitionNo, requisitionId, defaultVendorId, receiptCapture,
-  unitOptions = [],
+  unitOptions = [], substitutable = [],
 }: {
   deliveryId: string
   initial:    DeliveryWithLines | null
@@ -84,6 +87,9 @@ export function DeliveryForm({
   receiptCapture?: React.ReactNode
   /** All units, for the per-line "received in" switcher (order pcs, get kg). */
   unitOptions?: Array<{ id: string; label: string }>
+  /** Undelivered lines tagged to OTHER vendors on this requisition — the
+   *  "their vendor didn't have it, this one brought it" picker. */
+  substitutable?: SubstitutableLine[]
 }) {
   const router = useRouter()
 
@@ -200,6 +206,55 @@ export function DeliveryForm({
   useEffect(() => { if (dirty.current) void persist() }, [])   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [])
 
+  // ── Cross-vendor substitution: pull an undelivered line from another
+  //    vendor's section onto THIS vendor's delivery, ordered qty and
+  //    requisition link intact. The bill lands on whoever actually supplied it.
+  const substitutableOpen = substitutable.filter(
+    (s) => !lines.some((l) => l.requisition_line_id === s.requisition_line_id),
+  )
+  function addSubstituted(s: SubstitutableLine) {
+    setLines((prev) => [...prev, {
+      requisition_line_id: s.requisition_line_id,
+      item_id: s.item_id, item_name: s.item_name,
+      qty_ordered: s.qty_ordered,
+      ordered_unit_label: s.unit_label,
+      qty_delivered: String(s.qty_ordered),
+      rejected_qty: '', reject_reason: '',
+      piece_count: s.piece_count === null ? '' : String(s.piece_count),
+      unit_id: s.unit_id, unit_label: s.unit_label,
+      unit_price: s.unit_price ? String(s.unit_price) : '',
+      is_unrequested: false,
+      notes: `Came from this vendor instead of ${s.from_vendor}`,
+      set_default_price: false,
+    }])
+    touch()
+  }
+
+  // ── Standalone deliveries (no requisition behind them) have no prefill, so
+  //    they keep an item search — without it a blank delivery could never
+  //    gain a line at all.
+  const standalone = !(initial?.requisition_id ?? requisitionId)
+  const [search, setSearch] = useState('')
+  const chosen = useMemo(() => new Set(lines.map((l) => l.item_id).filter(Boolean)), [lines])
+  const searchIndex = useMemo(() => buildSearchIndex(items), [items])
+  const matches = useMemo(
+    () => (standalone ? searchItems(items, searchIndex, search, { exclude: chosen }) : []),
+    [standalone, search, items, searchIndex, chosen],
+  )
+  function addItem(it: PickerItemRow) {
+    setLines((prev) => [...prev, {
+      requisition_line_id: null, item_id: it.id, item_name: it.name,
+      qty_ordered: null, ordered_unit_label: null,
+      qty_delivered: '', rejected_qty: '', reject_reason: '',
+      piece_count: '', unit_id: it.unit_id, unit_label: it.unit_label,
+      unit_price: it.default_unit_price ? String(it.default_unit_price) : '',
+      is_unrequested: true, notes: '',
+      set_default_price: false,
+    }])
+    setSearch('')
+    touch()
+  }
+
   function setLine(i: number, patch: Partial<Line>) {
     setLines((prev) => prev.map((l, idx) => (idx === i ? { ...l, ...patch } : l)))
     touch()
@@ -277,6 +332,43 @@ export function DeliveryForm({
           Against <strong className="text-gray-800">{requisitionNo}</strong> — quantities and rates
           are pre-filled. Change only what differs.
         </p>
+      )}
+
+      {/* Standalone deliveries only: nothing is prefilled, so lines are added
+          by search. Requisition-backed deliveries get their lines from the
+          requisition (and the substitution picker below). */}
+      {standalone && (
+        <div className="rounded-xl border border-gray-200 bg-white p-3">
+          <div className="relative">
+            <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              value={search} onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search an item to add…"
+              className="min-h-[44px] w-full rounded-xl border border-gray-300 pl-9 pr-3 text-base focus:border-forest-500 focus:outline-none"
+            />
+          </div>
+          {matches.length > 0 && (
+            <ul className="mt-2 space-y-1">
+              {matches.map((m) => (
+                <li key={m.id}>
+                  <button
+                    type="button" onClick={() => addItem(m)}
+                    className="flex min-h-[44px] w-full items-center gap-2 rounded-lg px-2 text-left hover:bg-forest-50"
+                  >
+                    <Plus size={14} className="flex-shrink-0 text-forest-600" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm text-gray-900">{m.name}</span>
+                      <span className="block text-[11px] text-gray-500">
+                        {m.unit_label ?? 'no unit'}
+                        {m.default_unit_price ? ` · ৳${m.default_unit_price}` : ' · no standing rate'}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
 
       {lines.length === 0 ? (
@@ -407,6 +499,40 @@ export function DeliveryForm({
             <span className="text-sm font-medium text-gray-700">Bill total</span>
             <span className="text-lg font-bold text-gray-900">{formatBDT(total)}</span>
           </div>
+        </div>
+      )}
+
+      {/* Another vendor's item arrived on THIS van. Picking it moves the line
+          here with its ordered quantity intact — the original vendor's sheet
+          stops expecting it, and the bill lands on who actually supplied it. */}
+      {substitutableOpen.length > 0 && (
+        <div className="rounded-xl border border-sky-200 bg-sky-50/40 p-3">
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-sky-900">
+            <ArrowRightLeft size={13} /> An item came from this vendor instead?
+          </p>
+          <p className="mt-0.5 text-[11px] text-sky-800/80">
+            Still undelivered on this requisition, tagged to other vendors. Tap to receive it here.
+          </p>
+          <ul className="mt-2 space-y-1">
+            {substitutableOpen.map((s) => (
+              <li key={s.requisition_line_id}>
+                <button
+                  type="button" onClick={() => addSubstituted(s)}
+                  className="flex min-h-[44px] w-full items-center gap-2 rounded-lg bg-white px-2 text-left ring-1 ring-sky-100 hover:bg-sky-50"
+                >
+                  <Plus size={14} className="flex-shrink-0 text-sky-600" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm text-gray-900">{s.item_name}</span>
+                    <span className="block text-[11px] text-gray-500">
+                      ordered {num(s.qty_ordered)}{s.unit_label ? ` ${s.unit_label}` : ''}
+                      {s.piece_count ? ` (${num(s.piece_count)} pcs)` : ''}
+                      {' · from '}{s.from_vendor}
+                    </span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
