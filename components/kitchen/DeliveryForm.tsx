@@ -96,6 +96,8 @@ export function DeliveryForm({
   const [vendorId, setVendorId]   = useState(initial?.kitchen_vendor_id ?? defaultVendorId ?? '')
   const [date, setDate]           = useState(initial?.delivery_date ?? todayDhaka())
   const [memoNo, setMemoNo]       = useState(initial?.supplier_memo_no ?? '')
+  const [deliveryCharge, setDeliveryCharge] = useState(
+    initial?.delivery_charge ? String(initial.delivery_charge) : '')
   const [receiverId, setReceiver] = useState(initial?.received_by_employee_id ?? '')
   const [notes, setNotes]         = useState(initial?.notes ?? '')
   const unitLabel = (unitId: string | null | undefined): string | null =>
@@ -142,10 +144,11 @@ export function DeliveryForm({
   const dirty = useRef(prefill != null && prefill.length > 0 && !initial)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const total = useMemo(
+  const linesTotal = useMemo(
     () => lines.reduce((s, l) => s + n(l.qty_delivered) * n(l.unit_price), 0),
     [lines],
   )
+  const total = linesTotal + n(deliveryCharge)
   // A shortfall only means something when ordered and received share a unit —
   // 20 pcs of chicken arriving as 26 kg is not "6 short".
   const isShort = (l: Line) =>
@@ -164,6 +167,7 @@ export function DeliveryForm({
       kitchen_vendor_id: vendorId || null,
       delivery_date: date || null,
       supplier_memo_no: memoNo || null,
+      delivery_charge: n(deliveryCharge),
       received_by_employee_id: receiverId || null,
       notes: notes || null,
       lines: lines.map((l, i) => ({
@@ -491,6 +495,19 @@ export function DeliveryForm({
             })}
           </div>
 
+          {/* Van fare / carrying charge — billed on top of the lines. */}
+          <div className="flex items-center justify-between gap-3 border-t border-gray-200 px-3 py-2">
+            <span className="text-sm text-gray-600">Delivery charge</span>
+            <div className="flex items-center gap-1">
+              <span className="text-sm text-gray-500">৳</span>
+              <input
+                inputMode="decimal" value={deliveryCharge}
+                onChange={(e) => { setDeliveryCharge(e.target.value.replace(/[^0-9.]/g, '')); touch() }}
+                placeholder="0"
+                className="min-h-[38px] w-24 rounded-lg border border-gray-300 px-2 text-right text-sm"
+              />
+            </div>
+          </div>
           <div className="flex items-center justify-between border-t border-gray-200 bg-gray-50 px-3 py-2.5">
             <span className="text-sm font-medium text-gray-700">Bill total</span>
             <span className="text-lg font-bold text-gray-900">{formatBDT(total)}</span>

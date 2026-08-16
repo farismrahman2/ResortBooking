@@ -100,8 +100,11 @@ export function buildBillMessage(input: {
   requisitionNo:  string
   isEmergency?:   boolean
   lines:          PricedLine[]
+  /** Van fare / carrying charge, billed on top of the lines. */
+  deliveryCharge?: number
 }): string {
-  const total = input.lines.reduce((s, l) => s + l.amount, 0)
+  const charge = Number(input.deliveryCharge ?? 0)
+  const total = input.lines.reduce((s, l) => s + l.amount, 0) + charge
   return [
     `Receipt : ${input.receiptNo}`,
     `Supply date : ${longDate(input.supplyDate)}`,
@@ -111,6 +114,7 @@ export function buildBillMessage(input: {
     input.isEmergency ? 'EMERGENCY ORDER' : null,
     '',
     ...input.lines.map(billLine),
+    charge > 0 ? `Delivery charge : ${money(charge)}/-` : null,
     '────────────',
     `Total due : ${money(total)}/-`,
   ].filter((x) => x !== null).join('\n')

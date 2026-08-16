@@ -127,6 +127,7 @@ export async function saveDelivery(id: string, partial: unknown): Promise<Action
       patch.received_by_employee_id = header.received_by_employee_id
     }
     if (header.notes !== undefined)              patch.notes = header.notes
+    if (header.delivery_charge !== undefined)    patch.delivery_charge = header.delivery_charge
 
     if (lines) {
       const rows = lines
@@ -149,7 +150,10 @@ export async function saveDelivery(id: string, partial: unknown): Promise<Action
             notes: l.notes ?? null,
           }
         })
-      patch.total_amount = money(rows.reduce((n, r) => n + r.line_total, 0))
+      // The bill = lines + the vendor's carrying charge.
+      patch.total_amount = money(
+        rows.reduce((n, r) => n + r.line_total, 0) + (Number(header.delivery_charge) || 0),
+      )
 
       await db.from('kitchen_delivery_lines').delete().eq('delivery_id', id)
       if (rows.length) {
@@ -158,7 +162,18 @@ export async function saveDelivery(id: string, partial: unknown): Promise<Action
       }
     }
 
-    const { error: upErr } = await db.from('kitchen_deliveries').update(patch).eq('id', id)
+    let { error: upErr } = await db.from('kitchen_deliveries').update(patch).eq('id', id)
+    // Migration 010 not applied yet: retry without the charge column (and
+    // without it in the total) so saving keeps working; the charge itself
+    // can't persist until the migration runs.
+    if (upErr && /delivery_charge/.test(upErr.message ?? '')) {
+      console.warn('[kitchen] delivery_charge column missing — run migrations/kitchen-module/010_delivery_charge.sql')
+      delete patch.delivery_charge
+      if (lines && patch.total_amount !== undefined) {
+        patch.total_amount = money(Number(patch.total_amount) - (Number(header.delivery_charge) || 0))
+      }
+      ;({ error: upErr } = await db.from('kitchen_deliveries').update(patch).eq('id', id))
+    }
     if (upErr) return { success: false, error: upErr.message }
 
     revalidatePath('/kitchen/deliveries')
