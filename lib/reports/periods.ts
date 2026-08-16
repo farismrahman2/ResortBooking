@@ -5,6 +5,7 @@ import {
   differenceInCalendarDays, addDays, format,
 } from 'date-fns'
 import type { PeriodPreset, PeriodRange, Granularity, ComparisonMode } from './types'
+import { todayDhaka } from '@/lib/dates'
 
 /** Pick a sensible chart granularity from the period span. */
 function granularityFromSpan(days: number): Granularity {
@@ -30,7 +31,11 @@ export function buildPeriodRange(
   preset: PeriodPreset,
   opts: { from?: Date; to?: Date; anchor?: Date } = {},
 ): PeriodRange {
-  const anchor = opts.anchor ?? new Date()
+  // Anchor on the RESORT's calendar day, not the server's. A bare new Date()
+  // on the UTC server put "today"/"this month" a day behind Asia/Dhaka from
+  // midnight to 6am local — the exact hours the night audit runs. Anchoring at
+  // UTC noon of the Dhaka date keeps every date-fns boundary on the right day.
+  const anchor = opts.anchor ?? new Date(`${todayDhaka()}T12:00:00Z`)
   switch (preset) {
     case 'today':         return range(anchor, anchor, 'Today', 'day')
     case 'yesterday': {

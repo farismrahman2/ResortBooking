@@ -49,21 +49,33 @@ export function HolidayManager({ initialHolidays }: HolidayManagerProps) {
         // Revert optimistic update
         setHolidays((prev) => prev.filter((h) => h.id !== tempId))
         setAddError(result.error ?? 'Failed to add holiday')
+        return
       }
-      // On success, revalidatePath will refresh server data, but we keep optimistic state
+      // Swap the temp row for the real one so it can be deleted immediately —
+      // it used to keep its temp id (delete disabled) until a full reload.
+      const realId = result.data?.id
+      if (realId) {
+        setHolidays((prev) => prev.map((h) => (h.id === tempId ? { ...h, id: realId } : h)))
+      }
     })
   }
 
   const handleDelete = (id: string) => {
-    // Optimistic delete
+    // Optimistic delete — keep the row so a failure can put it back.
+    const removed = holidays.find((h) => h.id === id)
     setHolidays((prev) => prev.filter((h) => h.id !== id))
 
     startTransition(async () => {
       const result = await safeCall(() => deleteHolidayDate(id))
       if (!result.success) {
-        // Revert: refetch would normally handle this, but since we don't have the item,
-        // we just note the error. The page will refresh on next navigation.
-        console.error('Failed to delete holiday:', result.error)
+        // Restore the row and SAY so — silently keeping it deleted on screen
+        // while it survives in the database meant the pricing engine kept
+        // charging holiday rates for a date nobody could see.
+        if (removed) {
+          setHolidays((prev) =>
+            [...prev, removed].sort((a, b) => a.date.localeCompare(b.date)))
+        }
+        setAddError(result.error ?? 'Failed to delete holiday')
       }
     })
   }

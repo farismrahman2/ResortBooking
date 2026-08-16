@@ -4,6 +4,8 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { Edit, Copy, Archive } from 'lucide-react'
 import { togglePackageActive, duplicatePackage, archivePackage } from '@/lib/actions/packages'
+import { safeCall } from '@/lib/actions/safe-call'
+import { toast } from '@/lib/toast'
 import type { PackageRow } from '@/lib/supabase/types'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -46,10 +48,13 @@ export function PackageTable({ packages }: PackageTableProps) {
     })
   }
 
+  // Results are CHECKED — these used to discard the ActionResult, so a failed
+  // toggle/duplicate/archive looked exactly like a successful one.
   const handleToggleActive = async (pkg: PackageRow) => {
     setLoading(pkg.id, true)
     try {
-      await togglePackageActive(pkg.id, !pkg.is_active)
+      const r = await safeCall(() => togglePackageActive(pkg.id, !pkg.is_active))
+      if (!r.success) toast.error(r.error)
     } finally {
       setLoading(pkg.id, false)
     }
@@ -58,7 +63,8 @@ export function PackageTable({ packages }: PackageTableProps) {
   const handleDuplicate = async (id: string) => {
     setLoading(id, true)
     try {
-      await duplicatePackage(id)
+      const r = await safeCall(() => duplicatePackage(id))
+      if (!r.success) toast.error(r.error)
     } finally {
       setLoading(id, false)
     }
@@ -69,7 +75,8 @@ export function PackageTable({ packages }: PackageTableProps) {
     if (!ok) return
     setLoading(id, true)
     try {
-      await archivePackage(id)
+      const r = await safeCall(() => archivePackage(id))
+      if (!r.success) toast.error(r.error)
     } finally {
       setLoading(id, false)
     }

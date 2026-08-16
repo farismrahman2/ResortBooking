@@ -98,6 +98,8 @@ export async function getAttendanceReport(period: PeriodRange): Promise<{
     byDept.set(e.department, cur)
   }
   const absenteeCounts = new Map<string, number>()
+  const deptMarked = new Map<string, number>()
+  const deptGood   = new Map<string, number>()
   let totalMarked = 0, totalGoodStanding = 0, totalAbsent = 0, totalLeave = 0
   for (const r of (rows ?? []) as Array<{ employee_id: string; status: string; employee: { full_name: string; employee_code: string; department: string } }>) {
     if (r.employee) {
@@ -109,23 +111,23 @@ export async function getAttendanceReport(period: PeriodRange): Promise<{
       attendance_rate_pct: 0, absent_days: 0, paid_leave_days: 0, unpaid_leave_days: 0, half_days: 0,
     }
     totalMarked += 1
-    if (['present', 'paid_leave', 'weekly_off', 'holiday'].includes(r.status)) totalGoodStanding += 1
+    const good = ['present', 'paid_leave', 'weekly_off', 'holiday'].includes(r.status)
+    if (good) totalGoodStanding += 1
+    deptMarked.set(dept, (deptMarked.get(dept) ?? 0) + 1)
+    if (good) deptGood.set(dept, (deptGood.get(dept) ?? 0) + 1)
     if (r.status === 'absent')        { cur.absent_days       += 1; totalAbsent += 1; absenteeCounts.set(r.employee_id, (absenteeCounts.get(r.employee_id) ?? 0) + 1) }
     if (r.status === 'paid_leave')    { cur.paid_leave_days   += 1; totalLeave  += 1 }
     if (r.status === 'unpaid_leave')  { cur.unpaid_leave_days += 1; totalLeave  += 1 }
     if (r.status === 'half_day')      { cur.half_days         += 1 }
     byDept.set(dept, cur)
   }
-  // Compute attendance rate per department
-  for (const dept of byDept.values()) {
-    const totalDays = dept.active_staff > 0 ? dept.active_staff : 1
-    // proxy rate: 1 - (absent + unpaid_leave) / total_marked_for_dept
-    // simpler: calculate from category counts collected above on this dept
-    const deptMarked = dept.absent_days + dept.paid_leave_days + dept.unpaid_leave_days + dept.half_days
-    // the attendance rate uses (good standing) / (good standing + absent + unpaid_leave)
-    const denom = deptMarked + dept.active_staff   // approximate: rough denominator
-    dept.attendance_rate_pct = denom > 0
-      ? Math.round((1 - (dept.absent_days + dept.unpaid_leave_days) / Math.max(denom, 1)) * 1000) / 10
+  // Per-department rate = good-standing days / ALL marked days — the same
+  // formula the totals use. The old denominator left out 'present' days
+  // entirely, so a department's rate fell as its attendance improved.
+  for (const [name, dept] of byDept.entries()) {
+    const marked = deptMarked.get(name) ?? 0
+    dept.attendance_rate_pct = marked > 0
+      ? Math.round(((deptGood.get(name) ?? 0) / marked) * 1000) / 10
       : 0
   }
 

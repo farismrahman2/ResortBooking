@@ -10,19 +10,17 @@ export const dynamic = 'force-dynamic'
 export default async function RolesPage() {
   await requirePermission('settings', 'read')
 
-  const [roles, modules, headcounts] = await Promise.all([
-    listRoles(),
-    listModules(),
-    getRoleHeadcounts(),
-  ])
-
-  // Pull all permissions in one query and group client-side for the cards
+  // All four reads are independent — one parallel round instead of two.
   const supabase = createClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = supabase as any
-  const { data: allPerms } = await db
-    .from('role_permissions')
-    .select('role_id, level, module:modules!inner (slug, display_order)')
+  const [roles, modules, headcounts, { data: allPerms }] = await Promise.all([
+    listRoles(),
+    listModules(),
+    getRoleHeadcounts(),
+    db.from('role_permissions')
+      .select('role_id, level, module:modules!inner (slug, display_order)'),
+  ])
 
   const permsByRole = new Map<string, { module: string; level: PermissionLevel; order: number }[]>()
   for (const p of (allPerms ?? []) as { role_id: string; level: PermissionLevel; module: { slug: string; display_order: number } }[]) {

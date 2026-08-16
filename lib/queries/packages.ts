@@ -60,18 +60,23 @@ export const getActivePackagesWithPrices = cachedRef<PackageWithPrices[]>(
   async (db) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const dbAny = db as any
-    const { data: packages } = await dbAny
+    // THROW on error — returning [] inside a cache callback caches the
+    // emptiness, and the quote form's package picker went blank for 5 minutes
+    // after any transient query failure.
+    const { data: packages, error: pkgErr } = await dbAny
       .from('packages')
       .select('*')
       .eq('is_active', true)
       .order('display_order', { ascending: true })
+    if (pkgErr) throw new Error(`getActivePackagesWithPrices: ${pkgErr.message}`)
 
     if (!packages?.length) return []
 
-    const { data: prices } = await dbAny
+    const { data: prices, error: priceErr } = await dbAny
       .from('package_room_prices')
       .select('*')
       .in('package_id', packages.map((p: PackageRow) => p.id))
+    if (priceErr) throw new Error(`getActivePackagesWithPrices: ${priceErr.message}`)
 
     const pricesByPackage = new Map<string, typeof prices>()
     for (const price of prices ?? []) {

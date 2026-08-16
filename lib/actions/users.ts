@@ -95,6 +95,12 @@ export async function createUser(input: unknown): Promise<ActionData<{
     revalidatePath('/settings/roles')
     return { success: true, data: { user_id: newUserId, temp_password: parsed.password } }
   } catch (err) {
+    // requirePermission redirects on denial; that throw is Next control flow,
+    // not a failure — swallowing it here turned the redirect into a
+    // "NEXT_REDIRECT" error toast.
+    if (err && typeof err === 'object' && 'digest' in err
+      && typeof (err as { digest?: unknown }).digest === 'string'
+      && ((err as { digest: string }).digest).startsWith('NEXT_')) throw err
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }
 }
@@ -123,6 +129,12 @@ export async function updateUser(userId: string, input: unknown): Promise<Action
     revalidatePath(`/settings/users/${userId}`)
     return { success: true }
   } catch (err) {
+    // requirePermission redirects on denial; that throw is Next control flow,
+    // not a failure — swallowing it here turned the redirect into a
+    // "NEXT_REDIRECT" error toast.
+    if (err && typeof err === 'object' && 'digest' in err
+      && typeof (err as { digest?: unknown }).digest === 'string'
+      && ((err as { digest: string }).digest).startsWith('NEXT_')) throw err
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }
 }
@@ -142,6 +154,12 @@ export async function resetPassword(userId: string, input: unknown): Promise<Act
     await logHistory(userId, 'edited', 'password_reset', {})
     return { success: true }
   } catch (err) {
+    // requirePermission redirects on denial; that throw is Next control flow,
+    // not a failure — swallowing it here turned the redirect into a
+    // "NEXT_REDIRECT" error toast.
+    if (err && typeof err === 'object' && 'digest' in err
+      && typeof (err as { digest?: unknown }).digest === 'string'
+      && ((err as { digest: string }).digest).startsWith('NEXT_')) throw err
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }
 }
@@ -202,6 +220,12 @@ export async function deactivateUser(userId: string): Promise<ActionResult> {
     revalidatePath('/settings/audit-log')
     return { success: true }
   } catch (err) {
+    // requirePermission redirects on denial; that throw is Next control flow,
+    // not a failure — swallowing it here turned the redirect into a
+    // "NEXT_REDIRECT" error toast.
+    if (err && typeof err === 'object' && 'digest' in err
+      && typeof (err as { digest?: unknown }).digest === 'string'
+      && ((err as { digest: string }).digest).startsWith('NEXT_')) throw err
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }
 }
@@ -231,6 +255,12 @@ export async function reactivateUser(userId: string): Promise<ActionResult> {
     revalidatePath(`/settings/users/${userId}`)
     return { success: true }
   } catch (err) {
+    // requirePermission redirects on denial; that throw is Next control flow,
+    // not a failure — swallowing it here turned the redirect into a
+    // "NEXT_REDIRECT" error toast.
+    if (err && typeof err === 'object' && 'digest' in err
+      && typeof (err as { digest?: unknown }).digest === 'string'
+      && ((err as { digest: string }).digest).startsWith('NEXT_')) throw err
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }
 }
@@ -274,6 +304,12 @@ export async function changeRole(userId: string, input: unknown): Promise<Action
     revalidatePath('/settings/roles')
     return { success: true }
   } catch (err) {
+    // requirePermission redirects on denial; that throw is Next control flow,
+    // not a failure — swallowing it here turned the redirect into a
+    // "NEXT_REDIRECT" error toast.
+    if (err && typeof err === 'object' && 'digest' in err
+      && typeof (err as { digest?: unknown }).digest === 'string'
+      && ((err as { digest: string }).digest).startsWith('NEXT_')) throw err
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }
 }

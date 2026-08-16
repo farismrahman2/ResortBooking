@@ -19,7 +19,7 @@ async function fetchDailyIncome(period: PeriodRange): Promise<DailyIncomeRow[]> 
   const fromIso = toIsoDate(period.from)
   const toIso   = toIsoDate(period.to)
   const dhakaBounds = dhakaRangeBounds(fromIso, toIso)
-  const [{ data: bookings }, { data: checkouts }, coffeeRes] = await Promise.all([
+  const [bookingsRes, checkoutsRes, coffeeRes] = await Promise.all([
     db().from('bookings')
       .select('visit_date, total, status, advance_paid')
       .gte('visit_date', fromIso).lte('visit_date', toIso).in('status', REVENUE_STATUS_LIST),
@@ -32,6 +32,13 @@ async function fetchDailyIncome(period: PeriodRange): Promise<DailyIncomeRow[]> 
       .eq('status', 'completed')
       .gte('sale_date', fromIso).lte('sale_date', toIso),
   ])
+  // Throw on failure — inside unstable_cache a swallowed error zero-fills the
+  // report and caches the zeros.
+  for (const res of [bookingsRes, checkoutsRes, coffeeRes]) {
+    if (res.error) throw new Error(`[reports.income] ${res.error.message}`)
+  }
+  const bookings = bookingsRes.data
+  const checkouts = checkoutsRes.data
   const byDay = new Map<string, DailyIncomeRow>()
   // initialize zero-fill
   let d = new Date(period.from)
@@ -105,12 +112,16 @@ async function fetchDayOfWeek(period: PeriodRange): Promise<DowRow[]> {
   const fromIso = toIsoDate(period.from)
   const toIso   = toIsoDate(period.to)
   const dhakaBounds = dhakaRangeBounds(fromIso, toIso)
-  const [{ data: bookings }, { data: occ }] = await Promise.all([
+  const [bookingsRes, occRes] = await Promise.all([
     db().from('bookings')
       .select('visit_date, total, status, advance_paid')
       .gte('visit_date', fromIso).lte('visit_date', toIso).in('status', REVENUE_STATUS_LIST),
     db().rpc('reports_daily_occupancy', { p_from: fromIso, p_to: toIso }),
   ])
+  if (bookingsRes.error) throw new Error(`[reports.income] ${bookingsRes.error.message}`)
+  if (occRes.error) throw new Error(`[reports.income] ${occRes.error.message}`)
+  const bookings = bookingsRes.data
+  const occ = occRes.data
   const stats: DowRow[] = DOW_LABELS.map((label, i) => ({
     dow: i, label, total_revenue: 0, bookings: 0, avg_revenue_per_day: 0, days_in_period: 0, avg_occupancy_pct: 0,
   }))
@@ -160,12 +171,16 @@ async function fetchIndustryKpis(period: PeriodRange): Promise<IndustryKpis> {
   const fromIso = toIsoDate(period.from)
   const toIso   = toIsoDate(period.to)
   const dhakaBounds = dhakaRangeBounds(fromIso, toIso)
-  const [{ data: occ }, { data: bookings }] = await Promise.all([
+  const [occRes, bookingsRes] = await Promise.all([
     db().rpc('reports_daily_occupancy', { p_from: fromIso, p_to: toIso }),
     db().from('bookings')
       .select('total, package_type, visit_date, check_out_date, nights, status, advance_paid')
       .gte('visit_date', fromIso).lte('visit_date', toIso).in('status', REVENUE_STATUS_LIST),
   ])
+  if (occRes.error) throw new Error(`[reports.income] ${occRes.error.message}`)
+  if (bookingsRes.error) throw new Error(`[reports.income] ${bookingsRes.error.message}`)
+  const occ = occRes.data
+  const bookings = bookingsRes.data
   const occRows = (occ ?? []) as Array<{ rooms_occupied: number; total_rooms: number }>
   const days = occRows.length
   const totalRooms = days > 0 ? occRows[0].total_rooms : null

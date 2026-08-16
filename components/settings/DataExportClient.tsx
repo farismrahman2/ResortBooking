@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react'
 import { Button } from '@/components/ui/Button'
 import { AlertCircle, Calendar, Download, Loader2, ShieldCheck } from 'lucide-react'
+import { todayDhaka } from '@/lib/dates'
 
 type Preset = '12m' | '24m' | 'all' | 'custom'
 
@@ -14,8 +15,9 @@ const PRESET_LABELS: Record<Preset, string> = {
 }
 
 function todayIso(): string {
-  // Asia/Dhaka-ish: just take local date.
-  return new Date().toISOString().slice(0, 10)
+  // The resort's calendar date — toISOString() gave UTC, which is a day behind
+  // Asia/Dhaka until 6am and quietly clipped "today" out of every export.
+  return todayDhaka()
 }
 
 function shiftMonths(iso: string, months: number): string {

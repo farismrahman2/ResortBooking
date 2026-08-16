@@ -190,6 +190,20 @@ export async function createSupplier(
       }
     }
 
+    // One supplier per kitchen vendor slot — the ledger joins through this
+    // link, and two suppliers claiming one vendor splits the vendor's dues
+    // across two ledgers.
+    if (input.kitchen_vendor_id) {
+      const { data: claimed } = await db.from('inv_suppliers')
+        .select('id, name')
+        .eq('kitchen_vendor_id', input.kitchen_vendor_id)
+        .eq('is_active', true)
+        .maybeSingle()
+      if (claimed) {
+        return { success: false, error: `"${claimed.name}" is already linked to that kitchen vendor. Unlink it first.` }
+      }
+    }
+
     const { data, error } = await db.from('inv_suppliers').insert({
       name:             input.name,
       expense_payee_id: payeeId,
@@ -214,6 +228,17 @@ export async function updateSupplier(id: string, raw: SupplierFormInput): Promis
   await requirePermission('inventory', 'write')
   try {
     const input = supplierFormSchema.parse(raw)
+    if (input.kitchen_vendor_id) {
+      const { data: claimed } = await dbc().from('inv_suppliers')
+        .select('id, name')
+        .eq('kitchen_vendor_id', input.kitchen_vendor_id)
+        .eq('is_active', true)
+        .neq('id', id)
+        .maybeSingle()
+      if (claimed) {
+        return { success: false, error: `"${claimed.name}" is already linked to that kitchen vendor. Unlink it first.` }
+      }
+    }
     const { error } = await dbc().from('inv_suppliers').update({
       name:             input.name,
       expense_payee_id: input.expense_payee_id ?? null,

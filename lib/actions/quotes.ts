@@ -209,16 +209,26 @@ export async function updateQuote(
     const validated = CreateQuoteSchema.parse(input)
     const supabase  = createClient()
 
-    // Only draft or sent quotes can be edited
+    // Editable = draft, sent, or confirmed-but-not-yet-converted. This must
+    // mirror the edit page's own guard (app/(agent)/quotes/[id]/edit) — it
+    // used to allow only draft/sent, so a confirmed quote's edit form let you
+    // fill everything in and then rejected the save at the last step.
     const { data: existing } = await supabase
       .from('quotes')
-      .select('status')
+      .select('status, converted_to_booking_id')
       .eq('id', id)
       .single()
 
     if (!existing) return { success: false, error: 'Quote not found' }
-    if (!['draft', 'sent'].includes(existing.status)) {
-      return { success: false, error: 'Only draft or sent quotes can be edited' }
+    const editable = ['draft', 'sent'].includes(existing.status)
+      || (existing.status === 'confirmed' && !existing.converted_to_booking_id)
+    if (!editable) {
+      return {
+        success: false,
+        error: existing.converted_to_booking_id
+          ? 'This quote was converted to a booking — edit the booking instead.'
+          : 'Only draft, sent, or unconverted confirmed quotes can be edited',
+      }
     }
 
     // Fetch package + room prices
@@ -317,8 +327,13 @@ export async function updateQuote(
 
     if (updateError) return { success: false, error: updateError.message }
 
-    // Replace quote rooms
-    await supabase.from('quote_rooms').delete().eq('quote_id', id)
+    // Replace quote rooms — checked, with restore. A failed insert after the
+    // delete used to leave the quote roomless (and report success), making it
+    // invisible to capacity checks.
+    const { data: oldRooms } = await supabase.from('quote_rooms')
+      .select('room_type, qty, unit_price, room_numbers').eq('quote_id', id)
+    const { error: delErr } = await supabase.from('quote_rooms').delete().eq('quote_id', id)
+    if (delErr) return { success: false, error: `Could not update rooms: ${delErr.message}` }
     const roomRows = validated.rooms.map((r) => ({
       quote_id:     id,
       room_type:    r.room_type as RoomType,
@@ -327,7 +342,15 @@ export async function updateQuote(
       room_numbers: r.room_numbers ?? [],
     }))
     if (roomRows.length > 0) {
-      await supabase.from('quote_rooms').insert(roomRows)
+      const { error: insErr } = await supabase.from('quote_rooms').insert(roomRows)
+      if (insErr) {
+        if (oldRooms?.length) {
+          await supabase.from('quote_rooms').insert(
+            (oldRooms as any[]).map((r) => ({ ...r, quote_id: id })),
+          )
+        }
+        return { success: false, error: `Could not save rooms — the quote's rooms were left unchanged: ${insErr.message}` }
+      }
     }
 
     await supabase.from('history_log').insert({
@@ -357,9 +380,18 @@ export async function updateQuoteStatus(
 
     const { data: current } = await supabase
       .from('quotes')
-      .select('status')
+      .select('status, converted_to_booking_id')
       .eq('id', id)
       .single()
+
+    if (!current) return { success: false, error: 'Quote not found' }
+    // A converted quote's status is owned by its booking — flipping it here
+    // would desync the two (and could double-block inventory via the
+    // confirmed-unconverted capacity rule).
+    if (current.converted_to_booking_id) {
+      return { success: false, error: 'This quote was converted to a booking — manage the booking instead.' }
+    }
+    if (current.status === status) return { success: true }
 
     const { error } = await supabase
       .from('quotes')

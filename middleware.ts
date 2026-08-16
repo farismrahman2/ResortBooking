@@ -123,11 +123,23 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/', request.url))
   }
 
-  // Module-level read-permission check
+  // Copy session cookies (refreshes, sign-out clears) onto a redirect —
+  // returning a bare NextResponse.redirect DROPS everything the Supabase
+  // client set on `response`, which is how a deactivated user's sign-out
+  // never actually reached their browser.
+  const redirectWithCookies = (url: URL) => {
+    const redirect = NextResponse.redirect(url)
+    for (const c of response.cookies.getAll()) redirect.cookies.set(c)
+    return redirect
+  }
+
+  // Profile check — deactivation runs on EVERY authenticated path (it used to
+  // run only on module-mapped ones, so a deactivated user could still open
+  // the dashboard); the permission check stays scoped to mapped modules.
   // Single round-trip: nested select pulls profile + role_permissions + module slugs at once.
-  if (user) {
+  if (user && !isLoginRoute && !isAuthRoute) {
     const mod = moduleForPath(pathname)
-    if (mod) {
+    {
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const db = supabase as any
@@ -152,8 +164,11 @@ export async function middleware(request: NextRequest) {
 
         if (!profile.is_active) {
           await supabase.auth.signOut()
-          return NextResponse.redirect(new URL('/login?deactivated=1', request.url))
+          if (isApiRoute) return NextResponse.json({ error: 'Account deactivated' }, { status: 403 })
+          return redirectWithCookies(new URL('/login?deactivated=1', request.url))
         }
+
+        if (!mod) return response   // no module mapping → nothing further to enforce
 
         // Build permission map from the embedded permissions
         const perms = (profile.role?.role_permissions ?? []) as Array<{
@@ -178,7 +193,7 @@ export async function middleware(request: NextRequest) {
           }
           const url = new URL('/403', request.url)
           url.searchParams.set('from', mod)
-          return NextResponse.redirect(url)
+          return redirectWithCookies(url)
         }
 
         // Per-role deny-list — overrides a module-level allow
@@ -191,7 +206,7 @@ export async function middleware(request: NextRequest) {
               }
               const url = new URL('/403', request.url)
               url.searchParams.set('from', mod)
-              return NextResponse.redirect(url)
+              return redirectWithCookies(url)
             }
           }
         }

@@ -7,8 +7,6 @@ import type { RoleSlug } from '@/lib/supabase/types'
 
 export const dynamic = 'force-dynamic'
 
-const VALID: RoleSlug[] = ['admin', 'manager', 'front_desk', 'accountant', 'reservation']
-
 interface PageProps {
   params: { slug: string }
 }
@@ -16,8 +14,11 @@ interface PageProps {
 export default async function RoleEditorPage({ params }: PageProps) {
   await requirePermission('settings', 'read')
 
-  if (!VALID.includes(params.slug as RoleSlug)) notFound()
-
+  // The role list comes from the DATABASE — later modules (CRM, QA) add roles
+  // like corporate_sales and md. A hardcoded five-slug allowlist here meant
+  // the roles list page linked to editors that 404'd, leaving those roles'
+  // permissions uneditable in the UI. getRoleWithPermissions returning null
+  // already covers genuinely unknown slugs.
   const slug = params.slug as RoleSlug
   const [role, modules] = await Promise.all([
     getRoleWithPermissions(slug),
