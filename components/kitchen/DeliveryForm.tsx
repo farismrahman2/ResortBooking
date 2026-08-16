@@ -230,16 +230,15 @@ export function DeliveryForm({
     touch()
   }
 
-  // ── Standalone deliveries (no requisition behind them) have no prefill, so
-  //    they keep an item search — without it a blank delivery could never
-  //    gain a line at all.
-  const standalone = !(initial?.requisition_id ?? requisitionId)
+  // ── Item search — on EVERY delivery. Standalone deliveries need it to gain
+  //    any lines at all; requisition-backed ones need it to adjust when the
+  //    van brings something the sheet didn't ask for.
   const [search, setSearch] = useState('')
   const chosen = useMemo(() => new Set(lines.map((l) => l.item_id).filter(Boolean)), [lines])
   const searchIndex = useMemo(() => buildSearchIndex(items), [items])
   const matches = useMemo(
-    () => (standalone ? searchItems(items, searchIndex, search, { exclude: chosen }) : []),
-    [standalone, search, items, searchIndex, chosen],
+    () => searchItems(items, searchIndex, search, { exclude: chosen }),
+    [search, items, searchIndex, chosen],
   )
   function addItem(it: PickerItemRow) {
     setLines((prev) => [...prev, {
@@ -334,42 +333,39 @@ export function DeliveryForm({
         </p>
       )}
 
-      {/* Standalone deliveries only: nothing is prefilled, so lines are added
-          by search. Requisition-backed deliveries get their lines from the
-          requisition (and the substitution picker below). */}
-      {standalone && (
-        <div className="rounded-xl border border-gray-200 bg-white p-3">
-          <div className="relative">
-            <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              value={search} onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search an item to add…"
-              className="min-h-[44px] w-full rounded-xl border border-gray-300 pl-9 pr-3 text-base focus:border-forest-500 focus:outline-none"
-            />
-          </div>
-          {matches.length > 0 && (
-            <ul className="mt-2 space-y-1">
-              {matches.map((m) => (
-                <li key={m.id}>
-                  <button
-                    type="button" onClick={() => addItem(m)}
-                    className="flex min-h-[44px] w-full items-center gap-2 rounded-lg px-2 text-left hover:bg-forest-50"
-                  >
-                    <Plus size={14} className="flex-shrink-0 text-forest-600" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm text-gray-900">{m.name}</span>
-                      <span className="block text-[11px] text-gray-500">
-                        {m.unit_label ?? 'no unit'}
-                        {m.default_unit_price ? ` · ৳${m.default_unit_price}` : ' · no standing rate'}
-                      </span>
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+      {/* Add any catalogue item — works in Bangla-in-English too ("tel"). On a
+          requisition-backed delivery the added line is flagged "not ordered". */}
+      <div className="rounded-xl border border-gray-200 bg-white p-3">
+        <div className="relative">
+          <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            value={search} onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search an item to add or adjust…"
+            className="min-h-[44px] w-full rounded-xl border border-gray-300 pl-9 pr-3 text-base focus:border-forest-500 focus:outline-none"
+          />
         </div>
-      )}
+        {matches.length > 0 && (
+          <ul className="mt-2 space-y-1">
+            {matches.map((m) => (
+              <li key={m.id}>
+                <button
+                  type="button" onClick={() => addItem(m)}
+                  className="flex min-h-[44px] w-full items-center gap-2 rounded-lg px-2 text-left hover:bg-forest-50"
+                >
+                  <Plus size={14} className="flex-shrink-0 text-forest-600" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm text-gray-900">{m.name}</span>
+                    <span className="block text-[11px] text-gray-500">
+                      {m.unit_label ?? 'no unit'}
+                      {m.default_unit_price ? ` · ৳${m.default_unit_price}` : ' · no standing rate'}
+                    </span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       {lines.length === 0 ? (
         <p className="rounded-xl border-2 border-dashed border-gray-300 bg-white px-4 py-10 text-center text-sm text-gray-500">
