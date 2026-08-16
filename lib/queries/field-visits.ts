@@ -22,6 +22,69 @@ export async function listFieldVisitBands(): Promise<{
   return { employeeBands: emp.data ?? [], budgetBands: bud.data ?? [] }
 }
 
+export interface BrochureRecipient {
+  name:              string
+  designation:       string | null
+  department:        string | null
+  mobile:            string | null
+  email:             string | null
+  is_decision_maker: boolean
+  organisation:      string
+  /** Most recent brochure visit for this person. */
+  visit_id:          string
+  visit_ref:         string
+  visit_date:        string | null
+}
+
+/**
+ * Everyone who has ever been handed a brochure on a field visit — the
+ * follow-up directory. One row per person (deduped by mobile, falling back to
+ * name + organisation), keeping their most recent brochure visit.
+ */
+export async function listBrochureRecipients(): Promise<BrochureRecipient[]> {
+  const { data, error } = await db()
+    .from('crm_field_visits')
+    .select(`
+      id, visit_ref, visit_date, organisation_name,
+      contacts:crm_field_visit_contacts(name, designation, department, mobile, email, is_decision_maker, is_active, sort_order)
+    `)
+    .contains('materials_given', ['brochure'])
+    .neq('status', 'void')
+    .order('visit_date', { ascending: false, nullsFirst: false })
+    .limit(PAGE)
+  if (error) throw new Error(`[fieldVisits.brochures] ${error.message}`)
+
+  const seen = new Map<string, BrochureRecipient>()
+  // Rows arrive newest-first, so the first sighting of a person IS their most
+  // recent brochure visit.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const v of ((data ?? []) as any[])) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const contacts = ((v.contacts ?? []) as any[])
+      .filter((c) => c.is_active !== false && (c.name?.trim() || c.mobile?.trim()))
+      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+    for (const c of contacts) {
+      const key = c.mobile?.trim()
+        ? `m:${c.mobile.trim()}`
+        : `n:${(c.name ?? '').trim().toLowerCase()}|${(v.organisation_name ?? '').trim().toLowerCase()}`
+      if (seen.has(key)) continue
+      seen.set(key, {
+        name:              c.name?.trim() || '(no name)',
+        designation:       c.designation ?? null,
+        department:        c.department ?? null,
+        mobile:            c.mobile ?? null,
+        email:             c.email ?? null,
+        is_decision_maker: Boolean(c.is_decision_maker),
+        organisation:      v.organisation_name ?? '—',
+        visit_id:          v.id,
+        visit_ref:         v.visit_ref,
+        visit_date:        v.visit_date ?? null,
+      })
+    }
+  }
+  return [...seen.values()]
+}
+
 export async function getFieldVisitById(id: string): Promise<FieldVisitWithChildren | null> {
   const { data, error } = await db()
     .from('crm_field_visits')
