@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useState, useTransition } from 'react'
+import { safeCall } from '@/lib/actions/safe-call'
 import { useRouter } from 'next/navigation'
 import { Camera, ImagePlus, Loader2, Trash2, X, FileText } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -11,7 +12,6 @@ import {
   KITCHEN_DOCS_BUCKET, documentPathPrefix,
   type KitchenDocEntity, type KitchenDocKind,
 } from '@/lib/kitchen/documents'
-import { safeCall } from '@/lib/actions/safe-call'
 
 export interface KitchenDoc {
   id:        string

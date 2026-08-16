@@ -15,6 +15,7 @@ import { CHECKOUT_PAYMENT_METHOD_OPTIONS } from '@/components/checkout/labels'
 import type { CheckoutPaymentMethod, CheckoutWithFull } from '@/lib/supabase/types'
 import { toast } from '@/lib/toast'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   checkout: CheckoutWithFull
@@ -55,7 +56,7 @@ export function FinalizeAndVoid({ checkout, totals, isAdmin, canWrite }: Props) 
   function handleFinalize() {
     setError(null)
     startTransition(async () => {
-      const r = await finalizeCheckout(checkout.id)
+      const r = await safeCall(() => finalizeCheckout(checkout.id))
       if (!r.success) { setError(r.error); return }
       setFinalizeOpen(false)
       toast.success('Checkout finalized', { description: 'The booking is now marked checked out.' })
@@ -67,7 +68,7 @@ export function FinalizeAndVoid({ checkout, totals, isAdmin, canWrite }: Props) 
     setError(null)
     if (voidReason.trim().length < 2) { setError('Reason is required'); return }
     startTransition(async () => {
-      const r = await voidCheckout(checkout.id, { reason: voidReason })
+      const r = await safeCall(() => voidCheckout(checkout.id, { reason: voidReason }))
       if (!r.success) { setError(r.error); return }
       setVoidOpen(false)
       toast.success('Checkout voided')
@@ -80,7 +81,7 @@ export function FinalizeAndVoid({ checkout, totals, isAdmin, canWrite }: Props) 
     if (!ok) return
     setError(null)
     startTransition(async () => {
-      const r = await reopenCheckout(checkout.id)
+      const r = await safeCall(() => reopenCheckout(checkout.id))
       if (!r.success) { setError(r.error); return }
       toast.success('Checkout reopened for editing')
       router.refresh()
@@ -90,11 +91,11 @@ export function FinalizeAndVoid({ checkout, totals, isAdmin, canWrite }: Props) 
   function handleRefund() {
     setError(null)
     startTransition(async () => {
-      const r = await recordRefund(checkout.id, {
+      const r = await safeCall(() => recordRefund(checkout.id, {
         amount:    refundAmount,
         method:    refundMethod,
         reference: refundRef,
-      })
+      }))
       if (!r.success) { setError(r.error); return }
       setRefundOpen(false)
       toast.success('Refund recorded')

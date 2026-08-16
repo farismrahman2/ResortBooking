@@ -15,6 +15,7 @@ import type { DayMealCount } from '@/lib/queries/menus'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   meal:     MenuMealFull
@@ -48,7 +49,7 @@ export function MealBlock({ meal, calc, editable, onError }: Props) {
   function saveItems(next: ItemDraft[]) {
     setItems(next)
     startTransition(async () => {
-      const res = await setMealItems({ meal_id: meal.id, items: next })
+      const res = await safeCall(() => setMealItems({ meal_id: meal.id, items: next }))
       if (!res.success) { onError(res.error); return }
       router.refresh()
     })
@@ -56,14 +57,14 @@ export function MealBlock({ meal, calc, editable, onError }: Props) {
 
   function saveMealMeta(patch: Partial<{ serving_time: string | null } & typeof counts>) {
     startTransition(async () => {
-      const res = await updateMeal({
+      const res = await safeCall(() => updateMeal({
         id: meal.id,
         serving_time:       patch.serving_time !== undefined ? patch.serving_time : undefined,
         headcount_total:    patch.total    !== undefined ? patch.total    : undefined,
         headcount_adults:   patch.adults   !== undefined ? patch.adults   : undefined,
         headcount_children: patch.children !== undefined ? patch.children : undefined,
         headcount_drivers:  patch.drivers  !== undefined ? patch.drivers  : undefined,
-      })
+      }))
       if (!res.success) { onError(res.error); return }
       router.refresh()
     })
@@ -73,7 +74,7 @@ export function MealBlock({ meal, calc, editable, onError }: Props) {
     const ok = await confirm({ title: `Remove ${meal.meal_type.display_name}?`, description: 'This meal and its dishes come off the menu for this day.', confirmLabel: 'Remove', danger: true })
     if (!ok) return
     startTransition(async () => {
-      const res = await removeMeal(meal.id)
+      const res = await safeCall(() => removeMeal(meal.id))
       if (!res.success) { onError(res.error); return }
       router.refresh()
     })
@@ -90,7 +91,7 @@ export function MealBlock({ meal, calc, editable, onError }: Props) {
   function saveToCatalog(index: number) {
     const item = items[index]
     startTransition(async () => {
-      const res = await addDishToCatalog(item.text)
+      const res = await safeCall(() => addDishToCatalog(item.text))
       if (!res.success) { onError(res.error); return }
       const next = [...items]
       next[index] = { ...item, dish_catalog_id: res.data.id }
@@ -102,12 +103,12 @@ export function MealBlock({ meal, calc, editable, onError }: Props) {
     const name = prompt('Template name (e.g. স্ট্যান্ডার্ড সকালের নাস্তা):')
     if (!name?.trim()) return
     startTransition(async () => {
-      const res = await saveMealTemplate({
+      const res = await safeCall(() => saveMealTemplate({
         name:         name.trim(),
         meal_type_id: meal.meal_type_id,
         serving_time: servingTime.trim() || null,
         items:        items.filter((i) => i.text.trim()).map((i) => ({ text: i.text })),
-      })
+      }))
       if (!res.success) { onError(res.error); return }
     })
   }

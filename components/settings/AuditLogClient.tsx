@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils'
 import type { AdminAlertEvent } from '@/lib/supabase/types'
 import type { AdminAlertWithUser } from '@/lib/queries/admin-alerts'
 import { toast } from '@/lib/toast'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   alerts: AdminAlertWithUser[]
@@ -63,7 +64,7 @@ export function AuditLogClient({ alerts, filter }: Props) {
   function ack(id: string) {
     setActiveId(id)
     startTransition(async () => {
-      const r = await acknowledgeAlert(id)
+      const r = await safeCall(() => acknowledgeAlert(id))
       setActiveId(null)
       if (!r.success) { toast.error(r.error); return }
       toast.success('Alert acknowledged')

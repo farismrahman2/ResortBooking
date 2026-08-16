@@ -7,6 +7,7 @@ import type {
   BookingStatus,
 } from '@/lib/supabase/types'
 import { getBookingById } from '@/lib/queries/bookings'
+import { sanitizeSearch } from '@/lib/utils'
 
 export interface QuoteFilters {
   status?:       BookingStatus
@@ -48,8 +49,9 @@ export async function getQuotes(filters: QuoteFilters = {}): Promise<QuoteRow[]>
   if (filters.from_date) query = query.gte('visit_date', filters.from_date)
   if (filters.to_date) query = query.lte('visit_date', filters.to_date)
   if (filters.search) {
-    query = query.or(
-      `customer_name.ilike.%${filters.search}%,customer_phone.ilike.%${filters.search}%,quote_number.ilike.%${filters.search}%`,
+    const term = sanitizeSearch(filters.search)   // commas/parens are .or() syntax and used to break the query
+    if (term) query = query.or(
+      `customer_name.ilike.%${term}%,customer_phone.ilike.%${term}%,quote_number.ilike.%${term}%`,
     )
   }
   if (filters.limit) query = query.limit(filters.limit)

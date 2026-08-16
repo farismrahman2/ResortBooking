@@ -12,6 +12,7 @@ import type { MaintenanceFormInput } from '@/lib/validators/fixed-assets'
 import type { FaMaintenanceLog, MaintenanceType } from '@/lib/supabase/types-fixed-assets'
 import { MAINTENANCE_TYPE_LABELS } from './labels'
 import { formatBDT } from '@/lib/formatters/currency'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Opt { id: string; name: string }
 
@@ -36,7 +37,7 @@ export function MaintenancePanel({ assetId, log, vendors, canWrite }: { assetId:
       next_service_date: form.next_service_date || null, notes: form.notes.trim() || null,
     }
     startTransition(async () => {
-      const res = await recordMaintenance(payload)
+      const res = await safeCall(() => recordMaintenance(payload))
       if (!res.success) { setError(res.error); return }
       setOpen(false); router.refresh()
     })

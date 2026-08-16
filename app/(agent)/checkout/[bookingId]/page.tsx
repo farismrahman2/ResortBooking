@@ -14,6 +14,8 @@ import { StartCheckoutButton } from '@/components/checkout/StartCheckoutButton'
 import { BookingChargesTab } from '@/components/checkout/BookingChargesTab'
 import { CHECKOUT_STATUS_BADGE, CHECKOUT_STATUS_LABELS } from '@/components/checkout/labels'
 import { getBookingDetailWithCheckout } from '@/lib/queries/checkout'
+import { getBookingById } from '@/lib/queries/bookings'
+import { todayDhaka, addDaysIso } from '@/lib/dates'
 import { calcChargesTotal, calcPaymentsTotal, calcNetDue } from '@/lib/checkout/totals'
 import { getExtraGuestUnitPrice } from '@/lib/checkout/extras-pricing'
 import {
@@ -34,30 +36,47 @@ interface PageProps {
 export default async function CheckoutDetailPage({ params }: PageProps) {
   // Single nested-select pulls booking + checkout + charges + payments in
   // one DB round-trip; permission checks ride along on the cached
-  // getCurrentUserContext.
-  const [bundle, canWrite, isAdmin, ctx] = await Promise.all([
-    getBookingDetailWithCheckout(params.bookingId).catch(() => null),
+  // getCurrentUserContext. Errors are kept, not swallowed: `.catch(() => null)`
+  // here used to turn ANY transient DB error into a 404 + a false "migration
+  // missing" banner.
+  const [bundleRes, canWrite, isAdmin, ctx] = await Promise.all([
+    getBookingDetailWithCheckout(params.bookingId).then(
+      (bundle) => ({ ok: true as const, bundle }),
+      (err: unknown) => ({ ok: false as const, message: err instanceof Error ? err.message : String(err) }),
+    ),
     hasPermission('checkout', 'write'),
     checkAdmin(),
     getCurrentUserContext(),
   ])
   await requirePermission('checkout', 'read')
+
+  let bundle = bundleRes.ok ? bundleRes.bundle : null
+  let migrationError: string | null = null
+  if (!bundleRes.ok) {
+    // Only a genuinely missing table means "run the migration". Anything else
+    // (network blip, RLS refusal) should surface as an error, not a fake 404.
+    if (!/does not exist|42P01/i.test(bundleRes.message)) {
+      throw new Error(bundleRes.message)
+    }
+    migrationError = 'Checkout tables missing — apply migrations/checkout-module/000_create_checkout_tables.sql.'
+    const fallback = await getBookingById(params.bookingId)
+    if (fallback) bundle = { booking: fallback, checkout: null, charges: [], payments: [] }
+  }
+
   const booking = bundle?.booking
   if (!booking) notFound()
 
   // Front desk is scoped to bookings within today − 3 days through today + 2
-  // days. Block direct URL access to anything outside that window.
+  // days (Dhaka calendar). Block direct URL access outside that window.
   if (ctx?.profile.role.slug === 'front_desk') {
-    const maxIso = new Date(Date.now() + 2 * 24 * 3600 * 1000).toISOString().slice(0, 10)
-    const minIso = new Date(Date.now() - 3 * 24 * 3600 * 1000).toISOString().slice(0, 10)
+    const today = todayDhaka()
+    const maxIso = addDaysIso(today, 2)
+    const minIso = addDaysIso(today, -3)
     if (booking.visit_date > maxIso || booking.visit_date < minIso) {
       redirect('/403?from=checkout')
     }
   }
 
-  // bundle is null only when the checkout migration hasn't been applied
-  // (the nested select fails silently via .catch). Show the migration banner.
-  const migrationError: string | null = bundle ? null : 'Checkout tables missing — apply migrations/checkout-module/000_create_checkout_tables.sql.'
   const checkout = bundle?.checkout ?? null
   const charges  = bundle?.charges  ?? []
   const payments = bundle?.payments ?? []

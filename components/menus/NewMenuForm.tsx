@@ -9,6 +9,7 @@ import { createMenuDay, copyMenuDay } from '@/lib/actions/menus'
 import { formatDate } from '@/lib/formatters/dates'
 import { banglaDate } from '@/lib/menus/bangla-numerals'
 import { cn } from '@/lib/utils'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface BookingOption {
   id: string
@@ -58,16 +59,16 @@ export function NewMenuForm({ bookings, recentDays, defaultDate }: Props) {
     startTransition(async () => {
       if (mode === 'copy') {
         if (!copySourceId) { setError('Pick a menu day to copy'); return }
-        const res = await copyMenuDay(copySourceId, date)
+        const res = await safeCall(() => copyMenuDay(copySourceId, date))
         if (!res.success) { setError(res.error); return }
         router.push(`/menus/${res.data.id}?copied=1`)
         return
       }
-      const res = await createMenuDay({
+      const res = await safeCall(() => createMenuDay({
         menu_date:     date,
         occasion_note: occasion.trim() || null,
         booking_id:    bookingId || null,
-      })
+      }))
       if (!res.success) { setError(res.error); return }
       router.push(`/menus/${res.data.id}`)
     })

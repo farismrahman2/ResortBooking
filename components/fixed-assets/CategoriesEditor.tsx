@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/Button'
 import { updateAssetCategory } from '@/lib/actions/fixed-assets'
 import type { FaCategory } from '@/lib/supabase/types-fixed-assets'
+import { safeCall } from '@/lib/actions/safe-call'
 
 export function CategoriesEditor({ categories }: { categories: FaCategory[] }) {
   const router = useRouter()
@@ -21,9 +22,9 @@ export function CategoriesEditor({ categories }: { categories: FaCategory[] }) {
     setError(null); setSavedId(null)
     const d = draft[id]
     startTransition(async () => {
-      const res = await updateAssetCategory(id, {
+      const res = await safeCall(() => updateAssetCategory(id, {
         default_useful_life_years: Number(d.life), default_salvage_pct: Number(d.salvage), description: d.desc.trim() || null,
-      })
+      }))
       if (!res.success) { setError(res.error); return }
       setSavedId(id); router.refresh()
     })

@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 import { processVisitToCrm } from '@/lib/actions/field-visits'
 import { STAGE_LABELS, STAGE_ORDER } from '@/lib/crm/stage-probabilities'
 import type { CrmTier } from '@/lib/supabase/types-crm'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Match { id: string; company_name: string; account_code: string }
 
@@ -65,11 +66,11 @@ export function ProcessToCrmPanel({
   function handleProcess() {
     setError(null)
     startTransition(async () => {
-      const r = await processVisitToCrm(visitId, {
+      const r = await safeCall(() => processVisitToCrm(visitId, {
         accountId: mode === 'link' ? picked : null,
         createNew: mode === 'new',
         stage, tier,
-      })
+      }))
       if (!r.success) { setError(r.error); return }
       router.refresh()
     })

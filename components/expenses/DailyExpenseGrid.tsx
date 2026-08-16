@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo, useTransition, useEffect } from 'react'
+import { safeCall } from '@/lib/actions/safe-call'
 import { useRouter } from 'next/navigation'
 import { Plus, Trash2, FolderPlus, UserPlus } from 'lucide-react'
 import { Input } from '@/components/ui/Input'
@@ -180,12 +181,12 @@ export function DailyExpenseGrid({ categories, payees, defaultDate }: DailyExpen
 
     startTransition(async () => {
       try {
-        const result = await createDailyExpenses({
+        const result = await safeCall(() => createDailyExpenses({
           expense_date:   date,
           payment_method: paymentMethod,
           notes:          notes.trim() || null,
           lines:          payload,
-        })
+        }))
         if (!result.success) {
           setError(result.error)
           return

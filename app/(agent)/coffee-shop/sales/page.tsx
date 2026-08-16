@@ -5,6 +5,7 @@ import { Topbar } from '@/components/layout/Topbar'
 import { Button } from '@/components/ui/Button'
 import { requirePermission, hasPermission } from '@/lib/auth/permissions'
 import { listCoffeeShopSales } from '@/lib/queries/coffee-shop'
+import { todayDhaka, addDaysIso } from '@/lib/dates'
 import { MigrationErrorBanner } from '@/components/coffee-shop/MigrationErrorBanner'
 import { STATUS_BADGE } from '@/components/coffee-shop/labels'
 import { formatBDT } from '@/lib/formatters/currency'
@@ -19,9 +20,10 @@ export default async function CoffeeShopSalesListPage({ searchParams }: PageProp
   await requirePermission('coffee_shop', 'read')
   const canWrite = await hasPermission('coffee_shop', 'write')
 
-  const today = new Date()
-  const defaultFromIso = new Date(today.getTime() - 6 * 86400_000).toISOString().slice(0, 10)
-  const defaultToIso   = today.toISOString().slice(0, 10)
+  // sale_date is a Dhaka calendar date — the default window must be too, or
+  // tonight's sales fall outside "today" between midnight and 6am local.
+  const defaultToIso   = todayDhaka()
+  const defaultFromIso = addDaysIso(defaultToIso, -6)
   const from   = searchParams.from   ?? defaultFromIso
   const to     = searchParams.to     ?? defaultToIso
   const status = searchParams.status ?? 'completed'

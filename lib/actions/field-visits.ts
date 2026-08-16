@@ -8,6 +8,7 @@ import { formatVisitRef, normaliseMaterials } from '@/lib/field-visits/visit-ref
 import { formatAccountCode } from '@/lib/crm/account-code'
 import { getFieldVisitById } from '@/lib/queries/field-visits'
 import { isStillSameDayInDhaka } from '@/lib/coffee-shop/timezone'
+import { todayDhaka } from '@/lib/dates'
 import type { ActionResult, ActionData } from './types'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -82,6 +83,25 @@ function hasMeaningfulContent(input: Record<string, unknown>): boolean {
 }
 
 /**
+ * Next visit_ref sequence base, ZERO-indexed for formatVisitRef.
+ *
+ * MAX+1, not COUNT+1: visit_ref is UNIQUE, and after any deletion COUNT falls
+ * behind the highest allocated number — with enough holes, count, count+1 …
+ * count+5 were ALL already taken and visit creation failed permanently with
+ * "could not generate a unique visit reference".
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function nextVisitRefBase(db: any): Promise<number> {
+  const { data } = await db
+    .from('crm_field_visits')
+    .select('visit_ref')
+    .like('visit_ref', 'GCR-FV-%')
+    .order('visit_ref', { ascending: false })
+    .limit(1)
+  return Number(String(data?.[0]?.visit_ref ?? '').split('-').pop()) || 0
+}
+
+/**
  * Creates an empty draft so the wizard has an id to autosave against.
  * `prefill.organisationName` supports the "log another visit at this
  * organisation" shortcut on the confirmation screen.
@@ -98,8 +118,7 @@ export async function createDraftVisit(
     // Retry on UNIQUE collision — mirrors the account-code pattern.
     let created: { id: string; visit_ref: string } | null = null
     for (let attempt = 0; attempt < 5 && !created; attempt++) {
-      const { count } = await db.from('crm_field_visits').select('id', { count: 'exact', head: true })
-      const ref = formatVisitRef((count ?? 0) + attempt)
+      const ref = formatVisitRef(await nextVisitRefBase(db) + attempt)
       const { data, error } = await db.from('crm_field_visits')
         .insert({
           visit_ref: ref, status: 'draft',
@@ -142,10 +161,9 @@ export async function saveDraftVisit(id: string, partial: unknown): Promise<Acti
       const ctx = await getCurrentUserContext()
       let created = false
       for (let attempt = 0; attempt < 6 && !created; attempt++) {
-        const { count } = await db.from('crm_field_visits').select('id', { count: 'exact', head: true })
         const { error } = await db.from('crm_field_visits').insert({
           id,
-          visit_ref:  formatVisitRef((count ?? 0) + attempt),
+          visit_ref:  formatVisitRef(await nextVisitRefBase(db) + attempt),
           status:     'draft',
           created_by: ctx?.user_id ?? null,
         })
@@ -172,9 +190,13 @@ export async function saveDraftVisit(id: string, partial: unknown): Promise<Acti
     if (error) return { success: false, error: error.message }
 
     // Children are replace-all: simplest correct semantics for a wizard that
-    // re-sends its whole local state on each autosave.
+    // re-sends its whole local state on each autosave. Both steps are CHECKED:
+    // a failed insert after a successful delete has already lost the contacts,
+    // and the rep must see the failure so their next autosave can heal it —
+    // silently swallowing it meant a closed phone lost the whole contact list.
     if (contacts) {
-      await db.from('crm_field_visit_contacts').delete().eq('visit_id', id)
+      const { error: delErr } = await db.from('crm_field_visit_contacts').delete().eq('visit_id', id)
+      if (delErr) return { success: false, error: `Could not save contacts: ${delErr.message}` }
       const rows = contacts
         .filter((c) => c.name || c.designation || c.mobile || c.email)
         .map((c, i) => ({
@@ -183,10 +205,14 @@ export async function saveDraftVisit(id: string, partial: unknown): Promise<Acti
           department: c.department ?? null, mobile: c.mobile ?? null,
           email: c.email ?? null, is_decision_maker: c.is_decision_maker ?? false,
         }))
-      if (rows.length) await db.from('crm_field_visit_contacts').insert(rows)
+      if (rows.length) {
+        const { error: insErr } = await db.from('crm_field_visit_contacts').insert(rows)
+        if (insErr) return { success: false, error: `Could not save contacts — retry the save: ${insErr.message}` }
+      }
     }
     if (venues) {
-      await db.from('crm_field_visit_venues').delete().eq('visit_id', id)
+      const { error: delErr } = await db.from('crm_field_visit_venues').delete().eq('visit_id', id)
+      if (delErr) return { success: false, error: `Could not save venues: ${delErr.message}` }
       const rows = venues
         .filter((v) => v.venue_name || v.pax || v.rate_per_head || v.feedback)
         .map((v, i) => ({
@@ -195,12 +221,17 @@ export async function saveDraftVisit(id: string, partial: unknown): Promise<Acti
           pax: v.pax ?? null, rate_per_head: v.rate_per_head ?? null,
           feedback: v.feedback ?? null,
         }))
-      if (rows.length) await db.from('crm_field_visit_venues').insert(rows)
+      if (rows.length) {
+        const { error: insErr } = await db.from('crm_field_visit_venues').insert(rows)
+        if (insErr) return { success: false, error: `Could not save venues — retry the save: ${insErr.message}` }
+      }
     }
 
     // Post-submission corrections are worth an audit entry; draft autosaves
-    // fire constantly and would just be noise.
-    if (existing.status === 'submitted') {
+    // fire constantly and would just be noise. `existing` is null on the very
+    // first save (lazy-create path above) — that used to crash here and made
+    // every new visit's first autosave report a failure it didn't have.
+    if (existing?.status === 'submitted') {
       await logHistory(id, 'edited', 'amended_after_submit', { visit_ref: existing.visit_ref })
     }
 
@@ -437,12 +468,14 @@ export async function processVisitToCrm(
     if (!accountId) return { success: false, error: 'Pick an account to link, or choose "create new"' }
 
     // Deferred crm_activities insert — keeps the existing KPI intact.
+    // supabase-js reports failures in `error`, it does NOT throw — the old
+    // try/catch here could never fire, so a failed KPI insert was invisible.
     let activityId: string | null = null
-    try {
-      const { data: act } = await db.from('crm_activities').insert({
+    {
+      const { data: act, error: actErr } = await db.from('crm_activities').insert({
         account_id:    accountId,
         activity_type: 'field_visit',
-        activity_date: visit.visit_date ?? new Date().toISOString().slice(0, 10),
+        activity_date: visit.visit_date ?? todayDhaka(),
         subject:       `Field visit ${visit.visit_ref} — ${visit.organisation_name ?? 'unknown org'}`,
         notes:         [
           visit.interest_level ? `Interest: ${visit.interest_level}` : null,
@@ -455,10 +488,10 @@ export async function processVisitToCrm(
         next_step_date: visit.due_by ?? null,
         logged_by:      ctx?.user_id ?? null,
       }).select('id').single()
+      // Non-fatal: the visit is still processed; crm_activity_created:false
+      // lands in the history entry below so the gap is at least visible.
+      if (actErr) console.warn('[field-visits] crm_activities insert non-fatal:', actErr.message)
       activityId = act?.id ?? null
-    } catch (err) {
-      // Non-fatal: the visit is still processed. Surfaced in history.
-      console.warn('[field-visits] crm_activities insert non-fatal:', err)
     }
 
     const { error } = await db.from('crm_field_visits').update({
@@ -601,8 +634,7 @@ export async function syncOfflineVisit(input: {
     if (!existing) {
       let inserted = false
       for (let attempt = 0; attempt < 6 && !inserted; attempt++) {
-        const { count } = await db.from('crm_field_visits').select('id', { count: 'exact', head: true })
-        const ref = formatVisitRef((count ?? 0) + attempt)
+        const ref = formatVisitRef(await nextVisitRefBase(db) + attempt)
         const { error } = await db.from('crm_field_visits').insert({
           id:         input.localId,          // client-generated
           visit_ref:  ref,

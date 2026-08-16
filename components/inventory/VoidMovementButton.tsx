@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/Button'
 import { voidMovement } from '@/lib/actions/inventory'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   movementId:  string
@@ -21,7 +22,7 @@ export function VoidMovementButton({ movementId, hasExpense }: Props) {
     if (!reason.trim()) { setError('A reason is required'); return }
     setError(null)
     startTransition(async () => {
-      const res = await voidMovement(movementId, reason.trim())
+      const res = await safeCall(() => voidMovement(movementId, reason.trim()))
       if (!res.success) { setError(res.error); return }
       setOpen(false)
       router.refresh()

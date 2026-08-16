@@ -1,6 +1,6 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, revalidateTag } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import {
   expenseFormSchema,
@@ -109,6 +109,14 @@ export async function updateExpense(id: string, input: unknown): Promise<ActionR
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const db = supabase as any
+
+    // Same guard deleteExpense enforces: inventory-sourced expenses are owned
+    // by their receipt — editing the amount here would desync it from the
+    // stock that was actually received.
+    const { data: existing } = await db.from('expenses').select('source_module').eq('id', id).maybeSingle()
+    if (existing?.source_module === 'inventory') {
+      return { success: false, error: 'This expense was created by an inventory receipt. Void the receipt and re-enter it to change the amount.' }
+    }
 
     const { error } = await db
       .from('expenses')
@@ -235,6 +243,7 @@ export async function createCategory(input: unknown): Promise<ActionData<{ id: s
     if (error || !data) return { success: false, error: error?.message ?? 'Insert failed' }
 
     await logHistory(data.id, 'created', 'category_created', { slug: parsed.slug })
+    revalidateTag('expense-refs')
     revalidatePath('/expenses/categories')
     return { success: true, data: { id: data.id } }
   } catch (err) {
@@ -254,6 +263,7 @@ export async function updateCategory(id: string, input: unknown): Promise<Action
     if (error) return { success: false, error: error.message }
 
     await logHistory(id, 'edited', 'category_edited', { slug: parsed.slug })
+    revalidateTag('expense-refs')
     revalidatePath('/expenses/categories')
     return { success: true }
   } catch (err) {
@@ -283,6 +293,7 @@ export async function toggleCategoryActive(id: string): Promise<ActionResult> {
     if (error) return { success: false, error: error.message }
 
     await logHistory(id, 'edited', 'category_toggled', { is_active: next })
+    revalidateTag('expense-refs')
     revalidatePath('/expenses/categories')
     return { success: true }
   } catch (err) {
@@ -309,6 +320,7 @@ export async function createPayee(input: unknown): Promise<ActionData<{ id: stri
     if (error || !data) return { success: false, error: error?.message ?? 'Insert failed' }
 
     await logHistory(data.id, 'created', 'payee_created', { name: parsed.name })
+    revalidateTag('expense-refs')
     // Invalidate every page that lists payees so the dropdown refreshes
     // after the modal closes (admin page + entry forms).
     revalidatePath('/expenses/payees')
@@ -332,6 +344,7 @@ export async function updatePayee(id: string, input: unknown): Promise<ActionRes
     if (error) return { success: false, error: error.message }
 
     await logHistory(id, 'edited', 'payee_edited', { name: parsed.name })
+    revalidateTag('expense-refs')
     revalidatePath('/expenses/payees')
     return { success: true }
   } catch (err) {
@@ -361,6 +374,7 @@ export async function togglePayeeActive(id: string): Promise<ActionResult> {
     if (error) return { success: false, error: error.message }
 
     await logHistory(id, 'edited', 'payee_toggled', { is_active: next })
+    revalidateTag('expense-refs')
     revalidatePath('/expenses/payees')
     return { success: true }
   } catch (err) {
@@ -677,19 +691,34 @@ export async function generateMonthlyDrafts(
     const db = supabase as any
     const userId = await currentUserId()
 
-    // Pull active templates not yet generated for this month
+    // Pull ALL active templates, then skip per-template based on whether a
+    // draft already exists for THIS month. The old single watermark
+    // (`last_generated_for < periodStart`) meant that once July was generated,
+    // June could never be generated again — a skipped month was skipped forever.
     const { data: templates, error: tErr } = await db
       .from('recurring_expense_templates')
       .select('*')
       .eq('is_active', true)
-      .or(`last_generated_for.is.null,last_generated_for.lt.${periodStart}`)
     if (tErr) return { success: false, error: tErr.message }
+
+    // One query: which templates already have an expense in this month?
+    const monthEnd = `${m[1]}-${m[2]}-31`
+    const { data: existingRows } = await db
+      .from('expenses')
+      .select('recurring_template_id')
+      .not('recurring_template_id', 'is', null)
+      .gte('expense_date', periodStart)
+      .lte('expense_date', monthEnd)
+    const alreadyGenerated = new Set(
+      ((existingRows ?? []) as any[]).map((r) => r.recurring_template_id),
+    )
 
     let generated = 0
     let skipped   = 0
     const generatedIds: string[] = []
 
     for (const t of (templates ?? []) as any[]) {
+      if (alreadyGenerated.has(t.id)) { skipped += 1; continue }
       // The expense_date for the draft = day_of_month within periodStart's month
       const day = String(Math.min(t.day_of_month, 28)).padStart(2, '0')
       const expense_date = `${m[1]}-${m[2]}-${day}`
@@ -711,11 +740,13 @@ export async function generateMonthlyDrafts(
         continue
       }
 
-      // Mark the template as generated for this period
+      // Advance the watermark only forwards — it's informational ("most recent
+      // month generated"), the real skip guard is the existing-expense check.
       await db
         .from('recurring_expense_templates')
         .update({ last_generated_for: periodStart })
         .eq('id', t.id)
+        .or(`last_generated_for.is.null,last_generated_for.lt.${periodStart}`)
 
       generated += 1
       generatedIds.push(insRow.id)

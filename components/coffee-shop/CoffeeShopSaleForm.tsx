@@ -13,6 +13,7 @@ import { formatBDT } from '@/lib/formatters/currency'
 import { getTodayInDhaka } from '@/lib/coffee-shop/timezone'
 import type { ChargeCategoryRow, ChargeItemWithCategory } from '@/lib/supabase/types'
 import type { CoffeeShopSaleFull, CoffeeShopPaymentMethod } from '@/lib/supabase/types-coffee-shop'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   categories: ChargeCategoryRow[]
@@ -225,8 +226,8 @@ export function CoffeeShopSaleForm({ categories, items, initial, saleId }: Props
 
     startTransition(async () => {
       const r = isEdit
-        ? await updateCoffeeShopSale(saleId!, payload)
-        : await createCoffeeShopSale(payload)
+        ? await safeCall(() => updateCoffeeShopSale(saleId!, payload))
+        : await safeCall(() => createCoffeeShopSale(payload))
       if (!r.success) { setError(r.error); return }
       const id = isEdit ? saleId! : (r as any).data.sale_id  // eslint-disable-line @typescript-eslint/no-explicit-any
       router.push(`/coffee-shop/sales/${id}`)

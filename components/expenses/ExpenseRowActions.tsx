@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button'
 import { deleteExpense } from '@/lib/actions/expenses'
 import { formatBDT } from '@/lib/formatters/currency'
 import { formatDate } from '@/lib/formatters/dates'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface ExpenseRowActionsProps {
   id:           string
@@ -31,7 +32,7 @@ export function ExpenseRowActions({ id, amount, expense_date, category }: Expens
   function handleDelete() {
     setError(null)
     startTransition(async () => {
-      const result = await deleteExpense(id)
+      const result = await safeCall(() => deleteExpense(id))
       if (!result.success) { setError(result.error); return }
       setConfirmOpen(false)
       router.refresh()

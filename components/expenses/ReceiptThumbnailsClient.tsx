@@ -6,6 +6,7 @@ import { File as FileIcon, Trash2, ExternalLink } from 'lucide-react'
 import { removeReceipt } from '@/lib/actions/expenses'
 import type { ExpenseAttachmentRow } from '@/lib/supabase/types'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface SignedItem extends ExpenseAttachmentRow {
   url: string | null
@@ -27,7 +28,7 @@ export function ReceiptThumbnailsClient({ items, editable }: Props) {
     if (!ok) return
     setError(null)
     startTransition(async () => {
-      const result = await removeReceipt(id)
+      const result = await safeCall(() => removeReceipt(id))
       if (!result.success) setError(result.error)
       else router.refresh()
     })

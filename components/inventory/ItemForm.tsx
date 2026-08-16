@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button'
 import { createItem, updateItem } from '@/lib/actions/inventory'
 import type { ItemFormInput } from '@/lib/validators/inventory'
 import type { InvCategory, InvUnit, InvSupplier, InvItem } from '@/lib/supabase/types-inventory'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   storeId:    string
@@ -59,7 +60,7 @@ export function ItemForm({ storeId, storeSlug, categories, units, suppliers, ite
       notes:                form.notes.trim() || null,
     }
     startTransition(async () => {
-      const res = item ? await updateItem(item.id, payload) : await createItem(payload)
+      const res = item ? await safeCall(() => updateItem(item.id, payload)) : await safeCall(() => createItem(payload))
       if (!res.success) { setError(res.error); return }
       router.push(`/inventory/${storeSlug}`)
       router.refresh()

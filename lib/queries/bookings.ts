@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { sanitizeSearch } from '@/lib/utils'
 import type { BookingWithRooms, BookingStatus } from '@/lib/supabase/types'
 
 export interface BookingFilters {
@@ -9,6 +10,10 @@ export interface BookingFilters {
   corporate?: boolean   // when true, returns only corporate bookings
   limit?:     number
   offset?:    number
+  /** visit_date sort. Use 'desc' + limit for "the N most recent" — an
+   *  ascending capped fetch keeps the OLDEST rows, so new bookings silently
+   *  vanish from the result once the table outgrows the cap. */
+  order?:     'asc' | 'desc'
 }
 
 /**
@@ -37,19 +42,21 @@ export async function getBookings(filters: BookingFilters = {}): Promise<Booking
   // booking_number is the deterministic tiebreaker — without it Postgres can
   // reorder rows that share the same visit_date across requests, which made
   // bookings appear/disappear from a limited list non-deterministically.
+  const ascending = (filters.order ?? 'asc') === 'asc'
   let query = supabase
     .from('bookings')
     .select(BOOKING_LIST_COLUMNS)
-    .order('visit_date',     { ascending: true })
-    .order('booking_number', { ascending: true })
+    .order('visit_date',     { ascending })
+    .order('booking_number', { ascending })
 
   if (filters.status) query = query.eq('status', filters.status)
   if (filters.corporate) query = query.eq('is_corporate', true)
   if (filters.from_date) query = query.gte('visit_date', filters.from_date)
   if (filters.to_date) query = query.lte('visit_date', filters.to_date)
   if (filters.search) {
-    query = query.or(
-      `customer_name.ilike.%${filters.search}%,customer_phone.ilike.%${filters.search}%,booking_number.ilike.%${filters.search}%`,
+    const term = sanitizeSearch(filters.search)   // commas/parens are .or() syntax and used to break the query
+    if (term) query = query.or(
+      `customer_name.ilike.%${term}%,customer_phone.ilike.%${term}%,booking_number.ilike.%${term}%`,
     )
   }
   if (filters.limit) query = query.limit(filters.limit)

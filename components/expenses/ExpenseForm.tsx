@@ -18,6 +18,7 @@ import { QuickAddCategoryModal } from '@/components/expenses/QuickAddCategoryMod
 import { QuickAddPayeeModal } from '@/components/expenses/QuickAddPayeeModal'
 import { toISODate } from '@/lib/formatters/dates'
 import type { ExpenseCategoryRow, ExpensePayeeRow, ExpenseRowWithRefs } from '@/lib/supabase/types'
+import { safeCall } from '@/lib/actions/safe-call'
 
 const ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'] as const
 const MAX_BYTES    = 10 * 1024 * 1024  // 10 MB
@@ -154,13 +155,13 @@ export function ExpenseForm({ categories, payees, existing }: ExpenseFormProps) 
         .from('expense-receipts')
         .upload(storagePath, f, { contentType: f.type, upsert: false })
       if (upErr) { failures += 1; continue }
-      const result = await attachReceipt({
+      const result = await safeCall(() => attachReceipt({
         expense_id:   expenseId,
         storage_path: storagePath,
         file_name:    f.name,
         mime_type:    f.type as typeof ALLOWED_MIME[number],
         size_bytes:   f.size,
-      })
+      }))
       if (!result.success) {
         // Clean up the storage object — its DB row didn't get recorded
         await supabase.storage.from('expense-receipts').remove([storagePath])
@@ -189,8 +190,8 @@ export function ExpenseForm({ categories, payees, existing }: ExpenseFormProps) 
     startTransition(async () => {
       try {
         const result = isEdit
-          ? await updateExpense(existing!.id, values)
-          : await createExpense(values)
+          ? await safeCall(() => updateExpense(existing!.id, values))
+          : await safeCall(() => createExpense(values))
         if (!result.success) {
           setError(result.error)
           return

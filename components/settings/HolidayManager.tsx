@@ -7,6 +7,7 @@ import type { HolidayDateRow } from '@/lib/supabase/types'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { formatDate } from '@/lib/formatters/dates'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface HolidayManagerProps {
   initialHolidays: HolidayDateRow[]
@@ -43,7 +44,7 @@ export function HolidayManager({ initialHolidays }: HolidayManagerProps) {
     setNewLabel('')
 
     startTransition(async () => {
-      const result = await addHolidayDate(savedDate, savedLabel)
+      const result = await safeCall(() => addHolidayDate(savedDate, savedLabel))
       if (!result.success) {
         // Revert optimistic update
         setHolidays((prev) => prev.filter((h) => h.id !== tempId))
@@ -58,7 +59,7 @@ export function HolidayManager({ initialHolidays }: HolidayManagerProps) {
     setHolidays((prev) => prev.filter((h) => h.id !== id))
 
     startTransition(async () => {
-      const result = await deleteHolidayDate(id)
+      const result = await safeCall(() => deleteHolidayDate(id))
       if (!result.success) {
         // Revert: refetch would normally handle this, but since we don't have the item,
         // we just note the error. The page will refresh on next navigation.

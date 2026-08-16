@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { setKpiTarget } from '@/lib/actions/crm'
 import { KPI_METRICS, KPI_METRIC_LABELS, type KpiMetric } from '@/lib/crm/kpi-metrics'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   userId:   string
@@ -32,7 +33,7 @@ export function KpiTargetsEditor({ userId, existing }: Props) {
     if (raw === '') return
     setError(null); setSavedKey(null)
     startTransition(async () => {
-      const res = await setKpiTarget(userId, metric, period, Number(raw))
+      const res = await safeCall(() => setKpiTarget(userId, metric, period, Number(raw)))
       if (!res.success) { setError(res.error); return }
       setSavedKey(key); router.refresh()
     })

@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/Input'
 import { Textarea } from '@/components/ui/Textarea'
 import { voidFieldVisit, hardDeleteFieldVisit } from '@/lib/actions/field-visits'
 import { toast } from '@/lib/toast'
+import { safeCall } from '@/lib/actions/safe-call'
 
 /**
  * Void = reversible-ish soft delete, keeps the record and its reason.
@@ -42,7 +43,7 @@ export function VisitDangerZone({
   function handleVoid() {
     setError(null)
     startTransition(async () => {
-      const r = await voidFieldVisit(visitId, reason)
+      const r = await safeCall(() => voidFieldVisit(visitId, reason))
       if (!r.success) { setError(r.error); return }
       setVoidOpen(false)
       toast.success(`${visitRef} voided`)
@@ -53,7 +54,7 @@ export function VisitDangerZone({
   function handleDelete() {
     setError(null)
     startTransition(async () => {
-      const r = await hardDeleteFieldVisit(visitId, confirmRef)
+      const r = await safeCall(() => hardDeleteFieldVisit(visitId, confirmRef))
       if (!r.success) { setError(r.error); return }
       toast.success(`${r.data.visit_ref} permanently deleted`)
       router.push('/crm/field-visits')

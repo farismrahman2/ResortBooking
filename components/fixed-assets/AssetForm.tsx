@@ -10,6 +10,7 @@ import { createAsset, updateAsset } from '@/lib/actions/fixed-assets'
 import type { AssetFormInput } from '@/lib/validators/fixed-assets'
 import type { FaCategory, FaLocation, FaAsset, AssetCondition } from '@/lib/supabase/types-fixed-assets'
 import { CONDITION_LABELS } from './labels'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Opt { id: string; name: string }
 interface Props {
@@ -95,7 +96,7 @@ export function AssetForm({ categories, locations, vendors, custodians, asset }:
       notes:                   form.notes.trim() || null,
     }
     startTransition(async () => {
-      const res = asset ? await updateAsset(asset.id, payload) : await createAsset(payload)
+      const res = asset ? await safeCall(() => updateAsset(asset.id, payload)) : await safeCall(() => createAsset(payload))
       if (!res.success) { setError(res.error); return }
       router.push(asset ? `/fixed-assets/assets/${asset.id}` : '/fixed-assets/assets')
       router.refresh()

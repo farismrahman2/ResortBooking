@@ -6,6 +6,7 @@ import { Plus, X } from 'lucide-react'
 import { addSpecialNote, removeSpecialNote } from '@/lib/actions/menus'
 import { cn } from '@/lib/utils'
 import type { MenuSpecialNoteRow, NoteColor } from '@/lib/supabase/types-menus'
+import { safeCall } from '@/lib/actions/safe-call'
 
 const COLOR_STYLES: Record<NoteColor, { border: string; text: string; chip: string }> = {
   green: { border: 'border-l-green-600', text: 'text-green-800', chip: 'bg-green-600' },
@@ -33,7 +34,7 @@ export function NotesList({ menuDayId, mealId, notes, editable, onError, compact
   function add() {
     if (!text.trim()) return
     startTransition(async () => {
-      const res = await addSpecialNote({ menu_day_id: menuDayId, meal_id: mealId, text: text.trim(), color })
+      const res = await safeCall(() => addSpecialNote({ menu_day_id: menuDayId, meal_id: mealId, text: text.trim(), color }))
       if (!res.success) { onError(res.error); return }
       setText('')
       setAdding(false)
@@ -43,7 +44,7 @@ export function NotesList({ menuDayId, mealId, notes, editable, onError, compact
 
   function remove(id: string) {
     startTransition(async () => {
-      const res = await removeSpecialNote(id)
+      const res = await safeCall(() => removeSpecialNote(id))
       if (!res.success) { onError(res.error); return }
       router.refresh()
     })

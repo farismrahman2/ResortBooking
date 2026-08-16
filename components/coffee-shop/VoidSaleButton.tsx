@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Ban, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { voidCoffeeShopSale } from '@/lib/actions/coffee-shop'
+import { safeCall } from '@/lib/actions/safe-call'
 
 export function VoidSaleButton({ saleId }: { saleId: string }) {
   const router = useRouter()
@@ -19,7 +20,7 @@ export function VoidSaleButton({ saleId }: { saleId: string }) {
     }
     setError(null)
     startTransition(async () => {
-      const r = await voidCoffeeShopSale(saleId, reason.trim())
+      const r = await safeCall(() => voidCoffeeShopSale(saleId, reason.trim()))
       if (!r.success) { setError(r.error); return }
       router.refresh()
     })

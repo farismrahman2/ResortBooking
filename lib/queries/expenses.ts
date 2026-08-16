@@ -1,5 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
+import { cachedRef } from '@/lib/cache'
 import { toISODate } from '@/lib/formatters/dates'
+import { sanitizeSearch } from '@/lib/utils'
 import type {
   ExpenseRowWithRefs,
   ExpenseCategoryRow,
@@ -64,7 +66,10 @@ export async function getExpenses(params: GetExpensesParams = {}): Promise<{
   if (params.search) {
     // Match description directly. Payee name is searched via a separate path because
     // Supabase's PostgREST .or() across joined tables is fragile.
-    query = query.or(`description.ilike.%${params.search}%,reference_number.ilike.%${params.search}%`)
+    // sanitizeSearch: a comma or parenthesis in the text is .or() syntax and
+    // used to blow up the whole expenses list instead of returning no rows.
+    const term = sanitizeSearch(params.search)
+    if (term) query = query.or(`description.ilike.%${term}%,reference_number.ilike.%${term}%`)
   }
 
   query = query.range(offset, offset + limit - 1)
@@ -109,16 +114,25 @@ export async function getExpenseById(id: string): Promise<ExpenseRowWithRefs | n
 
 // ─── Reference data ──────────────────────────────────────────────────────────
 
-export async function getActiveCategories(): Promise<ExpenseCategoryRow[]> {
-  const supabase = createClient()
-  const { data, error } = await supabase
-    .from('expense_categories')
-    .select('*')
-    .eq('is_active', true)
-    .order('display_order', { ascending: true })
-  if (error) throw new Error(`getActiveCategories: ${error.message}`)
-  return data ?? []
-}
+/**
+ * Categories and payees are reference data read by every expenses page render
+ * but changed a few times a year — cachedRef spares the round trip. Mutations
+ * below call revalidateTag('expense-refs'). NOTE the callbacks THROW on error:
+ * returning [] inside unstable_cache would cache the emptiness for 5 minutes.
+ */
+export const getActiveCategories: () => Promise<ExpenseCategoryRow[]> = cachedRef(
+  'expense-active-categories',
+  async (db) => {
+    const { data, error } = await db
+      .from('expense_categories')
+      .select('*')
+      .eq('is_active', true)
+      .order('display_order', { ascending: true })
+    if (error) throw new Error(`getActiveCategories: ${error.message}`)
+    return (data ?? []) as ExpenseCategoryRow[]
+  },
+  { tags: ['expense-refs'] },
+)
 
 export async function getAllCategories(): Promise<ExpenseCategoryRow[]> {
   const supabase = createClient()
@@ -140,16 +154,19 @@ export async function getCategoryBySlug(slug: string): Promise<ExpenseCategoryRo
   return data ?? null
 }
 
-export async function getActivePayees(): Promise<ExpensePayeeRow[]> {
-  const supabase = createClient()
-  const { data, error } = await supabase
-    .from('expense_payees')
-    .select('*')
-    .eq('is_active', true)
-    .order('display_order', { ascending: true })
-  if (error) throw new Error(`getActivePayees: ${error.message}`)
-  return data ?? []
-}
+export const getActivePayees: () => Promise<ExpensePayeeRow[]> = cachedRef(
+  'expense-active-payees',
+  async (db) => {
+    const { data, error } = await db
+      .from('expense_payees')
+      .select('*')
+      .eq('is_active', true)
+      .order('display_order', { ascending: true })
+    if (error) throw new Error(`getActivePayees: ${error.message}`)
+    return (data ?? []) as ExpensePayeeRow[]
+  },
+  { tags: ['expense-refs'] },
+)
 
 export async function getAllPayees(): Promise<ExpensePayeeRow[]> {
   const supabase = createClient()
@@ -465,15 +482,14 @@ export async function getMonthlyExpenseSummary(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = supabase as any
 
-  // 1) Active categories — column order is stable month-to-month
-  const { data: categories } = await db
-    .from('expense_categories')
-    .select('*')
-    .eq('is_active', true)
-    .order('display_order', { ascending: true })
-
-  // 2) Long-form pivot via RPC
-  const { data: pivot, error } = await db.rpc('get_expense_daily_pivot', { p_from: from, p_to: to })
+  // Categories and the pivot are independent — fetch together.
+  const [{ data: categories }, { data: pivot, error }] = await Promise.all([
+    db.from('expense_categories')
+      .select('*')
+      .eq('is_active', true)
+      .order('display_order', { ascending: true }),
+    db.rpc('get_expense_daily_pivot', { p_from: from, p_to: to }),
+  ])
   if (error) throw new Error(`get_expense_daily_pivot: ${error.message}`)
 
   // 3) Index by date → slug → amount
@@ -783,4 +799,17 @@ export async function getDrafts(): Promise<ExpenseRowWithRefs[]> {
     amount: Number(r.amount),
     attachments: (r.attachments ?? []).map((a: any) => ({ ...a, size_bytes: Number(a.size_bytes) })),
   })) as ExpenseRowWithRefs[]
+}
+
+/** Count only — for the list page's drafts banner, which needs no rows. */
+export async function getDraftCount(): Promise<number> {
+  const supabase = createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any
+  const { count, error } = await db
+    .from('expenses')
+    .select('id', { count: 'exact', head: true })
+    .eq('is_draft', true)
+  if (error) throw new Error(`getDraftCount: ${error.message}`)
+  return count ?? 0
 }

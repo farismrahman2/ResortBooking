@@ -17,6 +17,7 @@ import type {
   PackageSnapshot,
 } from '@/lib/supabase/types'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   bookingId:    string
@@ -46,7 +47,7 @@ export function BookingChargesTab({
     const ok = await confirm({ title: 'Remove this charge?', description: 'It comes off the guest bill.', confirmLabel: 'Remove', danger: true })
     if (!ok) return
     startTransition(async () => {
-      const r = await removeCharge(id)
+      const r = await safeCall(() => removeCharge(id))
       if (!r.success) { toast.error(r.error); return }
       toast.success('Charge removed')
       router.refresh()

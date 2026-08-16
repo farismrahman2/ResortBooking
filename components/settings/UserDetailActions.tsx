@@ -15,6 +15,7 @@ import {
   updateUser,
 } from '@/lib/actions/users'
 import type { RoleRow, UserProfileWithRole } from '@/lib/supabase/types'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   user:      UserProfileWithRole
@@ -52,7 +53,7 @@ export function UserDetailActions({ user, roles, isSelf }: Props) {
   function handleSaveProfile() {
     setError(null)
     startTransition(async () => {
-      const r = await updateUser(user.user_id, { full_name: name, phone })
+      const r = await safeCall(() => updateUser(user.user_id, { full_name: name, phone }))
       if (!r.success) { setError(r.error); return }
       close()
       router.refresh()
@@ -62,7 +63,7 @@ export function UserDetailActions({ user, roles, isSelf }: Props) {
   function handleChangeRole() {
     setError(null)
     startTransition(async () => {
-      const r = await changeRole(user.user_id, { role_id: roleId })
+      const r = await safeCall(() => changeRole(user.user_id, { role_id: roleId }))
       if (!r.success) { setError(r.error); return }
       close()
       router.refresh()
@@ -74,7 +75,7 @@ export function UserDetailActions({ user, roles, isSelf }: Props) {
     setPwShown(null)
     if (newPw.length < 8) { setError('Password must be at least 8 characters'); return }
     startTransition(async () => {
-      const r = await resetPassword(user.user_id, { password: newPw })
+      const r = await safeCall(() => resetPassword(user.user_id, { password: newPw }))
       if (!r.success) { setError(r.error); return }
       setPwShown(newPw)
       // Don't auto-close — show the password once
@@ -85,8 +86,8 @@ export function UserDetailActions({ user, roles, isSelf }: Props) {
     setError(null)
     startTransition(async () => {
       const r = user.is_active
-        ? await deactivateUser(user.user_id)
-        : await reactivateUser(user.user_id)
+        ? await safeCall(() => deactivateUser(user.user_id))
+        : await safeCall(() => reactivateUser(user.user_id))
       if (!r.success) { setError(r.error); return }
       close()
       router.refresh()

@@ -15,6 +15,7 @@ import { payeeFormSchema, type PayeeFormInput } from '@/lib/validators/expense'
 import { createPayee, updatePayee, togglePayeeActive } from '@/lib/actions/expenses'
 import { PAYEE_TYPE_OPTIONS, PAYEE_TYPE_LABELS } from '@/components/expenses/labels'
 import type { ExpensePayeeRow, PayeeType } from '@/lib/supabase/types'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface PayeeManagerProps {
   payees: ExpensePayeeRow[]
@@ -35,7 +36,7 @@ export function PayeeManager({ payees }: PayeeManagerProps) {
 
   function handleToggleActive(id: string) {
     startTransition(async () => {
-      const result = await togglePayeeActive(id)
+      const result = await safeCall(() => togglePayeeActive(id))
       if (!result.success) setError(result.error)
       else router.refresh()
     })
@@ -165,7 +166,7 @@ function PayeeFormModal({
   function onSubmit(values: PayeeFormInput) {
     setError(null)
     startTransition(async () => {
-      const result = isEdit ? await updatePayee(editing!.id, values) : await createPayee(values)
+      const result = isEdit ? await safeCall(() => updatePayee(editing!.id, values)) : await safeCall(() => createPayee(values))
       if (!result.success) { setError(result.error); return }
       onClose(); reset(); router.refresh()
     })

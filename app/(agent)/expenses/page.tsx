@@ -9,9 +9,9 @@ import {
   getExpenses,
   getActiveCategories,
   getActivePayees,
-  getDrafts,
+  getDraftCount,
 } from '@/lib/queries/expenses'
-import { toISODate } from '@/lib/formatters/dates'
+import { todayDhaka, monthStartDhaka } from '@/lib/dates'
 import { formatBDT } from '@/lib/formatters/currency'
 
 export const dynamic = 'force-dynamic'
@@ -28,16 +28,19 @@ interface PageProps {
 }
 
 export default async function ExpensesPage({ searchParams }: PageProps) {
-  // Default range = current month
-  const now  = new Date()
-  const from = searchParams.from ?? toISODate(new Date(now.getFullYear(), now.getMonth(), 1))
-  const to   = searchParams.to   ?? toISODate(new Date(now.getFullYear(), now.getMonth() + 1, 0))
+  // Default range = current month on the RESORT's calendar. Server-side
+  // new Date() is UTC, which is a day behind Asia/Dhaka until 6am local — on
+  // the 1st of the month that put the default view on LAST month.
+  const today = todayDhaka()
+  const [ty, tm] = today.split('-').map(Number)
+  const from = searchParams.from ?? monthStartDhaka(today)
+  const to   = searchParams.to   ?? new Date(Date.UTC(ty, tm, 0)).toISOString().slice(0, 10)  // last day of month
 
   let rows: Awaited<ReturnType<typeof getExpenses>>['rows']      = []
   let total                                                      = 0
   let categories: Awaited<ReturnType<typeof getActiveCategories>> = []
   let payees: Awaited<ReturnType<typeof getActivePayees>>         = []
-  let drafts: Awaited<ReturnType<typeof getDrafts>>               = []
+  let draftCount                                                  = 0
   let migrationError: string | null = null
 
   try {
@@ -53,10 +56,12 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
       }),
       getActiveCategories(),
       getActivePayees(),
-      getDrafts().catch(() => [] as Awaited<ReturnType<typeof getDrafts>>),
+      // Count only — the banner shows a number; fetching every draft row with
+      // three joins to render it was pure waste.
+      getDraftCount().catch(() => 0),
     ])
     rows  = list.rows; total = list.total
-    categories = cats; payees = ps; drafts = drs
+    categories = cats; payees = ps; draftCount = drs
   } catch (err) {
     migrationError = err instanceof Error ? err.message : String(err)
   }
@@ -108,7 +113,7 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
         </div>
 
         {/* Pending drafts banner */}
-        {drafts.length > 0 && (
+        {draftCount > 0 && (
           <Link
             href="/expenses/drafts"
             className="flex items-center justify-between rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 hover:bg-amber-100/60 transition-colors"
@@ -116,7 +121,7 @@ export default async function ExpensesPage({ searchParams }: PageProps) {
             <div className="flex items-center gap-2">
               <AlertCircle size={16} className="text-amber-700" />
               <span className="text-sm font-medium text-amber-900">
-                {drafts.length} pending draft{drafts.length !== 1 ? 's' : ''} from recurring templates — review and confirm
+                {draftCount} pending draft{draftCount !== 1 ? 's' : ''} from recurring templates — review and confirm
               </span>
             </div>
             <span className="text-xs font-semibold text-amber-700">Review →</span>

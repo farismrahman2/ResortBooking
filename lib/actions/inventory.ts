@@ -14,6 +14,7 @@ import { formatSkuCode, storePrefixFromSlug, categoryPrefixFromSlug } from '@/li
 import { formatMovementNumber, type MovementNumberType } from '@/lib/inventory/movement-number'
 import { computeAvgPurchasePrice } from '@/lib/inventory/avg-price'
 import { expenseCategoryForStore } from '@/lib/inventory/expense-category-mapping'
+import { todayDhaka } from '@/lib/dates'
 import type { ActionResult, ActionData } from './types'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -269,6 +270,34 @@ async function applyStockDelta(db: Db, itemId: string, delta: number): Promise<A
   return { success: true }
 }
 
+/**
+ * Apply a set of stock changes as one unit: on any failure, the deltas already
+ * applied are reversed and the failure is RETURNED.
+ *
+ * Every call site used to fire applyStockDelta and ignore its result — a
+ * failed delta (deleted item, race past the preflight, plain DB error) left
+ * the movement recorded but the stock untouched, and nobody ever knew. Stock
+ * numbers drifted from the paper trail silently.
+ */
+async function applyStockDeltas(
+  db: Db,
+  deltas: Array<{ item_id: string; delta: number }>,
+): Promise<ActionResult> {
+  const applied: Array<{ item_id: string; delta: number }> = []
+  for (const d of deltas) {
+    if (d.delta === 0) continue
+    const res = await applyStockDelta(db, d.item_id, d.delta)
+    if (!res.success) {
+      for (const a of applied.reverse()) {
+        await applyStockDelta(db, a.item_id, -a.delta)   // best-effort unwind
+      }
+      return res
+    }
+    applied.push(d)
+  }
+  return { success: true }
+}
+
 /** Pre-flight: confirm every decrement line can be applied, before any write. */
 async function preflightDecrements(
   db: Db,
@@ -367,8 +396,10 @@ export async function createReceipt(raw: ReceiptFormInput): Promise<ActionData<{
     }
 
     // Apply stock + refresh prices per item
-    for (const l of input.lines) {
-      await applyStockDelta(db, l.item_id, l.quantity)
+    const stockRes = await applyStockDeltas(db, input.lines.map((l) => ({ item_id: l.item_id, delta: l.quantity })))
+    if (!stockRes.success) {
+      await db.from('inv_movements').delete().eq('id', header.id)
+      return { success: false, error: `Stock update failed — receipt not recorded: ${stockRes.error}` }
     }
     const uniqueItems = [...new Set(input.lines.map((l) => l.item_id))]
     for (const itemId of uniqueItems) await recomputePurchasePrices(db, itemId)
@@ -400,7 +431,7 @@ export async function createReceipt(raw: ReceiptFormInput): Promise<ActionData<{
         }).select('id').single()
         if (expErr) {
           // Roll back the whole receipt so we never leave un-costed stock.
-          for (const l of input.lines) await applyStockDelta(db, l.item_id, -l.quantity)
+          await applyStockDeltas(db, input.lines.map((l) => ({ item_id: l.item_id, delta: -l.quantity })))
           for (const itemId of uniqueItems) await recomputePurchasePrices(db, itemId)
           await db.from('inv_movements').delete().eq('id', header.id)
           return { success: false, error: `Expense creation failed: ${expErr.message}` }
@@ -459,7 +490,11 @@ export async function createIssue(raw: IssueFormInput): Promise<ActionData<{ id:
     const { error: linesErr } = await db.from('inv_movement_lines').insert(lineRows)
     if (linesErr) { await db.from('inv_movements').delete().eq('id', header.id); return { success: false, error: linesErr.message } }
 
-    for (const l of input.lines) await applyStockDelta(db, l.item_id, -l.quantity)
+    const stockRes = await applyStockDeltas(db, input.lines.map((l) => ({ item_id: l.item_id, delta: -l.quantity })))
+    if (!stockRes.success) {
+      await db.from('inv_movements').delete().eq('id', header.id)
+      return { success: false, error: `Stock update failed — issue not recorded: ${stockRes.error}` }
+    }
 
     await logHistory('inv_movement', header.id, 'created', { type: 'issue', dept: input.issued_to_department })
     revalidateInventory(await storeSlug(db, input.store_id))
@@ -495,16 +530,23 @@ export async function createTransfer(raw: TransferFormInput): Promise<ActionData
 
     // Decrement origin item; increment a same-named active item in the
     // destination store if one exists (items are store-scoped, so a twin must
-    // already exist for the destination side to move).
+    // already exist for the destination side to move). Resolve the twins
+    // FIRST, then apply everything as one checked unit.
+    const deltas: Array<{ item_id: string; delta: number }> = []
     for (const l of input.lines) {
-      await applyStockDelta(db, l.item_id, -l.quantity)
+      deltas.push({ item_id: l.item_id, delta: -l.quantity })
       const { data: origin } = await db.from('inv_items').select('name').eq('id', l.item_id).maybeSingle()
       if (origin?.name) {
         const { data: twin } = await db.from('inv_items')
           .select('id').eq('store_id', input.transfer_to_store_id).ilike('name', origin.name)
           .eq('is_active', true).maybeSingle()
-        if (twin?.id) await applyStockDelta(db, twin.id, l.quantity)
+        if (twin?.id) deltas.push({ item_id: twin.id, delta: l.quantity })
       }
+    }
+    const stockRes = await applyStockDeltas(db, deltas)
+    if (!stockRes.success) {
+      await db.from('inv_movements').delete().eq('id', header.id)
+      return { success: false, error: `Stock update failed — transfer not recorded: ${stockRes.error}` }
     }
 
     await logHistory('inv_movement', header.id, 'created', { type: 'transfer', to: input.transfer_to_store_id })
@@ -542,8 +584,13 @@ export async function createAdjustment(raw: AdjustmentFormInput): Promise<Action
     const { error: linesErr } = await db.from('inv_movement_lines').insert(lineRows)
     if (linesErr) { await db.from('inv_movements').delete().eq('id', header.id); return { success: false, error: linesErr.message } }
 
-    for (const l of input.lines) {
-      await applyStockDelta(db, l.item_id, l.adjustment_direction === 'increase' ? l.quantity : -l.quantity)
+    const stockRes = await applyStockDeltas(db, input.lines.map((l) => ({
+      item_id: l.item_id,
+      delta:   l.adjustment_direction === 'increase' ? l.quantity : -l.quantity,
+    })))
+    if (!stockRes.success) {
+      await db.from('inv_movements').delete().eq('id', header.id)
+      return { success: false, error: `Stock update failed — adjustment not recorded: ${stockRes.error}` }
     }
 
     await logHistory('inv_movement', header.id, 'created', { type: 'adjustment', reason: input.adjustment_reason })
@@ -566,35 +613,47 @@ export async function voidMovement(id: string, reason: string): Promise<ActionRe
     if (!m) return { success: false, error: 'Movement not found' }
     if (m.status === 'voided') return { success: false, error: 'Already voided' }
 
+    // CLAIM the void first, atomically. Two void clicks racing both passed the
+    // read guard above and the stock reversal ran TWICE — a voided 10 kg
+    // receipt subtracted 20 kg. The status predicate lets exactly one through.
+    const { data: claimed, error: voidErr } = await db.from('inv_movements').update({
+      status: 'voided', voided_at: new Date().toISOString(), voided_by: userId, void_reason: reason,
+    }).eq('id', id).neq('status', 'voided').select('id')
+    if (voidErr) return { success: false, error: voidErr.message }
+    if (!claimed?.length) return { success: false, error: 'Already voided' }
+
     const { data: lines } = await db.from('inv_movement_lines').select('*').eq('movement_id', id)
     const allLines = (lines ?? []) as Array<{ item_id: string; quantity: number; adjustment_direction: string | null }>
 
-    // Reverse the stock impact of each line.
+    // Reverse the stock impact of every line as one checked unit.
+    const deltas: Array<{ item_id: string; delta: number }> = []
     for (const l of allLines) {
       const qty = Number(l.quantity)
       if (m.movement_type === 'receipt') {
-        await applyStockDelta(db, l.item_id, -qty)
+        deltas.push({ item_id: l.item_id, delta: -qty })
       } else if (m.movement_type === 'issue') {
-        await applyStockDelta(db, l.item_id, qty)
+        deltas.push({ item_id: l.item_id, delta: qty })
       } else if (m.movement_type === 'transfer') {
-        await applyStockDelta(db, l.item_id, qty)  // restore origin
+        deltas.push({ item_id: l.item_id, delta: qty })  // restore origin
         const { data: origin } = await db.from('inv_items').select('name').eq('id', l.item_id).maybeSingle()
         if (origin?.name && m.transfer_to_store_id) {
           const { data: twin } = await db.from('inv_items')
             .select('id').eq('store_id', m.transfer_to_store_id).ilike('name', origin.name)
             .eq('is_active', true).maybeSingle()
-          if (twin?.id) await applyStockDelta(db, twin.id, -qty)
+          if (twin?.id) deltas.push({ item_id: twin.id, delta: -qty })
         }
       } else if (m.movement_type === 'adjustment') {
-        await applyStockDelta(db, l.item_id, l.adjustment_direction === 'increase' ? -qty : qty)
+        deltas.push({ item_id: l.item_id, delta: l.adjustment_direction === 'increase' ? -qty : qty })
       }
     }
-
-    // Mark voided
-    const { error: voidErr } = await db.from('inv_movements').update({
-      status: 'voided', voided_at: new Date().toISOString(), voided_by: userId, void_reason: reason,
-    }).eq('id', id)
-    if (voidErr) return { success: false, error: voidErr.message }
+    const stockRes = await applyStockDeltas(db, deltas)
+    if (!stockRes.success) {
+      // Un-claim so the void can be retried once the cause is fixed.
+      await db.from('inv_movements').update({
+        status: m.status, voided_at: null, voided_by: null, void_reason: null,
+      }).eq('id', id)
+      return { success: false, error: `Could not reverse stock — void cancelled: ${stockRes.error}` }
+    }
 
     // Receipts: delete the linked expense + recompute prices from remaining receipts.
     if (m.movement_type === 'receipt') {
@@ -628,7 +687,7 @@ export async function startCount(raw: CountFormInput): Promise<ActionData<{ id: 
     const input = countFormSchema.parse(raw)
     const db = dbc()
     const userId = await currentUserId()
-    const today = new Date().toISOString().slice(0, 10)
+    const today = todayDhaka()   // count date on the resort's calendar, not UTC's
 
     // Snapshot the active items in scope
     let itemQ = db.from('inv_items').select('id, current_stock').eq('store_id', input.store_id).eq('is_active', true)
@@ -691,8 +750,19 @@ export async function bulkMarkMatching(countId: string): Promise<ActionResult> {
     const now = new Date().toISOString()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const unmarked = ((lines ?? []) as any[]).filter((l) => l.counted_qty == null)
+    // Group by system_qty so each distinct value is ONE update with an id list.
+    // The old per-row loop fired hundreds of sequential UPDATEs on a big count
+    // sheet and the button hung for the whole ride.
+    const bySystemQty = new Map<number, string[]>()
     for (const l of unmarked) {
-      await db.from('inv_count_lines').update({ counted_qty: l.system_qty, counted_at: now, counted_by: userId }).eq('id', l.id)
+      const key = Number(l.system_qty)
+      bySystemQty.set(key, [...(bySystemQty.get(key) ?? []), l.id])
+    }
+    for (const [systemQty, ids] of bySystemQty) {
+      const { error } = await db.from('inv_count_lines')
+        .update({ counted_qty: systemQty, counted_at: now, counted_by: userId })
+        .in('id', ids)
+      if (error) return { success: false, error: error.message }
     }
     revalidatePath(`/inventory/counts/${countId}`)
     return { success: true }
@@ -721,7 +791,7 @@ export async function finalizeCount(countId: string): Promise<ActionResult> {
       .filter((v) => Math.abs(v.variance) > 0.0001)
 
     let adjustmentId: string | null = null
-    const today = new Date().toISOString().slice(0, 10)
+    const today = todayDhaka()   // the count happens on the resort's calendar, not UTC's
 
     if (variances.length > 0) {
       const header = await insertMovementHeader(db, 'adjustment', today, {
@@ -736,8 +806,16 @@ export async function finalizeCount(countId: string): Promise<ActionResult> {
         movement_id: header.id, item_id: v.item_id, quantity: Math.abs(v.variance),
         adjustment_direction: v.variance > 0 ? 'increase' : 'decrease', display_order: idx,
       }))
-      await db.from('inv_movement_lines').insert(lineRows)
-      for (const v of variances) await applyStockDelta(db, v.item_id, v.variance)
+      const { error: vlErr } = await db.from('inv_movement_lines').insert(lineRows)
+      if (vlErr) {
+        await db.from('inv_movements').delete().eq('id', header.id)
+        return { success: false, error: vlErr.message }
+      }
+      const stockRes = await applyStockDeltas(db, variances.map((v) => ({ item_id: v.item_id, delta: v.variance })))
+      if (!stockRes.success) {
+        await db.from('inv_movements').delete().eq('id', header.id)
+        return { success: false, error: `Stock update failed — count not finalized: ${stockRes.error}` }
+      }
       await logHistory('inv_movement', header.id, 'created', { type: 'adjustment', reason: 'recount', from_count: count.count_number })
     }
 

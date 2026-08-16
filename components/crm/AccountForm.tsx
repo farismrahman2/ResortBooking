@@ -10,6 +10,7 @@ import { createAccount, updateAccount } from '@/lib/actions/crm'
 import type { AccountFormInput } from '@/lib/validators/crm'
 import type { CrmSector, CrmTier, CrmAccount, AccountStatus } from '@/lib/supabase/types-crm'
 import { STATUS_LABELS } from './labels'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface OwnerOption { id: string; name: string }
 
@@ -60,7 +61,7 @@ export function AccountForm({ sectors, tiers, owners, parentChoices, defaultOwne
       notes:             form.notes.trim() || null,
     }
     startTransition(async () => {
-      const res = account ? await updateAccount(account.id, payload) : await createAccount(payload)
+      const res = account ? await safeCall(() => updateAccount(account.id, payload)) : await safeCall(() => createAccount(payload))
       if (!res.success) { setError(res.error); return }
       router.push(account ? `/crm/accounts/${account.id}` : '/crm/accounts')
       router.refresh()

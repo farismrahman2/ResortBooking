@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/Button'
 import { initializeLeaveBalances } from '@/lib/actions/leaves'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   year: number
@@ -17,7 +18,7 @@ export function InitializeYearButton({ year }: Props) {
   function run() {
     setMsg(null)
     startTransition(async () => {
-      const r = await initializeLeaveBalances(year)
+      const r = await safeCall(() => initializeLeaveBalances(year))
       if (!r.success) { setMsg(r.error); return }
       setMsg(`Created ${r.data.created}, skipped ${r.data.skipped} existing.`)
       router.refresh()

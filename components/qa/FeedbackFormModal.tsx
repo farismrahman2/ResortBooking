@@ -11,6 +11,7 @@ import { submitQaReview } from '@/lib/actions/qa'
 import { formatDate } from '@/lib/formatters/dates'
 import { cn } from '@/lib/utils'
 import type { QaPendingBooking, WouldReturn } from '@/lib/supabase/types-qa'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   booking: QaPendingBooking | null
@@ -66,7 +67,7 @@ export function FeedbackFormModal({ booking, onClose }: Props) {
     }
     setError(null)
     startTransition(async () => {
-      const res = await submitQaReview({
+      const res = await safeCall(() => submitQaReview({
         booking_id:           booking.id,
         room_service_rating:  roomRating!,
         room_service_comment: roomComment.trim() || null,
@@ -76,7 +77,7 @@ export function FeedbackFormModal({ booking, onClose }: Props) {
         other_comment:        otherComment.trim() || null,
         overall_rating:       overallRating!,
         would_return:         wouldReturn,
-      })
+      }))
       if (!res.success) { setError(res.error); return }
       close()
       router.refresh()

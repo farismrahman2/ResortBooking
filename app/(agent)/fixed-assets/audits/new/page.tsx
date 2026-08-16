@@ -6,6 +6,7 @@ import { Topbar } from '@/components/layout/Topbar'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { startAudit } from '@/lib/actions/fixed-assets'
+import { safeCall } from '@/lib/actions/safe-call'
 
 export default function NewAuditPage() {
   const router = useRouter()
@@ -16,7 +17,7 @@ export default function NewAuditPage() {
   function submit() {
     setError(null)
     startTransition(async () => {
-      const res = await startAudit(Number(year))
+      const res = await safeCall(() => startAudit(Number(year)))
       if (!res.success) { setError(res.error); return }
       router.push(`/fixed-assets/audits/${res.data.id}`)
       router.refresh()

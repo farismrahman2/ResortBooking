@@ -9,6 +9,7 @@ import { AlertCircle, AlertTriangle, UserX } from 'lucide-react'
 import { markNoShow, reverseNoShow } from '@/lib/actions/bookings'
 import { formatBDT } from '@/lib/formatters/currency'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   bookingId:      string
@@ -31,7 +32,7 @@ export function NoShowButton({ bookingId, bookingStatus, advancePaid, customerNa
     if (!ok) return
     setError(null)
     startTransition(async () => {
-      const r = await reverseNoShow(bookingId)
+      const r = await safeCall(() => reverseNoShow(bookingId))
       if (!r.success) { setError(r.error); return }
       router.refresh()
     })
@@ -40,7 +41,7 @@ export function NoShowButton({ bookingId, bookingStatus, advancePaid, customerNa
   function handleMark() {
     setError(null)
     startTransition(async () => {
-      const r = await markNoShow(bookingId, { notes: notes.trim() || undefined })
+      const r = await safeCall(() => markNoShow(bookingId, { notes: notes.trim() || undefined }))
       if (!r.success) { setError(r.error); return }
       setOpen(false)
       router.refresh()

@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { todayDhaka, addDaysIso } from '@/lib/dates'
 
 interface Props {
   date: string
@@ -18,12 +19,11 @@ export function AttendanceDateBar({ date }: Props) {
     params.set('date', d)
     router.replace(`/hr/attendance?${params.toString()}`)
   }
-  function shift(days: number) {
-    const d = new Date(date + 'T00:00:00')
-    d.setDate(d.getDate() + days)
-    goto(d.toISOString().slice(0, 10))
-  }
-  function today() { goto(new Date().toISOString().slice(0, 10)) }
+  // Pure string arithmetic — the old local-midnight + toISOString() round trip
+  // shifted the date back a day in any UTC+ browser, so in Bangladesh "Next"
+  // was a no-op, "Prev" jumped two days, and "Today" could be yesterday.
+  function shift(days: number) { goto(addDaysIso(date, days)) }
+  function today() { goto(todayDhaka()) }
 
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white p-3">

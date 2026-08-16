@@ -51,33 +51,40 @@ export async function initializeLeaveBalances(
       db.from('leave_types').select('id, slug, default_annual_balance').eq('is_active', true),
     ])
 
-    let created = 0
-    let skipped = 0
     const empList = (employees ?? []) as { id: string; full_name: string }[]
     const ltList  = (leaveTypes ?? []) as { id: string; slug: string; default_annual_balance: number }[]
 
-    for (const emp of empList) {
-      for (const lt of ltList) {
-        const { data: existing } = await db
-          .from('leave_balances')
-          .select('id')
-          .eq('employee_id', emp.id)
-          .eq('leave_type_id', lt.id)
-          .eq('year', year)
-          .maybeSingle()
-        if (existing) { skipped += 1; continue }
-        const { error } = await db.from('leave_balances').insert({
+    // One read of what exists, one batch insert of what's missing. The old
+    // loop ran a SELECT + INSERT pair per employee × leave type — 40 staff and
+    // 4 leave types was 320 sequential round trips behind one button.
+    const { data: existingRows } = await db
+      .from('leave_balances')
+      .select('employee_id, leave_type_id')
+      .eq('year', year)
+    const have = new Set(
+      ((existingRows ?? []) as { employee_id: string; leave_type_id: string }[])
+        .map((r) => `${r.employee_id}:${r.leave_type_id}`),
+    )
+
+    const toInsert = empList.flatMap((emp) =>
+      ltList
+        .filter((lt) => !have.has(`${emp.id}:${lt.id}`))
+        .map((lt) => ({
           employee_id:     emp.id,
           leave_type_id:   lt.id,
           year,
           opening_balance: Number(lt.default_annual_balance ?? 0),
           accrued:         0,
           used:            0,
-        })
-        if (error) { skipped += 1; continue }
-        created += 1
-      }
+        })),
+    )
+
+    if (toInsert.length > 0) {
+      const { error } = await db.from('leave_balances').insert(toInsert)
+      if (error) return { success: false, error: error.message }
     }
+    const created = toInsert.length
+    const skipped = empList.length * ltList.length - created
 
     if (empList.length > 0) {
       await logHistory(empList[0].id, 'edited', 'leave_balances_initialized', {

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition, useMemo } from 'react'
+import { safeCall } from '@/lib/actions/safe-call'
 import { useRouter } from 'next/navigation'
 import { AlertCircle, CheckCircle2, ShieldAlert } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -61,7 +62,7 @@ export function PermissionGrid({ role, modules, initial }: Props) {
   function save() {
     setError(null); setSavedAt(null)
     startTransition(async () => {
-      const r = await updateRolePermissions(role.id, { permissions: draft })
+      const r = await safeCall(() => updateRolePermissions(role.id, { permissions: draft }))
       if (!r.success) { setError(r.error); return }
       setSavedAt(new Date().toLocaleTimeString())
       setConfirmOpen(false)

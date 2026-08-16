@@ -11,6 +11,7 @@ import { createReceipt, createIssue, createTransfer, createAdjustment } from '@/
 import { createClient } from '@/lib/supabase/client'
 import { formatBDT } from '@/lib/formatters/currency'
 import type { InvStore, InvSupplier, InvItemWithStock, MovementType } from '@/lib/supabase/types-inventory'
+import { safeCall } from '@/lib/actions/safe-call'
 
 const RECEIPT_MIME = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'] as const
 const MAX_BYTES    = 10 * 1024 * 1024  // 10 MB
@@ -113,12 +114,12 @@ export function MovementForm({ type, stores, suppliers, items }: Props) {
           }
         }
 
-        const res = await createReceipt({
+        const res = await safeCall(() => createReceipt({
           movement_date: date, store_id: storeId, supplier_id: supplierId,
           invoice_number: invoiceNumber.trim() || null, notes: notes.trim() || null,
           attachment,
           lines: cleanLines.map((l) => ({ item_id: l.item_id, quantity: Number(l.quantity), unit_price: Number(l.unit_price) || 0 })),
-        })
+        }))
         if (!res.success) {
           // Remove the orphaned upload so a retry doesn't litter storage
           if (uploadedPath) await createClient().storage.from('expense-receipts').remove([uploadedPath])
@@ -132,20 +133,20 @@ export function MovementForm({ type, stores, suppliers, items }: Props) {
 
       let res
       if (type === 'issue') {
-        res = await createIssue({
+        res = await safeCall(() => createIssue({
           movement_date: date, store_id: storeId, issued_to_department: department.trim(), notes: notes.trim() || null,
           lines: cleanLines.map((l) => ({ item_id: l.item_id, quantity: Number(l.quantity) })),
-        })
+        }))
       } else if (type === 'transfer') {
-        res = await createTransfer({
+        res = await safeCall(() => createTransfer({
           movement_date: date, store_id: storeId, transfer_to_store_id: toStoreId, notes: notes.trim() || null,
           lines: cleanLines.map((l) => ({ item_id: l.item_id, quantity: Number(l.quantity) })),
-        })
+        }))
       } else {
-        res = await createAdjustment({
+        res = await safeCall(() => createAdjustment({
           movement_date: date, store_id: storeId, adjustment_reason: reason, notes: notes.trim() || null,
           lines: cleanLines.map((l) => ({ item_id: l.item_id, quantity: Number(l.quantity), adjustment_direction: l.direction })),
-        })
+        }))
       }
       if (!res.success) { setError(res.error); return }
       router.push('/inventory/movements')

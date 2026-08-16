@@ -7,6 +7,7 @@ import { discardDraftVisit } from '@/lib/actions/field-visits'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
+import { safeCall } from '@/lib/actions/safe-call'
 
 /** Clears an unwanted draft. Drafts never reached the CRM, so this is a real delete. */
 export function DiscardDraftButton({
@@ -33,7 +34,7 @@ export function DiscardDraftButton({
     })
     if (!ok) return
     startTransition(async () => {
-      const r = await discardDraftVisit(visitId)
+      const r = await safeCall(() => discardDraftVisit(visitId))
       if (!r.success) { toast.error(r.error); return }
       toast.success('Draft discarded')
       router.refresh()

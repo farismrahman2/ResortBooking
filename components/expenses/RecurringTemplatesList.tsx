@@ -30,6 +30,7 @@ import type {
   RecurringExpenseTemplateRow,
 } from '@/lib/supabase/types'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   templates:  RecurringExpenseTemplateRow[]
@@ -54,7 +55,7 @@ export function RecurringTemplatesList({ templates, categories, payees, defaultM
   function handleToggle(id: string) {
     setError(null)
     startTransition(async () => {
-      const result = await toggleRecurringTemplateActive(id)
+      const result = await safeCall(() => toggleRecurringTemplateActive(id))
       if (!result.success) setError(result.error)
       else router.refresh()
     })
@@ -65,7 +66,7 @@ export function RecurringTemplatesList({ templates, categories, payees, defaultM
     if (!ok) return
     setError(null)
     startTransition(async () => {
-      const result = await deleteRecurringTemplate(id)
+      const result = await safeCall(() => deleteRecurringTemplate(id))
       if (!result.success) setError(result.error)
       else router.refresh()
     })
@@ -75,7 +76,7 @@ export function RecurringTemplatesList({ templates, categories, payees, defaultM
     setError(null)
     setGenResult(null)
     startTransition(async () => {
-      const result = await generateMonthlyDrafts(genMonth)
+      const result = await safeCall(() => generateMonthlyDrafts(genMonth))
       if (!result.success) {
         setError(result.error)
         return
@@ -257,8 +258,8 @@ function RecurringTemplateFormModal({
     setError(null)
     startTransition(async () => {
       const result = isEdit
-        ? await updateRecurringTemplate(editing!.id, values)
-        : await createRecurringTemplate(values)
+        ? await safeCall(() => updateRecurringTemplate(editing!.id, values))
+        : await safeCall(() => createRecurringTemplate(values))
       if (!result.success) { setError(result.error); return }
       onClose(); reset(); router.refresh()
     })

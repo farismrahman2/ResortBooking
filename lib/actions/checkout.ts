@@ -13,6 +13,7 @@ import { requirePermission, getCurrentUserContext, isAdmin } from '@/lib/auth/pe
 import { flagAlert } from '@/lib/auth/alerts'
 import { calcChargesTotal, calcPaymentsTotal } from '@/lib/checkout/totals'
 import { formatBDT } from '@/lib/formatters/currency'
+import { todayDhaka } from '@/lib/dates'
 import type { ActionResult, ActionData } from './types'
 
 async function logHistory(
@@ -172,7 +173,9 @@ export async function finalizeCheckout(
       }
     }
 
-    const { error: updErr } = await db
+    // status='draft' in the predicate makes the finalize atomic — two agents
+    // clicking together both pass the read guard above; only one wins here.
+    const { data: finalized, error: updErr } = await db
       .from('checkouts')
       .update({
         advance_amount: advance,
@@ -183,7 +186,10 @@ export async function finalizeCheckout(
         finalized_by:   ctx?.user_id ?? null,
       })
       .eq('id', checkoutId)
+      .eq('status', 'draft')
+      .select('id')
     if (updErr) return { success: false, error: updErr.message }
+    if (!finalized?.length) return { success: false, error: 'This checkout was already finalized.' }
 
     // Flip booking status to checked_out
     const { error: bookErr } = await db
@@ -311,9 +317,15 @@ export async function reopenCheckout(checkoutId: string): Promise<ActionResult> 
       return { success: false, error: `Cannot reopen — checkout is ${checkout.status}.` }
     }
 
+    // Reset the finalize-time snapshots too — a reopened draft with stale
+    // charges_total/payments_total reads as if the money were still settled,
+    // and net_due is GENERATED from these columns.
     const { error: updErr } = await db
       .from('checkouts')
-      .update({ status: 'draft', finalized_at: null, finalized_by: null })
+      .update({
+        status: 'draft', finalized_at: null, finalized_by: null,
+        advance_amount: 0, charges_total: 0, payments_total: 0,
+      })
       .eq('id', checkoutId)
     if (updErr) return { success: false, error: updErr.message }
 
@@ -356,6 +368,7 @@ export async function recordRefund(
       .from('checkouts')
       .select(`
         id, status, booking_id, advance_amount, charges_total, payments_total, net_due,
+        refund_expense_id, refund_amount,
         booking:bookings!inner (id, booking_number, customer_name)
       `)
       .eq('id', checkoutId)
@@ -363,6 +376,15 @@ export async function recordRefund(
     if (!checkout) return { success: false, error: 'Checkout not found' }
     if (checkout.status !== 'finalized') {
       return { success: false, error: 'Refunds can only be recorded on finalized checkouts.' }
+    }
+    // One refund per checkout. Recording a second one created a second expense
+    // and silently overwrote the pointer to the first — double money out in
+    // the expense book, with the first expense orphaned.
+    if (checkout.refund_expense_id) {
+      return {
+        success: false,
+        error: `A refund of ${formatBDT(Number(checkout.refund_amount ?? 0))} is already recorded for this checkout. Void it in Expenses first if it was wrong.`,
+      }
     }
 
     // Resolve refund expense category — prefer slug 'guest_refund', else
@@ -400,7 +422,7 @@ export async function recordRefund(
     // Map checkout payment_method → expense payment_method (overlap is exact except 'card')
     const expenseMethod = parsed.method === 'card' ? 'other' : parsed.method
 
-    const today = new Date().toISOString().slice(0, 10)
+    const today = todayDhaka()
     const description = `Refund: ${checkout.booking.customer_name} (${checkout.booking.booking_number})`
 
     const { data: exp, error: expErr } = await db
@@ -419,11 +441,20 @@ export async function recordRefund(
       .single()
     if (expErr || !exp) return { success: false, error: expErr?.message ?? 'Could not create expense' }
 
-    const { error } = await db
+    // Conditional on refund_expense_id still being null — two clicks racing
+    // both pass the read guard above; the predicate lets only one through,
+    // and the loser cleans up its just-created expense.
+    const { data: claimed, error } = await db
       .from('checkouts')
       .update({ refund_amount: parsed.amount, refund_expense_id: exp.id })
       .eq('id', checkoutId)
+      .is('refund_expense_id', null)
+      .select('id')
     if (error) return { success: false, error: error.message }
+    if (!claimed?.length) {
+      await db.from('expenses').delete().eq('id', exp.id)
+      return { success: false, error: 'A refund was already recorded for this checkout.' }
+    }
 
     await logHistory(checkoutId, 'edited', 'refund_recorded', {
       booking_id: checkout.booking_id,
@@ -478,8 +509,14 @@ export async function applyDiscount(
       return { success: false, error: `Cannot edit discount — checkout is ${checkout.status}.` }
     }
 
-    // Convert percent → fixed amount based on (booking total + extra charges)
-    const subtotal = Number(checkout.booking.total ?? 0) + Number(checkout.charges_total ?? 0)
+    // Convert percent → fixed amount based on (booking total + extra charges).
+    // charges_total on the row is a snapshot written at FINALIZE — on a draft
+    // (the only status this action accepts) it is still 0, so percent
+    // discounts silently ignored every extra charge. Sum the charges live.
+    const { data: liveCharges } = await db
+      .from('checkout_charges').select('amount, quantity, unit_price').eq('checkout_id', checkoutId)
+    const chargesTotal = calcChargesTotal((liveCharges ?? []) as any[])
+    const subtotal = Number(checkout.booking.total ?? 0) + chargesTotal
     const fixed = parsed.mode === 'percent'
       ? Math.round((subtotal * parsed.value) / 100 * 100) / 100
       : parsed.value

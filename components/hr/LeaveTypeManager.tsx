@@ -12,6 +12,7 @@ import {
   toggleLeaveTypeActive,
 } from '@/lib/actions/leaves'
 import type { LeaveTypeRow } from '@/lib/supabase/types'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   rows: LeaveTypeRow[]
@@ -86,8 +87,8 @@ export function LeaveTypeManager({ rows }: Props) {
         is_active:              r.is_active,
       }
       const result = r.id
-        ? await updateLeaveType(r.id, payload)
-        : await createLeaveType(payload)
+        ? await safeCall(() => updateLeaveType(r.id!, payload))
+        : await safeCall(() => createLeaveType(payload))
       setSavingId(null)
       if (!result.success) { setError(result.error); return }
       setSavedAt(new Date().toLocaleTimeString())
@@ -97,7 +98,7 @@ export function LeaveTypeManager({ rows }: Props) {
 
   function toggleActive(id: string) {
     startTransition(async () => {
-      const result = await toggleLeaveTypeActive(id)
+      const result = await safeCall(() => toggleLeaveTypeActive(id))
       if (!result.success) { setError(result.error); return }
       router.refresh()
     })

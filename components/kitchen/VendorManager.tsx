@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import { safeCall } from '@/lib/actions/safe-call'
 import { useRouter } from 'next/navigation'
 import { Plus, Check, X, Pencil, EyeOff, Eye, GripVertical } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -9,7 +10,6 @@ import { useConfirm } from '@/components/ui/ConfirmDialog'
 import {
   createKitchenVendor, updateKitchenVendor, deactivateKitchenVendor,
 } from '@/lib/actions/kitchen'
-import { safeCall } from '@/lib/actions/safe-call'
 import type { KitchenVendor } from '@/lib/supabase/types-kitchen'
 
 /**

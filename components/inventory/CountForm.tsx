@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/Textarea'
 import { Button } from '@/components/ui/Button'
 import { startCount } from '@/lib/actions/inventory'
 import type { InvStore, InvCategory } from '@/lib/supabase/types-inventory'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   stores:     InvStore[]
@@ -26,7 +27,7 @@ export function CountForm({ stores, categories }: Props) {
   function submit() {
     setError(null)
     startTransition(async () => {
-      const res = await startCount({ store_id: storeId, category_id: categoryId || null, notes: notes.trim() || null })
+      const res = await safeCall(() => startCount({ store_id: storeId, category_id: categoryId || null, notes: notes.trim() || null }))
       if (!res.success) { setError(res.error); return }
       router.push(`/inventory/counts/${res.data.id}`)
       router.refresh()

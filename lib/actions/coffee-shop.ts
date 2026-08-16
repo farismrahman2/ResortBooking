@@ -205,7 +205,46 @@ export async function updateCoffeeShopSale(
       return { success: false, error: `Tendered (৳${tendered.toFixed(2)}) doesn't match Net (৳${totals.net_amount.toFixed(2)}).` }
     }
 
-    // Update header
+    // Replace children FIRST, header last — so a failure part-way never leaves
+    // new totals sitting on old lines. Old rows are captured and restored if an
+    // insert fails: the unchecked delete-then-insert used to be able to leave a
+    // sale with a total and ZERO items.
+    const userId = await currentUserId()
+    const [{ data: oldItems }, { data: oldPayments }] = await Promise.all([
+      db.from('coffee_shop_sale_items').select('*').eq('sale_id', saleId),
+      db.from('coffee_shop_sale_payments').select('*').eq('sale_id', saleId),
+    ])
+
+    const restoreChildren = async () => {
+      await db.from('coffee_shop_sale_items').delete().eq('sale_id', saleId)
+      await db.from('coffee_shop_sale_payments').delete().eq('sale_id', saleId)
+      if (oldItems?.length)    await db.from('coffee_shop_sale_items').insert(oldItems)
+      if (oldPayments?.length) await db.from('coffee_shop_sale_payments').insert(oldPayments)
+    }
+
+    const { error: delItemsErr } = await db.from('coffee_shop_sale_items').delete().eq('sale_id', saleId)
+    if (delItemsErr) return { success: false, error: delItemsErr.message }
+    const { error: delPaymentsErr } = await db.from('coffee_shop_sale_payments').delete().eq('sale_id', saleId)
+    if (delPaymentsErr) { await restoreChildren(); return { success: false, error: delPaymentsErr.message } }
+
+    const { error: itemsErr } = await db.from('coffee_shop_sale_items').insert(
+      parsed.items.map((it, i) => ({
+        sale_id: saleId, charge_item_id: it.charge_item_id ?? null, category_id: it.category_id,
+        description: it.description, quantity: it.quantity, unit_price: it.unit_price,
+        is_complimentary: it.is_complimentary,
+        comp_authorized_by: it.is_complimentary ? (it.comp_authorized_by === 'self' ? userId : (it.comp_authorized_by ?? userId)) : null,
+        comp_reason: it.comp_reason ?? null, notes: it.notes ?? null, display_order: i,
+      })),
+    )
+    if (itemsErr) { await restoreChildren(); return { success: false, error: `Sale left unchanged: ${itemsErr.message}` } }
+    const { error: paymentsErr } = await db.from('coffee_shop_sale_payments').insert(
+      parsed.payments.map((p, i) => ({
+        sale_id: saleId, amount: p.amount, method: p.method, reference: p.reference ?? null, display_order: i,
+      })),
+    )
+    if (paymentsErr) { await restoreChildren(); return { success: false, error: `Sale left unchanged: ${paymentsErr.message}` } }
+
+    // Header last.
     const { error: updErr } = await db.from('coffee_shop_sales').update({
       subtotal:        totals.subtotal,
       comp_value:      totals.comp_value,
@@ -218,28 +257,7 @@ export async function updateCoffeeShopSale(
       notes:           parsed.notes ?? null,
       updated_at:      new Date().toISOString(),
     }).eq('id', saleId)
-    if (updErr) return { success: false, error: updErr.message }
-
-    // Replace children
-    const userId = await currentUserId()
-    await db.from('coffee_shop_sale_items').delete().eq('sale_id', saleId)
-    await db.from('coffee_shop_sale_payments').delete().eq('sale_id', saleId)
-    const { error: itemsErr } = await db.from('coffee_shop_sale_items').insert(
-      parsed.items.map((it, i) => ({
-        sale_id: saleId, charge_item_id: it.charge_item_id ?? null, category_id: it.category_id,
-        description: it.description, quantity: it.quantity, unit_price: it.unit_price,
-        is_complimentary: it.is_complimentary,
-        comp_authorized_by: it.is_complimentary ? (it.comp_authorized_by === 'self' ? userId : (it.comp_authorized_by ?? userId)) : null,
-        comp_reason: it.comp_reason ?? null, notes: it.notes ?? null, display_order: i,
-      })),
-    )
-    if (itemsErr) return { success: false, error: itemsErr.message }
-    const { error: paymentsErr } = await db.from('coffee_shop_sale_payments').insert(
-      parsed.payments.map((p, i) => ({
-        sale_id: saleId, amount: p.amount, method: p.method, reference: p.reference ?? null, display_order: i,
-      })),
-    )
-    if (paymentsErr) return { success: false, error: paymentsErr.message }
+    if (updErr) { await restoreChildren(); return { success: false, error: `Sale totals not saved: ${updErr.message}` } }
 
     await logHistory(saleId, 'edited', 'coffee_shop_sale_edited', {
       net_amount: totals.net_amount, items: parsed.items.length,

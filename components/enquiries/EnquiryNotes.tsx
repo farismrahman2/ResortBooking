@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/Button'
 import { Textarea } from '@/components/ui/Textarea'
 import { appendEnquiryNote } from '@/lib/actions/enquiries'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   id: string
@@ -23,7 +24,7 @@ export function EnquiryNotes({ id, notes, canWrite }: Props) {
     if (!note || pending) return
     setError(null)
     startTransition(async () => {
-      const res = await appendEnquiryNote({ id, note })
+      const res = await safeCall(() => appendEnquiryNote({ id, note }))
       if (!res.success) { setError(res.error ?? 'Failed to add note'); return }
       setValue('')
       router.refresh()

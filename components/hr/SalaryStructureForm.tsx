@@ -15,6 +15,7 @@ import { setSalaryStructure } from '@/lib/actions/employees'
 import { formatBDT } from '@/lib/formatters/currency'
 import { toISODate } from '@/lib/formatters/dates'
 import type { SalaryStructureRow } from '@/lib/supabase/types'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   employeeId: string
@@ -59,7 +60,7 @@ export function SalaryStructureForm({ employeeId, current, onSaved }: Props) {
   function onSubmit(values: SalaryStructureFormInput) {
     setError(null)
     startTransition(async () => {
-      const result = await setSalaryStructure(employeeId, values)
+      const result = await safeCall(() => setSalaryStructure(employeeId, values))
       if (!result.success) { setError(result.error); return }
       setSavedAt(new Date().toLocaleTimeString())
       onSaved?.()

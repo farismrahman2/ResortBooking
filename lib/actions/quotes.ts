@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { CreateQuoteSchema, type CreateQuoteInput } from '@/lib/validators/quote'
 import { calculateDaylong, calculateNight } from '@/lib/engine/calculator'
 import { buildPackageSnapshot } from '@/lib/engine/snapshot'
-import { generateQuoteNumber } from '@/lib/utils'
+import { generateQuoteNumber, isUniqueViolation } from '@/lib/utils'
 import { getHolidayDateStrings } from '@/lib/queries/settings'
 import { checkAvailabilityConflict } from '@/lib/queries/availability'
 import { findDuplicateBookings } from '@/lib/queries/duplicate-bookings'
@@ -119,11 +119,14 @@ export async function createQuote(
     )
     if (conflict) return { success: false, error: `Availability conflict: ${conflict}` }
 
-    // Generate unique quote number
-    const quote_number = await generateQuoteNumber(supabase as any)
-
-    // Insert quote
-    const { data: quote, error: quoteError } = await supabase
+    // Generate the quote number and insert. MAX+1 can collide when two agents
+    // save at the same moment — the unique index rejects the loser with 23505
+    // and we retry with a freshly read number.
+    let quote: { id: string; quote_number: string } | null = null
+    let quoteError: { message?: string } | null = null
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const quote_number = await generateQuoteNumber(supabase as any)
+      const res = await supabase
       .from('quotes')
       .insert({
         quote_number,
@@ -155,10 +158,15 @@ export async function createQuote(
       })
       .select('id, quote_number')
       .single()
+      quote      = res.data
+      quoteError = res.error
+      if (quote || !isUniqueViolation(res.error, 'quote_number')) break
+    }
 
     if (quoteError || !quote) return { success: false, error: quoteError?.message ?? 'Insert failed' }
 
-    // Insert quote rooms
+    // Insert quote rooms — a quote without its rooms is invisible to the
+    // capacity checks, so undo the header if this fails.
     const roomRows = validated.rooms.map((r) => ({
       quote_id:     quote.id,
       room_type:    r.room_type as RoomType,
@@ -168,7 +176,11 @@ export async function createQuote(
     }))
 
     if (roomRows.length > 0) {
-      await supabase.from('quote_rooms').insert(roomRows)
+      const { error: roomsErr } = await supabase.from('quote_rooms').insert(roomRows)
+      if (roomsErr) {
+        await supabase.from('quotes').delete().eq('id', quote.id)
+        return { success: false, error: `Could not save the quote's rooms: ${roomsErr.message}` }
+      }
     }
 
     // Log history
@@ -177,7 +189,7 @@ export async function createQuote(
       entity_id:   quote.id,
       event:       'created',
       actor:       'system',
-      payload:     { quote_number, customer_name: validated.customer_name },
+      payload:     { quote_number: quote.quote_number, customer_name: validated.customer_name },
     })
 
     revalidatePath('/quotes')

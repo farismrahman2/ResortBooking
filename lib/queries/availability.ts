@@ -38,37 +38,51 @@ export async function checkAvailabilityConflict(
     }
   }
 
-  // Fetch room inventory
-  const { data: inventory } = await db.from('room_inventory').select('room_type, total_units')
+  // One bounded fetch for the whole [rangeStart, rangeEnd) window, then per-date
+  // sums in memory. This used to run two queries per night with only an upper
+  // date bound — every historical row matched, and past PostgREST's 1000-row
+  // response cap current bookings silently fell out of the occupancy sum, so
+  // the capacity guard approved overbookings.
+  //
+  // A booking blocks [visit_date, check_out_date), or just visit_date when
+  // check_out_date is null (daylong). It overlaps the window iff
+  // visit_date < rangeEnd AND (check_out_date > rangeStart OR
+  // (check_out_date IS NULL AND visit_date >= rangeStart)).
+  const rangeStart = visitDate
+  const rangeEnd   = checkOutDate ?? nextDay(visitDate)
+  const overlapOr  = `check_out_date.gt.${rangeStart},and(check_out_date.is.null,visit_date.gte.${rangeStart})`
+
+  let bookingQuery = db
+    .from('booking_rooms')
+    .select('room_type, qty, bookings!inner(id, visit_date, check_out_date, status)')
+    .lt('bookings.visit_date', rangeEnd)
+    .or(overlapOr, { foreignTable: 'bookings' })
+    .neq('bookings.status', 'cancelled')
+
+  if (excludeBookingId) {
+    bookingQuery = bookingQuery.neq('bookings.id', excludeBookingId)
+  }
+
+  let quoteQuery = db
+    .from('quote_rooms')
+    .select('room_type, qty, quotes!inner(id, visit_date, check_out_date, status, converted_to_booking_id)')
+    .lt('quotes.visit_date', rangeEnd)
+    .or(overlapOr, { foreignTable: 'quotes' })
+    .eq('quotes.status', 'confirmed')
+    .is('quotes.converted_to_booking_id', null)
+
+  if (excludeQuoteId) {
+    quoteQuery = quoteQuery.neq('quotes.id', excludeQuoteId)
+  }
+
+  const [{ data: inventory }, { data: bookingOccupied }, { data: quoteOccupied }] =
+    await Promise.all([
+      db.from('room_inventory').select('room_type, total_units'),
+      bookingQuery,
+      quoteQuery,
+    ])
 
   for (const date of dates) {
-    // Fetch occupied booking_rooms for this date
-    let bookingQuery = db
-      .from('booking_rooms')
-      .select('room_type, qty, bookings!inner(id, visit_date, check_out_date, status)')
-      .filter('bookings.visit_date', 'lte', date)
-      .neq('bookings.status', 'cancelled')
-
-    if (excludeBookingId) {
-      bookingQuery = bookingQuery.neq('bookings.id', excludeBookingId)
-    }
-
-    const { data: bookingOccupied } = await bookingQuery
-
-    // Fetch occupied quote_rooms (confirmed, not yet converted)
-    let quoteQuery = db
-      .from('quote_rooms')
-      .select('room_type, qty, quotes!inner(id, visit_date, check_out_date, status, converted_to_booking_id)')
-      .filter('quotes.visit_date', 'lte', date)
-      .eq('quotes.status', 'confirmed')
-      .is('quotes.converted_to_booking_id', null)
-
-    if (excludeQuoteId) {
-      quoteQuery = quoteQuery.neq('quotes.id', excludeQuoteId)
-    }
-
-    const { data: quoteOccupied } = await quoteQuery
-
     // Sum occupied units per room type on this date
     const occupied = new Map<string, number>()
     for (const row of bookingOccupied ?? []) {
@@ -79,7 +93,10 @@ export async function checkAvailabilityConflict(
       // no_show frees the room same as cancelled — the advance was paid but
       // the guest never arrived, so the inventory is back on the market.
       if (!b || b.status === 'cancelled' || b.status === 'no_show') continue
-      const blocks = b.check_out_date ? b.check_out_date > date : b.visit_date === date
+      // visit_date <= date used to be guaranteed by the (per-date) query; now
+      // the fetch spans the whole window, so it must be checked here.
+      const blocks = b.visit_date <= date
+        && (b.check_out_date ? b.check_out_date > date : b.visit_date === date)
       if (blocks) {
         occupied.set(row.room_type, (occupied.get(row.room_type) ?? 0) + row.qty)
       }
@@ -88,7 +105,8 @@ export async function checkAvailabilityConflict(
       const q = (row as any).quotes
       // Same defensive guard as bookings — only confirmed, unconverted quotes block.
       if (!q || q.status !== 'confirmed' || q.converted_to_booking_id) continue
-      const blocks = q.check_out_date ? q.check_out_date > date : q.visit_date === date
+      const blocks = q.visit_date <= date
+        && (q.check_out_date ? q.check_out_date > date : q.visit_date === date)
       if (blocks) {
         occupied.set(row.room_type, (occupied.get(row.room_type) ?? 0) + row.qty)
       }
@@ -116,21 +134,28 @@ export async function getRoomAvailability(
 ): Promise<AvailabilityResult[]> {
   const supabase = createClient()
 
-  // Query bookings that overlap with this date
-  const { data: bookingOccupied } = await supabase
-    .from('booking_rooms')
-    .select('room_type, qty, bookings!inner(visit_date, check_out_date, status)')
-    .filter('bookings.visit_date', 'lte', date)
-    .filter('bookings.status', 'neq', 'cancelled')
+  // Overlap bound pushed to SQL: without the .or() the only predicate was
+  // visit_date <= date, which matches every historical row and silently
+  // truncates at PostgREST's 1000-row cap once the resort has enough history.
+  const dayOverlapOr = `check_out_date.gt.${date},and(check_out_date.is.null,visit_date.eq.${date})`
 
-  // Query confirmed quotes that overlap with this date
-  // Exclude quotes that have already been converted to a booking (they'd be double-counted)
-  const { data: quoteOccupied } = await supabase
-    .from('quote_rooms')
-    .select('room_type, qty, quotes!inner(visit_date, check_out_date, status, converted_to_booking_id)')
-    .filter('quotes.visit_date', 'lte', date)
-    .eq('quotes.status', 'confirmed')
-    .is('quotes.converted_to_booking_id', null)
+  const [{ data: bookingOccupied }, { data: quoteOccupied }] = await Promise.all([
+    supabase
+      .from('booking_rooms')
+      .select('room_type, qty, bookings!inner(visit_date, check_out_date, status)')
+      .filter('bookings.visit_date', 'lte', date)
+      .or(dayOverlapOr, { foreignTable: 'bookings' })
+      .filter('bookings.status', 'neq', 'cancelled'),
+    // Confirmed quotes that overlap, excluding ones already converted to a
+    // booking (they'd be double-counted).
+    supabase
+      .from('quote_rooms')
+      .select('room_type, qty, quotes!inner(visit_date, check_out_date, status, converted_to_booking_id)')
+      .filter('quotes.visit_date', 'lte', date)
+      .or(dayOverlapOr, { foreignTable: 'quotes' })
+      .eq('quotes.status', 'confirmed')
+      .is('quotes.converted_to_booking_id', null),
+  ])
 
   // Merge and filter by actual date overlap
   const occupied: OccupiedRoom[] = []
@@ -205,9 +230,19 @@ export async function getBookedRoomNumbers(
 ): Promise<string[]> {
   const supabase = createClient()
 
+  const aStart = visitDate
+  const aEnd   = checkOutDate ?? nextDay(visitDate)
+
+  // The overlap window is pushed into the query. Unbounded, this fetched every
+  // booking_rooms row ever created; past PostgREST's 1000-row cap an active
+  // overlapping booking could silently drop out of the result — and every
+  // room-number conflict guard in the app trusts this list, so the same
+  // physical room could be assigned to two bookings.
   let query = supabase
     .from('booking_rooms')
     .select('room_numbers, bookings!inner(id, visit_date, check_out_date, status)')
+    .lt('bookings.visit_date', aEnd)
+    .or(`check_out_date.gt.${aStart},and(check_out_date.is.null,visit_date.gte.${aStart})`, { foreignTable: 'bookings' })
     .neq('bookings.status', 'cancelled')
 
   if (excludeBookingId) {
@@ -215,9 +250,6 @@ export async function getBookedRoomNumbers(
   }
 
   const { data } = await query
-
-  const aStart = visitDate
-  const aEnd   = checkOutDate ?? nextDay(visitDate)
 
   const taken: string[] = []
   for (const row of data ?? []) {
