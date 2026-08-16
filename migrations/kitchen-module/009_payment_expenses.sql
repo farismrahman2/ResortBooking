@@ -11,10 +11,14 @@
 -- edited or deleted directly — the payment owns it.
 -- ─────────────────────────────────────────────────────────────────────────────
 
--- 1. Allow 'kitchen' as an expense source.
+-- 1. Allow 'kitchen' as an expense source. The list must keep EVERY value
+--    other modules already write — 'fixed_assets' was widened in by the
+--    fixed-assets module after inventory first created this constraint, and
+--    omitting it made the re-add fail with 23514 on any database that had a
+--    fixed-asset expense.
 ALTER TABLE expenses DROP CONSTRAINT IF EXISTS expenses_source_module_check;
 ALTER TABLE expenses ADD CONSTRAINT expenses_source_module_check
-  CHECK (source_module IN ('manual', 'payroll', 'checkout_refund', 'inventory', 'kitchen'));
+  CHECK (source_module IN ('manual', 'payroll', 'checkout_refund', 'inventory', 'fixed_assets', 'kitchen'));
 
 -- 2. The category these expenses land in (code also creates it if missing).
 INSERT INTO expense_categories (name, slug, category_group, requires_description, requires_payee, display_order)
