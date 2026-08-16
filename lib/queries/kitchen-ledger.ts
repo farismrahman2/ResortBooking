@@ -250,7 +250,12 @@ export async function listSubstitutableLines(
  */
 export async function listRequisitionsAwaitingDelivery(vendorId?: string): Promise<Array<{
   id: string; requisition_no: string; event_date: string
+  /** Vendors with nothing recorded yet — start a new delivery. */
   vendors: string[]
+  /** Vendors with a DRAFT sitting unconfirmed — continue that draft. A draft
+   *  used to count as "received" and the vendor silently vanished from this
+   *  prompt, with no way back to the half-finished delivery. */
+  drafts: Array<{ vendor_id: string; delivery_id: string; delivery_no: string }>
 }>> {
   const { data } = await db()
     .from('kitchen_requisitions')
@@ -263,26 +268,44 @@ export async function listRequisitionsAwaitingDelivery(vendorId?: string): Promi
   if (rows.length === 0) return []
 
   // A cancelled delivery doesn't count as received — the goods still haven't
-  // arrived, and the prompt has to come back.
+  // arrived, and the prompt has to come back. A DRAFT isn't received either:
+  // it hides the "start new" chip but must surface as "continue the draft".
   const { data: done } = await db()
     .from('kitchen_deliveries')
-    .select('requisition_id, kitchen_vendor_id')
+    .select('id, delivery_no, status, requisition_id, kitchen_vendor_id')
     .in('requisition_id', rows.map((r) => r.id))
     .neq('status', 'cancelled')
-  const received = new Set(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ((done ?? []) as any[]).map((d) => `${d.requisition_id}:${d.kitchen_vendor_id}`),
-  )
+  const confirmed = new Set<string>()
+  const draftByPair = new Map<string, { delivery_id: string; delivery_no: string }>()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const d of ((done ?? []) as any[])) {
+    const key = `${d.requisition_id}:${d.kitchen_vendor_id}`
+    if (d.status === 'draft') {
+      if (!draftByPair.has(key)) draftByPair.set(key, { delivery_id: d.id, delivery_no: d.delivery_no })
+    } else {
+      confirmed.add(key)
+    }
+  }
 
   return rows
-    .map((r) => ({
-      id: r.id, requisition_no: r.requisition_no, event_date: r.event_date,
-      vendors: [...new Set(
+    .map((r) => {
+      const allVendors = [...new Set(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         ((r.lines ?? []) as any[]).map((l) => l.kitchen_vendor_id).filter(Boolean),
-      )].filter((v) => !received.has(`${r.id}:${v}`)) as string[],
-    }))
-    .filter((r) => (vendorId ? r.vendors.includes(vendorId) : r.vendors.length > 0))
+      )] as string[]
+      const open = allVendors.filter((v) => !confirmed.has(`${r.id}:${v}`))
+      return {
+        id: r.id, requisition_no: r.requisition_no, event_date: r.event_date,
+        vendors: open.filter((v) => !draftByPair.has(`${r.id}:${v}`)),
+        drafts:  open.flatMap((v) => {
+          const d = draftByPair.get(`${r.id}:${v}`)
+          return d ? [{ vendor_id: v, ...d }] : []
+        }),
+      }
+    })
+    .filter((r) => (vendorId
+      ? r.vendors.includes(vendorId) || r.drafts.some((d) => d.vendor_id === vendorId)
+      : r.vendors.length > 0 || r.drafts.length > 0))
 }
 
 // ─── Payments ───────────────────────────────────────────────────────────────

@@ -70,6 +70,19 @@ export default async function DeliveriesPage({
                             {vendorName.get(v) ?? 'Vendor'}
                           </Link>
                         ))}
+                        {/* A half-finished draft continues — starting a second
+                            delivery for the same vendor would find its lines
+                            already claimed and arrive empty. */}
+                        {r.drafts.map((d) => (
+                          <Link
+                            key={d.vendor_id}
+                            href={`/kitchen/deliveries/${d.delivery_id}/edit`}
+                            className="inline-flex min-h-[34px] items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 px-2.5 text-xs font-medium text-amber-800"
+                          >
+                            {vendorName.get(d.vendor_id) ?? 'Vendor'}
+                            <span className="font-normal text-amber-600">· finish {d.delivery_no}</span>
+                          </Link>
+                        ))}
                       </div>
                     </li>
                   ))}
