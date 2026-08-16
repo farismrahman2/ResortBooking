@@ -124,7 +124,12 @@ export function PaymentForm({
           .map(([delivery_id, v]) => ({ delivery_id, amount: Number(v) })),
       }, paymentId))
       if (!r.success) { setError(r.error); return }
-      toast.success(paymentId ? 'Payment updated' : 'Payment recorded')
+      if (r.data?.expenseWarning) {
+        // The payment is in, but its expense-book entry is not — say so loudly.
+        toast.error(r.data.expenseWarning)
+      } else {
+        toast.success(paymentId ? 'Payment updated — posted to Expenses' : 'Payment recorded — posted to Expenses')
+      }
       router.push('/kitchen/payments')
     })
   }

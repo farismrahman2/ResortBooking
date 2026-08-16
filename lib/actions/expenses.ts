@@ -110,12 +110,14 @@ export async function updateExpense(id: string, input: unknown): Promise<ActionR
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const db = supabase as any
 
-    // Same guard deleteExpense enforces: inventory-sourced expenses are owned
-    // by their receipt — editing the amount here would desync it from the
-    // stock that was actually received.
+    // Same guard deleteExpense enforces: module-sourced expenses are owned by
+    // their source record — editing the amount here would desync the two.
     const { data: existing } = await db.from('expenses').select('source_module').eq('id', id).maybeSingle()
     if (existing?.source_module === 'inventory') {
       return { success: false, error: 'This expense was created by an inventory receipt. Void the receipt and re-enter it to change the amount.' }
+    }
+    if (existing?.source_module === 'kitchen') {
+      return { success: false, error: 'This expense mirrors a kitchen vendor payment. Edit the payment in Kitchen → Payments instead.' }
     }
 
     const { error } = await db
@@ -160,6 +162,9 @@ export async function deleteExpense(id: string): Promise<ActionResult> {
     const { data: existing } = await db.from('expenses').select('source_module').eq('id', id).maybeSingle()
     if (existing?.source_module === 'inventory') {
       return { success: false, error: 'This expense was created by an inventory receipt. Void the receipt to remove it.' }
+    }
+    if (existing?.source_module === 'kitchen') {
+      return { success: false, error: 'This expense mirrors a kitchen vendor payment. Cancel the payment in Kitchen → Payments to remove it.' }
     }
 
     // Phase 3 will delete storage objects too. For now, attachments cascade-delete via FK.
