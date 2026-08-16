@@ -139,16 +139,102 @@ export async function buildDeliveryLinesFromRequisition(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rate = new Map(((items ?? []) as any[]).map((i) => [i.id, Number(i.default_unit_price ?? 0)]))
 
-  return rows.map((l) => ({
+  // A line another vendor's delivery has already claimed (the substitution
+  // flow) must not be prefilled here too — it would be received twice.
+  const claimed = await claimedRequisitionLineIds(rows.map((l) => l.id))
+
+  return rows
+    .filter((l) => !claimed.has(l.id))
+    .map((l) => ({
+      requisition_line_id: l.id,
+      item_id:      l.item_id ?? null,
+      item_name:    l.item_name,
+      qty_ordered:  Number(l.qty),
+      qty_delivered: Number(l.qty),
+      piece_count:  l.piece_count === null ? null : Number(l.piece_count),
+      unit_id:      l.unit_id ?? null,
+      unit_label:   l.unit_id ? (unitLabels[l.unit_id] ?? null) : null,
+      unit_price:   l.item_id ? (rate.get(l.item_id) ?? 0) : 0,
+    }))
+}
+
+/** Requisition-line ids already present on some non-cancelled delivery. */
+async function claimedRequisitionLineIds(lineIds: string[]): Promise<Set<string>> {
+  if (lineIds.length === 0) return new Set()
+  const { data } = await db()
+    .from('kitchen_delivery_lines')
+    .select('requisition_line_id, delivery:kitchen_deliveries!inner(status)')
+    .in('requisition_line_id', lineIds)
+    .neq('delivery.status', 'cancelled')
+  return new Set(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ((data ?? []) as any[])
+      .filter((r) => r.delivery && r.delivery.status !== 'cancelled')
+      .map((r) => r.requisition_line_id as string),
+  )
+}
+
+export interface SubstitutableLine {
+  requisition_line_id: string
+  item_id:     string | null
+  item_name:   string
+  qty_ordered: number
+  piece_count: number | null
+  unit_id:     string | null
+  unit_label:  string | null
+  unit_price:  number
+  from_vendor: string
+}
+
+/**
+ * Undelivered lines on this requisition that belong to OTHER vendors — the
+ * "the fish vendor didn't have it, the vegetable vendor brought it instead"
+ * case. Picking one moves the line onto this vendor's delivery with its
+ * ordered quantity and requisition link intact, so the original vendor's
+ * sheet stops expecting it and the bill lands on whoever actually supplied it.
+ */
+export async function listSubstitutableLines(
+  requisitionId: string, excludeVendorId: string | null,
+): Promise<SubstitutableLine[]> {
+  const [{ data: lines }, { data: vendors }, unitLabels] = await Promise.all([
+    db().from('kitchen_requisition_lines')
+      .select('id, item_id, item_name, qty, piece_count, unit_id, kitchen_vendor_id, sort_order')
+      .eq('requisition_id', requisitionId)
+      .order('sort_order'),
+    db().from('kitchen_vendors').select('id, display_name'),
+    getUnitLabels(),
+  ])
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows = ((lines ?? []) as any[])
+    .filter((l) => Number(l.qty) > 0)   // negative amendment lines aren't receivable
+    .filter((l) => !excludeVendorId || l.kitchen_vendor_id !== excludeVendorId)
+  if (rows.length === 0) return []
+
+  const claimed = await claimedRequisitionLineIds(rows.map((l) => l.id))
+  const open = rows.filter((l) => !claimed.has(l.id))
+  if (open.length === 0) return []
+
+  const vendorName = new Map(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ((vendors ?? []) as any[]).map((v) => [v.id, v.display_name as string]),
+  )
+  const itemIds = [...new Set(open.map((l) => l.item_id).filter(Boolean))] as string[]
+  const { data: items } = itemIds.length
+    ? await db().from('inv_items').select('id, default_unit_price').in('id', itemIds)
+    : { data: [] }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rate = new Map(((items ?? []) as any[]).map((i) => [i.id, Number(i.default_unit_price ?? 0)]))
+
+  return open.map((l) => ({
     requisition_line_id: l.id,
-    item_id:      l.item_id ?? null,
-    item_name:    l.item_name,
-    qty_ordered:  Number(l.qty),
-    qty_delivered: Number(l.qty),
-    piece_count:  l.piece_count === null ? null : Number(l.piece_count),
-    unit_id:      l.unit_id ?? null,
-    unit_label:   l.unit_id ? (unitLabels[l.unit_id] ?? null) : null,
-    unit_price:   l.item_id ? (rate.get(l.item_id) ?? 0) : 0,
+    item_id:     l.item_id ?? null,
+    item_name:   l.item_name,
+    qty_ordered: Number(l.qty),
+    piece_count: l.piece_count === null ? null : Number(l.piece_count),
+    unit_id:     l.unit_id ?? null,
+    unit_label:  l.unit_id ? (unitLabels[l.unit_id] ?? null) : null,
+    unit_price:  l.item_id ? (rate.get(l.item_id) ?? 0) : 0,
+    from_vendor: l.kitchen_vendor_id ? (vendorName.get(l.kitchen_vendor_id) ?? '—') : 'no vendor tagged',
   }))
 }
 
