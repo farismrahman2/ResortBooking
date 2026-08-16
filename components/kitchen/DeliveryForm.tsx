@@ -2,13 +2,12 @@
 
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Trash2, Search, Check, CheckCircle2, CloudOff, Loader2, AlertTriangle } from 'lucide-react'
+import { Trash2, Check, CheckCircle2, CloudOff, Loader2, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from '@/lib/toast'
 import { saveDelivery, confirmDelivery } from '@/lib/actions/kitchen-ledger'
 import { safeCall } from '@/lib/actions/safe-call'
 import { formatBDT } from '@/lib/formatters/currency'
-import { buildSearchIndex, searchItems } from '@/lib/kitchen/item-search'
 import { todayDhaka } from '@/lib/dates'
 import type { KitchenVendor, DeliveryWithLines } from '@/lib/supabase/types-kitchen'
 import type { PickerItemRow } from '@/lib/queries/kitchen'
@@ -31,6 +30,9 @@ interface Line {
   item_id:        string | null
   item_name:      string
   qty_ordered:    number | null
+  /** The unit the kitchen ORDERED in (the catalogue unit — e.g. pcs for
+   *  chicken). Frozen at line creation; the received unit below can differ. */
+  ordered_unit_label: string | null
   qty_delivered:  string
   rejected_qty:   string
   reject_reason:  string
@@ -40,6 +42,8 @@ interface Line {
   unit_price:     string
   is_unrequested: boolean
   notes:          string
+  /** Save this line's rate back to the item as its standing rate on confirm. */
+  set_default_price: boolean
 }
 
 const n = (v: string) => Number(v) || 0
@@ -61,6 +65,7 @@ const n = (v: string) => Number(v) || 0
 export function DeliveryForm({
   deliveryId, initial, vendors, items, employees, prefill, isNew,
   requisitionNo, requisitionId, defaultVendorId, receiptCapture,
+  unitOptions = [],
 }: {
   deliveryId: string
   initial:    DeliveryWithLines | null
@@ -77,50 +82,55 @@ export function DeliveryForm({
   /** Slot rendered right under the memo fields — the receipt-photo capture,
    *  so the proof is photographed at the moment the memo number is typed. */
   receiptCapture?: React.ReactNode
+  /** All units, for the per-line "received in" switcher (order pcs, get kg). */
+  unitOptions?: Array<{ id: string; label: string }>
 }) {
   const router = useRouter()
 
   const [vendorId, setVendorId]   = useState(initial?.kitchen_vendor_id ?? defaultVendorId ?? '')
   const [date, setDate]           = useState(initial?.delivery_date ?? todayDhaka())
   const [memoNo, setMemoNo]       = useState(initial?.supplier_memo_no ?? '')
-  const [memoTotal, setMemoTotal] = useState(
-    initial?.supplier_memo_total === null || initial?.supplier_memo_total === undefined
-      ? '' : String(initial.supplier_memo_total))
   const [receiverId, setReceiver] = useState(initial?.received_by_employee_id ?? '')
   const [notes, setNotes]         = useState(initial?.notes ?? '')
+  const unitLabel = (unitId: string | null | undefined): string | null =>
+    unitOptions.find((u) => u.id === unitId)?.label ?? null
   const [lines, setLines] = useState<Line[]>(() => {
     if (initial?.lines.length) {
       return initial.lines.map((l) => ({
         requisition_line_id: l.requisition_line_id,
         item_id: l.item_id, item_name: l.item_name,
         qty_ordered: l.qty_ordered,
+        // The catalogue unit is the ORDERING unit (chicken is ordered in pcs
+        // even when it arrives priced per kg).
+        ordered_unit_label: items.find((i) => i.id === l.item_id)?.unit_label ?? null,
         qty_delivered: String(l.qty_delivered),
         rejected_qty: l.rejected_qty === null ? '' : String(l.rejected_qty),
         reject_reason: l.reject_reason ?? '',
         piece_count: l.piece_count === null ? '' : String(l.piece_count),
         unit_id: l.unit_id,
-        // Resolve from the catalogue: the label isn't stored on the line, and
-        // hardcoding null meant every "Got (kg)" lost its unit the moment a
-        // saved draft was reopened.
-        unit_label: items.find((i) => i.id === l.item_id)?.unit_label ?? null,
+        // Resolve from the units list, NOT the catalogue: the received unit is
+        // stored on the line and may deliberately differ from the item's.
+        unit_label: unitLabel(l.unit_id) ?? items.find((i) => i.id === l.item_id)?.unit_label ?? null,
         unit_price: String(l.unit_price),
         is_unrequested: l.is_unrequested, notes: l.notes ?? '',
+        set_default_price: false,
       }))
     }
     return (prefill ?? []).map((p) => ({
       requisition_line_id: p.requisition_line_id,
       item_id: p.item_id, item_name: p.item_name,
       qty_ordered: p.qty_ordered,
+      ordered_unit_label: p.unit_label,
       qty_delivered: String(p.qty_delivered),
       rejected_qty: '', reject_reason: '',
       piece_count: p.piece_count === null ? '' : String(p.piece_count),
       unit_id: p.unit_id, unit_label: p.unit_label,
       unit_price: p.unit_price ? String(p.unit_price) : '',
       is_unrequested: false, notes: '',
+      set_default_price: false,
     }))
   })
 
-  const [search, setSearch]   = useState('')
   const [saving, setSaving]   = useState<'idle' | 'saving' | 'saved'>('idle')
   const [confirming, setConfirming] = useState(false)
   const dirty = useRef(prefill != null && prefill.length > 0 && !initial)
@@ -130,10 +140,13 @@ export function DeliveryForm({
     () => lines.reduce((s, l) => s + n(l.qty_delivered) * n(l.unit_price), 0),
     [lines],
   )
-  const shortfalls = useMemo(
-    () => lines.filter((l) => l.qty_ordered !== null && n(l.qty_delivered) < l.qty_ordered),
-    [lines],
-  )
+  // A shortfall only means something when ordered and received share a unit —
+  // 20 pcs of chicken arriving as 26 kg is not "6 short".
+  const isShort = (l: Line) =>
+    l.qty_ordered !== null
+    && (l.ordered_unit_label === null || l.ordered_unit_label === l.unit_label)
+    && n(l.qty_delivered) < l.qty_ordered
+  const shortfalls = useMemo(() => lines.filter(isShort), [lines])
   const unpriced = useMemo(
     () => lines.filter((l) => n(l.qty_delivered) > 0 && !(n(l.unit_price) > 0)),
     [lines],
@@ -145,7 +158,6 @@ export function DeliveryForm({
       kitchen_vendor_id: vendorId || null,
       delivery_date: date || null,
       supplier_memo_no: memoNo || null,
-      supplier_memo_total: memoTotal,
       received_by_employee_id: receiverId || null,
       notes: notes || null,
       lines: lines.map((l, i) => ({
@@ -161,6 +173,7 @@ export function DeliveryForm({
         unit_price: n(l.unit_price),
         is_unrequested: l.is_unrequested,
         notes: l.notes || null,
+        set_default_price: l.set_default_price,
       })),
     }
   }
@@ -187,27 +200,6 @@ export function DeliveryForm({
   useEffect(() => { if (dirty.current) void persist() }, [])   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [])
 
-  const chosen = useMemo(() => new Set(lines.map((l) => l.item_id).filter(Boolean)), [lines])
-  const searchIndex = useMemo(() => buildSearchIndex(items), [items])
-  const matches = useMemo(
-    () => searchItems(items, searchIndex, search, { exclude: chosen }),
-    [search, items, searchIndex, chosen],
-  )
-
-  function addItem(it: PickerItemRow) {
-    setLines((prev) => [...prev, {
-      requisition_line_id: null, item_id: it.id, item_name: it.name,
-      qty_ordered: null, qty_delivered: '', rejected_qty: '', reject_reason: '',
-      piece_count: '', unit_id: it.unit_id, unit_label: it.unit_label,
-      unit_price: it.default_unit_price ? String(it.default_unit_price) : '',
-      // Not on the requisition. Never blocked — refusing a delivery at 6am
-      // isn't practical — but counted, so stock-pushing shows as a pattern.
-      is_unrequested: true, notes: '',
-    }])
-    setSearch('')
-    touch()
-  }
-
   function setLine(i: number, patch: Partial<Line>) {
     setLines((prev) => prev.map((l, idx) => (idx === i ? { ...l, ...patch } : l)))
     touch()
@@ -223,7 +215,11 @@ export function DeliveryForm({
     dirty.current = true
     const saved = await persist()
     if (!saved) { setConfirming(false); return }
-    const r = await safeCall(() => confirmDelivery(deliveryId))
+    // Which items should adopt this delivery's rate as their standing rate.
+    const rememberRates = lines
+      .filter((l) => l.set_default_price && l.item_id && n(l.unit_price) > 0)
+      .map((l) => l.item_id as string)
+    const r = await safeCall(() => confirmDelivery(deliveryId, rememberRates))
     if (!r.success) { toast.error(r.error); setConfirming(false); return }
     toast.success('Delivery confirmed', { description: 'The bill message is ready to send.' })
     router.push(`/kitchen/deliveries/${deliveryId}`)
@@ -263,15 +259,6 @@ export function DeliveryForm({
           />
         </label>
         <label className="block">
-          <span className="mb-1 block text-sm font-medium text-gray-800">Total on their memo</span>
-          <input
-            inputMode="decimal" value={memoTotal}
-            onChange={(e) => { setMemoTotal(e.target.value.replace(/[^0-9.]/g, '')); touch() }}
-            placeholder="what their paper says"
-            className="min-h-[44px] w-full rounded-xl border border-gray-300 px-3 text-base"
-          />
-        </label>
-        <label className="block">
           <span className="mb-1 block text-sm font-medium text-gray-800">Received by</span>
           <select
             value={receiverId} onChange={(e) => { setReceiver(e.target.value); touch() }}
@@ -292,39 +279,6 @@ export function DeliveryForm({
         </p>
       )}
 
-      {/* Add something that wasn't ordered */}
-      <div className="rounded-xl border border-gray-200 bg-white p-3">
-        <div className="relative">
-          <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="They brought something extra? Search to add it…"
-            className="min-h-[44px] w-full rounded-xl border border-gray-300 pl-9 pr-3 text-base focus:border-forest-500 focus:outline-none"
-          />
-        </div>
-        {matches.length > 0 && (
-          <ul className="mt-2 space-y-1">
-            {matches.map((m) => (
-              <li key={m.id}>
-                <button
-                  type="button" onClick={() => addItem(m)}
-                  className="flex min-h-[44px] w-full items-center gap-2 rounded-lg px-2 text-left hover:bg-forest-50"
-                >
-                  <Plus size={14} className="flex-shrink-0 text-forest-600" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm text-gray-900">{m.name}</span>
-                    <span className="block text-[11px] text-gray-500">
-                      {m.unit_label ?? 'no unit'}
-                      {m.default_unit_price ? ` · ৳${m.default_unit_price}` : ' · no standing rate'}
-                    </span>
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
       {lines.length === 0 ? (
         <p className="rounded-xl border-2 border-dashed border-gray-300 bg-white px-4 py-10 text-center text-sm text-gray-500">
           Nothing on this delivery yet.
@@ -333,7 +287,7 @@ export function DeliveryForm({
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
           <div className="divide-y divide-gray-100">
             {lines.map((l, i) => {
-              const short = l.qty_ordered !== null && n(l.qty_delivered) < l.qty_ordered
+              const short = isShort(l)
               const amount = n(l.qty_delivered) * n(l.unit_price)
               return (
                 <div key={i} className={cn('p-3', l.is_unrequested && 'bg-amber-50/40')}>
@@ -347,7 +301,7 @@ export function DeliveryForm({
                       )}
                       {l.qty_ordered !== null && (
                         <span className="ml-1.5 text-[11px] font-normal text-gray-500">
-                          ordered {l.qty_ordered}{l.unit_label ? ` ${l.unit_label}` : ''}
+                          ordered {l.qty_ordered}{l.ordered_unit_label ? ` ${l.ordered_unit_label}` : ''}
                         </span>
                       )}
                     </p>
@@ -365,15 +319,33 @@ export function DeliveryForm({
 
                   <div className="mt-2 grid grid-cols-4 gap-2">
                     <label className="block">
-                      <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-gray-500">
-                        Got {l.unit_label ? `(${l.unit_label})` : ''}
-                      </span>
+                      <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-gray-500">Got</span>
                       <input
                         inputMode="decimal" value={l.qty_delivered}
                         onChange={(e) => setLine(i, { qty_delivered: e.target.value.replace(/[^0-9.]/g, '') })}
                         className={cn('min-h-[42px] w-full rounded-lg border px-2 text-base',
                           short ? 'border-amber-400 bg-amber-50' : 'border-gray-300')}
                       />
+                    </label>
+                    <label className="block">
+                      <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-gray-500">In</span>
+                      {/* Ordered in pcs, arrived priced per kg — chicken every
+                          morning. Switching the unit here changes what "Got"
+                          and "Rate" mean; the "ordered N pcs" note above keeps
+                          the original ask visible. */}
+                      <select
+                        value={l.unit_id ?? ''}
+                        onChange={(e) => setLine(i, {
+                          unit_id: e.target.value || null,
+                          unit_label: unitLabel(e.target.value) ?? null,
+                        })}
+                        className="min-h-[42px] w-full rounded-lg border border-gray-300 bg-white px-1.5 text-sm"
+                      >
+                        <option value="">—</option>
+                        {unitOptions.map((u) => (
+                          <option key={u.id} value={u.id}>{u.label}</option>
+                        ))}
+                      </select>
                     </label>
                     <label className="block">
                       <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-gray-500">Pieces</span>
@@ -384,7 +356,9 @@ export function DeliveryForm({
                       />
                     </label>
                     <label className="block">
-                      <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-gray-500">Rate</span>
+                      <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-gray-500">
+                        Rate {l.unit_label ? `/ ${l.unit_label}` : ''}
+                      </span>
                       <input
                         inputMode="decimal" value={l.unit_price}
                         onChange={(e) => setLine(i, { unit_price: e.target.value.replace(/[^0-9.]/g, '') })}
@@ -393,7 +367,10 @@ export function DeliveryForm({
                             ? 'border-red-400 bg-red-50' : 'border-gray-300')}
                       />
                     </label>
-                    <label className="block">
+                  </div>
+
+                  <div className="mt-2 grid grid-cols-4 gap-2">
+                    <label className="col-span-1 block">
                       <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-gray-500">Rejected</span>
                       <input
                         inputMode="decimal" value={l.rejected_qty}
@@ -402,6 +379,16 @@ export function DeliveryForm({
                         className="min-h-[42px] w-full rounded-lg border border-gray-300 px-2 text-base"
                       />
                     </label>
+                    {l.item_id && n(l.unit_price) > 0 && (
+                      <label className="col-span-3 flex cursor-pointer items-end gap-2 pb-2 text-xs text-gray-700">
+                        <input
+                          type="checkbox" checked={l.set_default_price}
+                          onChange={(e) => setLine(i, { set_default_price: e.target.checked })}
+                          className="h-4 w-4 rounded border-gray-300 accent-forest-700"
+                        />
+                        Make ৳{l.unit_price} the default rate for {l.item_name.split('/')[0].trim()}
+                      </label>
+                    )}
                   </div>
 
                   {l.rejected_qty !== '' && (
@@ -420,23 +407,6 @@ export function DeliveryForm({
             <span className="text-sm font-medium text-gray-700">Bill total</span>
             <span className="text-lg font-bold text-gray-900">{formatBDT(total)}</span>
           </div>
-        </div>
-      )}
-
-      {/* The supplier's arithmetic, not ours. Our total is quantity x rate and
-          is right by construction; a handwritten memo footing to a different
-          number is a real gap, and it is only ever found by comparing the two. */}
-      {memoTotal !== '' && Math.abs(n(memoTotal) - total) > 0.5 && (
-        <div className="flex items-start gap-2 rounded-xl border border-red-300 bg-red-50 p-3">
-          <AlertTriangle size={15} className="mt-0.5 flex-shrink-0 text-red-600" />
-          <p className="text-sm text-red-900">
-            <strong>
-              Their memo says {formatBDT(n(memoTotal))}; these lines come to {formatBDT(total)}.
-            </strong>{' '}
-            A gap of {formatBDT(Math.abs(n(memoTotal) - total))}. Check the receipt&apos;s
-            arithmetic before confirming — if one of their lines is mis-multiplied, this is
-            where it shows up.
-          </p>
         </div>
       )}
 

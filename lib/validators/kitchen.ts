@@ -155,6 +155,9 @@ export const deliveryLineSchema = z.object({
   unit_price:          z.coerce.number().min(0).catch(0).default(0),
   is_unrequested:      z.boolean().default(false),
   notes:               nullableStr,
+  /** UI-only: "make this rate the item's standing rate" — applied at confirm,
+   *  never written to the delivery line itself. */
+  set_default_price:   z.boolean().default(false),
 })
 
 export const deliveryDraftSchema = z.object({
