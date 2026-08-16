@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { Pencil, ChevronLeft, Ban, Wallet } from 'lucide-react'
 import { Topbar } from '@/components/layout/Topbar'
-import { requirePermission, hasPermission } from '@/lib/auth/permissions'
+import { requirePermission, hasPermission, isAdmin } from '@/lib/auth/permissions'
 import { getDeliveryById, getDeliveryPaid } from '@/lib/queries/kitchen-ledger'
 import {
   listKitchenVendors, getUnitLabels, getRequisitionById, listApprovers,
@@ -11,6 +11,8 @@ import { listKitchenDocuments } from '@/lib/queries/kitchen-docs'
 import { BillMessage } from '@/components/kitchen/BillMessage'
 import { DocumentCapture } from '@/components/kitchen/DocumentCapture'
 import { CancelDeliveryButton } from '@/components/kitchen/CancelDeliveryButton'
+import { ConfirmDeliveryButton } from '@/components/kitchen/ConfirmDeliveryButton'
+import { AdminDeleteButton } from '@/components/kitchen/AdminDeleteButton'
 import { MigrationErrorBanner } from '@/components/ui/MigrationErrorBanner'
 import { formatDate } from '@/lib/formatters/dates'
 import { formatBDT } from '@/lib/formatters/currency'
@@ -21,7 +23,10 @@ export const dynamic = 'force-dynamic'
 
 export default async function DeliveryDetailPage({ params }: { params: { id: string } }) {
   await requirePermission('kitchen', 'read')
-  const canWrite = await hasPermission('kitchen', 'write')
+  const [canWrite, admin] = await Promise.all([
+    hasPermission('kitchen', 'write'),
+    isAdmin(),
+  ])
 
   try {
     const [del, vendors, unitLabels, employees] = await Promise.all([
@@ -86,6 +91,11 @@ export default async function DeliveryDetailPage({ params }: { params: { id: str
                     className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700">
                     <Pencil size={12} /> Edit
                   </Link>
+                )}
+                {/* The natural path after reviewing a saved draft ends HERE,
+                    so confirming must not require reopening the editor. */}
+                {canWrite && del.status === 'draft' && (
+                  <ConfirmDeliveryButton deliveryId={del.id} />
                 )}
                 {canWrite && del.status === 'confirmed' && (row?.outstanding ?? 0) > 0 && (
                   <Link href={`/kitchen/payments/new?vendor=${del.kitchen_vendor_id}`}
@@ -197,6 +207,10 @@ export default async function DeliveryDetailPage({ params }: { params: { id: str
 
                 {canWrite && del.status !== 'cancelled' && (
                   <CancelDeliveryButton deliveryId={del.id} />
+                )}
+
+                {admin && (
+                  <AdminDeleteButton kind="delivery" id={del.id} recordNo={del.delivery_no} />
                 )}
               </div>
             </div>
