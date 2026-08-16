@@ -1,6 +1,6 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, revalidateTag } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { requirePermission, getCurrentUserContext } from '@/lib/auth/permissions'
 import {
@@ -8,6 +8,7 @@ import {
 } from '@/lib/validators/kitchen'
 import { formatDeliveryNo, formatPaymentNo } from '@/lib/kitchen/requisition-number'
 import { getDeliveryById } from '@/lib/queries/kitchen-ledger'
+import { KITCHEN_CATALOGUE_TAG } from '@/lib/queries/kitchen'
 import type { ActionResult, ActionData } from './types'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -175,7 +176,11 @@ export async function saveDelivery(id: string, partial: unknown): Promise<Action
  * of zero that reconciles against nothing and surfaces weeks later as a phone
  * call from the supplier.
  */
-export async function confirmDelivery(id: string): Promise<ActionResult> {
+export async function confirmDelivery(
+  id: string,
+  /** Item ids whose line rate should become the item's standing rate. */
+  rememberRateItemIds: string[] = [],
+): Promise<ActionResult> {
   await requirePermission('kitchen', 'write')
   try {
     const db  = dbc()
@@ -198,8 +203,24 @@ export async function confirmDelivery(id: string): Promise<ActionResult> {
       .update({ status: 'confirmed', updated_at: new Date().toISOString() }).eq('id', id)
     if (error) return { success: false, error: error.message }
 
+    // "Make this the default rate": copy the confirmed line's price onto the
+    // item as its standing rate, so tomorrow's delivery prefills with it.
+    // Applied at confirm — the last moment the price is definitely final.
+    if (rememberRateItemIds.length > 0) {
+      const wanted = new Set(rememberRateItemIds)
+      for (const line of del.lines) {
+        if (!line.item_id || !wanted.has(line.item_id) || !(Number(line.unit_price) > 0)) continue
+        const { error: rateErr } = await db.from('inv_items')
+          .update({ default_unit_price: line.unit_price, updated_at: new Date().toISOString() })
+          .eq('id', line.item_id)
+        if (rateErr) console.warn(`[kitchen] standing rate not saved for ${line.item_name}: ${rateErr.message}`)
+      }
+      revalidateTag(KITCHEN_CATALOGUE_TAG)
+    }
+
     await logHistory('kitchen_delivery', id, 'edited', 'confirmed', {
       delivery_no: del.delivery_no, total: del.total_amount, lines: del.lines.length,
+      rates_remembered: rememberRateItemIds.length,
     })
     revalidatePath('/kitchen/deliveries')
     revalidatePath(`/kitchen/deliveries/${id}`)

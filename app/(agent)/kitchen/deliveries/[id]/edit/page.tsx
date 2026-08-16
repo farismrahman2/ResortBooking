@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation'
 import { Topbar } from '@/components/layout/Topbar'
 import { requirePermission } from '@/lib/auth/permissions'
 import {
-  listKitchenVendors, listKitchenItems, getRequisitionById, listApprovers,
+  listKitchenVendors, listKitchenItems, getRequisitionById, listApprovers, getUnitLabels,
 } from '@/lib/queries/kitchen'
 import {
   getDeliveryById, buildDeliveryLinesFromRequisition,
@@ -22,13 +22,17 @@ export default async function EditDeliveryPage({
 }) {
   await requirePermission('kitchen', 'write')
   try {
-    const [existing, vendors, items, employees, docs] = await Promise.all([
+    const [existing, vendors, items, employees, docs, unitMap] = await Promise.all([
       getDeliveryById(params.id),
       listKitchenVendors(),
       listKitchenItems(),
       listApprovers().catch(() => []),
       listKitchenDocuments('delivery', params.id).catch(() => []),
+      getUnitLabels().catch(() => ({} as Record<string, string>)),
     ])
+    const unitOptions = Object.entries(unitMap)
+      .map(([id, label]) => ({ id, label }))
+      .sort((a, b) => a.label.localeCompare(b.label))
     // Confirmed means the supplier has been billed — read-only from here.
     if (existing && existing.status !== 'draft') redirect(`/kitchen/deliveries/${params.id}`)
 
@@ -61,6 +65,7 @@ export default async function EditDeliveryPage({
             requisitionNo={req?.requisition_no ?? null}
             requisitionId={existing ? null : (reqId ?? null)}
             defaultVendorId={existing ? null : (vendorId ?? null)}
+            unitOptions={unitOptions}
             receiptCapture={
               /* Rendered right under the memo fields: photograph the
                  supplier's receipt-book page as proof at the moment the memo
