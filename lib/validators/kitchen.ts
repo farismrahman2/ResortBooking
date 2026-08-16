@@ -199,14 +199,9 @@ export const deliveryConfirmSchema = z.object({
       message: `"${unpriced.item_name || 'An item'}" has no rate — the bill would come to zero.`,
     })
   }
-  const overRejected = live.find((l) =>
-    l.rejected_qty !== null && Number(l.rejected_qty) > Number(l.qty_delivered))
-  if (overRejected) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom, path: ['lines'],
-      message: `"${overRejected.item_name}" rejects more than arrived.`,
-    })
-  }
+  // NOTE deliberately no rejected<=got rule: "Got" is what was ACCEPTED and
+  // billed; "Rejected" is what went back on the van, and it may legitimately
+  // exceed what was kept (10 kg arrived, 8 rejected, kept 2).
 })
 
 // ─── Payments ───────────────────────────────────────────────────────────────
