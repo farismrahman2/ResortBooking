@@ -43,8 +43,10 @@ export async function getUpsalesSummary(args: {
       category:charge_categories!inner (slug, display_name),
       checkout:checkouts!inner (status, booking_id)
     `)
-    .gte('added_at', args.from + 'T00:00:00')
-    .lte('added_at', args.to   + 'T23:59:59')
+    // added_at is timestamptz — a naive timestamp is read as UTC, shifting the
+    // Dhaka business day by 6 hours (evening charges landed on the next day).
+    .gte('added_at', args.from + 'T00:00:00+06:00')
+    .lte('added_at', args.to   + 'T23:59:59.999+06:00')
     .neq('checkout.status', 'voided')
     .limit(5000)
   if (error) throw new Error(`getUpsalesSummary: ${error.message}`)

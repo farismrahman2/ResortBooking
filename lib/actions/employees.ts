@@ -1,6 +1,6 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, revalidateTag } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import {
   employeeFormSchema,
@@ -61,11 +61,17 @@ async function nextEmployeeCode(): Promise<string> {
   const supabase = createClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = supabase as any
-  const { count } = await db
+  // MAX+1, not COUNT+1: employee_code is UNIQUE, and after any deletion the
+  // count falls behind the highest code — the next hire's generated code then
+  // collides with a living employee and creation fails permanently.
+  const { data } = await db
     .from('employees')
-    .select('id', { count: 'exact', head: true })
-  const next = (count ?? 0) + 1
-  return `GCR-${String(next).padStart(3, '0')}`
+    .select('employee_code')
+    .like('employee_code', 'GCR-%')
+    .order('employee_code', { ascending: false })
+    .limit(1)
+  const lastNum = Number(String(data?.[0]?.employee_code ?? '').split('-').pop()) || 0
+  return `GCR-${String(lastNum + 1).padStart(3, '0')}`
 }
 
 // ─── Employee CRUD ───────────────────────────────────────────────────────────
@@ -140,7 +146,10 @@ export async function createEmployee(input: unknown): Promise<ActionData<{ id: s
     if (empErr || !empRow) {
       // Rollback the payee row to avoid orphans
       await db.from('expense_payees').delete().eq('id', payeeRow.id)
-      return { success: false, error: empErr?.message ?? 'Insert failed' }
+      const friendly = empErr?.code === '23505' && String(empErr.message ?? '').includes('employee_code')
+        ? `Employee code ${employeeCode} is already in use — try again or enter a code manually.`
+        : empErr?.message ?? 'Insert failed'
+      return { success: false, error: friendly }
     }
 
     await logHistory(empRow.id, 'created', 'employee_created', {
@@ -149,6 +158,7 @@ export async function createEmployee(input: unknown): Promise<ActionData<{ id: s
       payee_id:      payeeRow.id,
     })
 
+    revalidateTag('expense-refs')   // the auto-created staff payee must show in expense dropdowns
     revalidatePath('/hr')
     revalidatePath('/hr/employees')
     return { success: true, data: { id: empRow.id } }

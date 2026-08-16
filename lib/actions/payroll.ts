@@ -117,16 +117,80 @@ export async function previewPayrollRun(
 
     // 2. Existing run (if any) — surface its status to the UI
     const { data: existingRun } = await db
-      .from('payroll_runs').select('status, finalized_at').eq('period', periodIso).maybeSingle()
+      .from('payroll_runs')
+      .select('id, status, finalized_at, total_gross, total_net')
+      .eq('period', periodIso)
+      .maybeSingle()
 
-    // 3. Currently-effective salary structures for these employees
+    // 2b. A FINALIZED month is a paid month: what was disbursed lives in
+    // payroll_run_lines, frozen at finalize time. Recomputing it live (the old
+    // behaviour) silently drifted from what was actually paid the moment any
+    // attendance row, adjustment, or salary structure changed afterwards.
+    if (existingRun?.status === 'finalized') {
+      const { data: storedLines } = await db
+        .from('payroll_run_lines')
+        .select('*, employee:employees(full_name, employee_code)')
+        .eq('payroll_run_id', existingRun.id)
+      const lines: PayrollPreviewResult['lines'] = ((storedLines ?? []) as any[]).map((r) => ({
+        employee_id:       r.employee_id,
+        basic:             Number(r.basic),
+        house_rent:        Number(r.house_rent),
+        medical:           Number(r.medical),
+        transport:         Number(r.transport),
+        mobile:            Number(r.mobile),
+        other_allowance:   Number(r.other_allowance),
+        gross:             Number(r.gross),
+        days_in_month:     Number(r.days_in_month),
+        days_present:      Number(r.days_present),
+        days_absent:       Number(r.days_absent),
+        days_paid_leave:   Number(r.days_paid_leave),
+        days_unpaid_leave: Number(r.days_unpaid_leave),
+        days_weekly_off:   Number(r.days_weekly_off),
+        days_holiday:      Number(r.days_holiday),
+        unpaid_deduction:  Number(r.unpaid_deduction),
+        bonuses:           Number(r.bonuses),
+        eid_bonus:         Number(r.eid_bonus),
+        other_additions:   Number(r.other_additions),
+        fines:             Number(r.fines),
+        advance_deduction: Number(r.advance_deduction),
+        loan_deduction:    Number(r.loan_deduction),
+        other_deductions:  Number(r.other_deductions),
+        service_charge:    Number(r.service_charge),
+        net_pay:           Number(r.net_pay),
+        loan_breakdown:    [],
+        full_name:         r.employee?.full_name ?? '(deleted employee)',
+        employee_code:     r.employee?.employee_code ?? '—',
+      }))
+      lines.sort((a, b) => a.full_name.localeCompare(b.full_name))
+      return {
+        success: true,
+        data: {
+          period:       periodIso,
+          status:       'finalized',
+          lines,
+          total_gross:  Number(existingRun.total_gross ?? lines.reduce((n, l) => n + l.gross, 0)),
+          total_net:    Number(existingRun.total_net ?? lines.reduce((n, l) => n + l.net_pay, 0)),
+          finalized_at: existingRun.finalized_at ?? null,
+        },
+      }
+    }
+
+    // 3. Salary structures effective DURING THIS PERIOD — not whichever is
+    // open today. Using `.is('effective_to', null)` here meant a raise given
+    // in July silently rewrote June's payroll when June was previewed or
+    // finalized afterwards.
+    const [pYear, pMonth] = periodIso.split('-').map(Number)
+    const periodEnd = new Date(Date.UTC(pYear, pMonth, 0)).toISOString().slice(0, 10)  // last day of the month
     const { data: salaryData } = await db
       .from('salary_structures')
       .select('*')
       .in('employee_id', empIds)
-      .is('effective_to', null)
+      .lte('effective_from', periodEnd)
+      .or(`effective_to.is.null,effective_to.gte.${periodIso}`)
+      .order('effective_from', { ascending: false })
     const salaryByEmp = new Map<string, SalaryStructureRow>()
     for (const s of (salaryData ?? []) as any[]) {
+      if (salaryByEmp.has(s.employee_id)) continue   // rows are newest-first; keep the latest effective in-period
       salaryByEmp.set(s.employee_id, {
         ...s,
         basic:           Number(s.basic),
@@ -319,15 +383,21 @@ export async function finalizePayrollRun(
       return { success: false, error: 'Already finalized.' }
     }
 
+    // Claim the run ATOMICALLY. Two agents finalizing together both pass the
+    // read guard above; without a predicate both proceeded and every salary
+    // expense was written twice. The status predicate (update) and the UNIQUE
+    // period constraint (insert) let exactly one through.
     let runId = existingRun?.id as string | undefined
     if (runId) {
-      await db.from('payroll_runs').update({
+      const { data: claimed, error: claimErr } = await db.from('payroll_runs').update({
         status:        'finalized',
         finalized_at:  new Date().toISOString(),
         finalized_by:  userId,
         total_gross:   preview.data.total_gross,
         total_net:     preview.data.total_net,
-      }).eq('id', runId)
+      }).eq('id', runId).neq('status', 'finalized').select('id')
+      if (claimErr) return { success: false, error: claimErr.message }
+      if (!claimed?.length) return { success: false, error: 'This period was just finalized by someone else.' }
     } else {
       const { data: newRun, error: runErr } = await db
         .from('payroll_runs')
@@ -342,7 +412,14 @@ export async function finalizePayrollRun(
         })
         .select('id')
         .single()
-      if (runErr || !newRun) return { success: false, error: runErr?.message ?? 'Failed to create run' }
+      if (runErr || !newRun) {
+        return {
+          success: false,
+          error: runErr?.code === '23505'
+            ? 'This period was just finalized by someone else.'
+            : runErr?.message ?? 'Failed to create run',
+        }
+      }
       runId = newRun.id
     }
 
@@ -359,132 +436,161 @@ export async function finalizePayrollRun(
     const empById = new Map<string, { expense_payee_id: string | null; full_name: string; employee_code: string }>()
     for (const e of (empData ?? []) as any[]) empById.set(e.id, e)
 
-    // Pre-fetch existing line ids for idempotency on retries
-    const { data: existingLineRows } = await db
-      .from('payroll_run_lines').select('id, employee_id').eq('payroll_run_id', runId)
-    const existingLineByEmp = new Map<string, string>()
-    for (const l of (existingLineRows ?? []) as { id: string; employee_id: string }[]) {
-      existingLineByEmp.set(l.employee_id, l.id)
+    // 3a. Upsert ALL lines in one round trip (UNIQUE(payroll_run_id,
+    // employee_id) makes this a safe retry). The old per-employee loop made
+    // ~6–8 sequential round trips per employee, so a 30-person payroll was
+    // 200+ queries and regularly outlived the operator's patience.
+    const paidAt = new Date().toISOString()
+    const lineRows = preview.data.lines.map((line) => ({
+      payroll_run_id:    runId,
+      employee_id:       line.employee_id,
+      basic:             line.basic,
+      house_rent:        line.house_rent,
+      medical:           line.medical,
+      transport:         line.transport,
+      mobile:            line.mobile,
+      other_allowance:   line.other_allowance,
+      gross:             line.gross,
+      days_in_month:     line.days_in_month,
+      days_present:      line.days_present,
+      days_absent:       line.days_absent,
+      days_paid_leave:   line.days_paid_leave,
+      days_unpaid_leave: line.days_unpaid_leave,
+      days_weekly_off:   line.days_weekly_off,
+      days_holiday:      line.days_holiday,
+      unpaid_deduction:  line.unpaid_deduction,
+      bonuses:           line.bonuses,
+      eid_bonus:         line.eid_bonus,
+      other_additions:   line.other_additions,
+      fines:             line.fines,
+      advance_deduction: line.advance_deduction,
+      loan_deduction:    line.loan_deduction,
+      other_deductions:  line.other_deductions,
+      service_charge:    line.service_charge,
+      net_pay:           line.net_pay,
+      payment_method:    paymentMethod,
+      paid_at:           paidAt,
+    }))
+    const { data: upsertedLines, error: linesErr } = await db
+      .from('payroll_run_lines')
+      .upsert(lineRows, { onConflict: 'payroll_run_id,employee_id' })
+      .select('id, employee_id, expense_id')
+    if (linesErr) return { success: false, error: `Payroll lines failed to save: ${linesErr.message}` }
+    const lineIdByEmp = new Map<string, string>()
+    const lineHasExpense = new Set<string>()
+    for (const l of (upsertedLines ?? []) as { id: string; employee_id: string; expense_id: string | null }[]) {
+      lineIdByEmp.set(l.employee_id, l.id)
+      if (l.expense_id) lineHasExpense.add(l.id)   // retry after a partial run: expense already written
     }
+    const lineIds = [...lineIdByEmp.values()]
 
+    // 3b. Loan repayments: one existence check for the whole run (idempotency
+    // on retry), one batch insert of the missing adjustments, then per-loan
+    // progress updates (each loan's new amount differs).
+    const loanEntries: Array<{ employee_id: string; loan_id: string; amount: number; line_id: string }> = []
     for (const line of preview.data.lines) {
-      const lineInsert = {
-        payroll_run_id:    runId,
-        employee_id:       line.employee_id,
-        basic:             line.basic,
-        house_rent:        line.house_rent,
-        medical:           line.medical,
-        transport:         line.transport,
-        mobile:            line.mobile,
-        other_allowance:   line.other_allowance,
-        gross:             line.gross,
-        days_in_month:     line.days_in_month,
-        days_present:      line.days_present,
-        days_absent:       line.days_absent,
-        days_paid_leave:   line.days_paid_leave,
-        days_unpaid_leave: line.days_unpaid_leave,
-        days_weekly_off:   line.days_weekly_off,
-        days_holiday:      line.days_holiday,
-        unpaid_deduction:  line.unpaid_deduction,
-        bonuses:           line.bonuses,
-        eid_bonus:         line.eid_bonus,
-        other_additions:   line.other_additions,
-        fines:             line.fines,
-        advance_deduction: line.advance_deduction,
-        loan_deduction:    line.loan_deduction,
-        other_deductions:  line.other_deductions,
-        service_charge:    line.service_charge,
-        net_pay:           line.net_pay,
-        payment_method:    paymentMethod,
-        paid_at:           new Date().toISOString(),
-      }
-
-      let lineId: string | undefined = existingLineByEmp.get(line.employee_id)
-      if (lineId) {
-        await db.from('payroll_run_lines').update(lineInsert).eq('id', lineId)
-      } else {
-        const { data: ins, error: insErr } = await db
-          .from('payroll_run_lines').insert(lineInsert).select('id').single()
-        if (insErr || !ins) {
-          console.warn(`[payroll] line insert failed for ${line.employee_id}: ${insErr?.message}`)
-          continue
-        }
-        lineId = ins.id
-      }
-
-      // 3a. Insert loan_repayment salary_adjustments + bump loan progress
+      const lineId = lineIdByEmp.get(line.employee_id)
+      if (!lineId) continue
       for (const lb of line.loan_breakdown) {
-        // Avoid double-inserting on retry — check for an existing one tied to this run line
-        const { data: existingLoanAdj } = await db
-          .from('salary_adjustments')
-          .select('id')
-          .eq('payroll_run_line_id', lineId)
-          .eq('loan_id', lb.loan_id)
-          .maybeSingle()
-        if (existingLoanAdj?.id) continue
+        loanEntries.push({ employee_id: line.employee_id, loan_id: lb.loan_id, amount: lb.amount, line_id: lineId })
+      }
+    }
+    if (loanEntries.length > 0) {
+      const { data: existingLoanAdjs } = await db
+        .from('salary_adjustments')
+        .select('payroll_run_line_id, loan_id')
+        .in('payroll_run_line_id', lineIds)
+        .eq('type', 'loan_repayment')
+      const already = new Set(
+        ((existingLoanAdjs ?? []) as any[]).map((a) => `${a.payroll_run_line_id}:${a.loan_id}`),
+      )
+      const fresh = loanEntries.filter((e) => !already.has(`${e.line_id}:${e.loan_id}`))
 
-        await db.from('salary_adjustments').insert({
-          employee_id:        line.employee_id,
-          applies_to_month:   periodIso,
-          type:               'loan_repayment',
-          amount:             lb.amount,
-          description:        `Auto-deducted for ${periodLabel}`,
-          loan_id:            lb.loan_id,
-          payroll_run_line_id: lineId,
-          created_by:         userId,
-        })
+      if (fresh.length > 0) {
+        const { error: adjErr } = await db.from('salary_adjustments').insert(
+          fresh.map((e) => ({
+            employee_id:         e.employee_id,
+            applies_to_month:    periodIso,
+            type:                'loan_repayment',
+            amount:              e.amount,
+            description:         `Auto-deducted for ${periodLabel}`,
+            loan_id:             e.loan_id,
+            payroll_run_line_id: e.line_id,
+            created_by:          userId,
+          })),
+        )
+        if (adjErr) console.warn(`[payroll] loan adjustments insert failed: ${adjErr.message}`)
 
-        // Increment amount_repaid; auto-close on full repayment
-        const { data: loanRow } = await db
+        // Bump each affected loan's progress; auto-close on full repayment.
+        const { data: loanRows } = await db
           .from('loans')
-          .select('principal, amount_repaid, status')
-          .eq('id', lb.loan_id)
-          .single()
-        if (loanRow) {
-          const newRepaid = Math.min(Number(loanRow.principal), Number(loanRow.amount_repaid) + lb.amount)
+          .select('id, principal, amount_repaid, status')
+          .in('id', fresh.map((e) => e.loan_id))
+        const loanById = new Map(((loanRows ?? []) as any[]).map((l) => [l.id, l]))
+        for (const e of fresh) {
+          const loanRow = loanById.get(e.loan_id)
+          if (!loanRow) continue
+          const newRepaid = Math.min(Number(loanRow.principal), Number(loanRow.amount_repaid) + e.amount)
           const isClosed  = newRepaid >= Number(loanRow.principal)
           await db.from('loans')
-            .update({
-              amount_repaid: newRepaid,
-              status:        isClosed ? 'closed' : loanRow.status,
-            })
-            .eq('id', lb.loan_id)
+            .update({ amount_repaid: newRepaid, status: isClosed ? 'closed' : loanRow.status })
+            .eq('id', e.loan_id)
         }
       }
+    }
 
-      // 3b. Link existing user-entered adjustments to this line so they become read-only
+    // 3c. Link existing user-entered adjustments to their lines (read-only in
+    // the UI afterwards). Values differ per employee, so this stays a loop —
+    // but each is a single indexed UPDATE.
+    for (const [employeeId, lineId] of lineIdByEmp) {
       await db.from('salary_adjustments')
         .update({ payroll_run_line_id: lineId })
         .eq('applies_to_month', periodIso)
-        .eq('employee_id', line.employee_id)
+        .eq('employee_id', employeeId)
         .neq('type', 'loan_repayment')
         .is('payroll_run_line_id', null)
+    }
 
-      // 3c. Auto-write the salary expense — one per staff per finalized line
+    // 3d. Auto-write the salary expenses in one batch insert, then link each
+    // back to its payroll line.
+    const expenseDate = new Date(periodDate.getFullYear(), periodDate.getMonth() + 1, 0)  // last day of month
+      .toISOString().slice(0, 10)
+    const expensePlans = preview.data.lines.flatMap((line) => {
       const emp = empById.get(line.employee_id)
-      if (emp?.expense_payee_id && line.net_pay > 0) {
-        const expenseDate = new Date(periodDate.getFullYear(), periodDate.getMonth() + 1, 0)  // last day of month
-          .toISOString().slice(0, 10)
-        const description = `Salary ${periodLabel} — ${emp.full_name} (${emp.employee_code})`
-        const { data: insExp, error: expErr } = await db
-          .from('expenses')
-          .insert({
-            expense_date:   expenseDate,
-            category_id:    salaryCat.id,
-            payee_id:       emp.expense_payee_id,
-            description,
-            amount:         line.net_pay,
-            payment_method: paymentMethod,
-            is_draft:       false,
-            created_by:     userId,
-          })
-          .select('id')
-          .single()
-        if (!expErr && insExp?.id) {
-          await db.from('payroll_run_lines').update({ expense_id: insExp.id }).eq('id', lineId)
+      const lineId = lineIdByEmp.get(line.employee_id)
+      if (!emp?.expense_payee_id || !(line.net_pay > 0) || !lineId) return []
+      if (lineHasExpense.has(lineId)) return []   // don't double-book salary on retry
+      return [{
+        line_id: lineId,
+        row: {
+          expense_date:   expenseDate,
+          category_id:    salaryCat.id,
+          payee_id:       emp.expense_payee_id,
+          description:    `Salary ${periodLabel} — ${emp.full_name} (${emp.employee_code})`,
+          amount:         line.net_pay,
+          payment_method: paymentMethod,
+          is_draft:       false,
+          created_by:     userId,
+        },
+      }]
+    })
+    if (expensePlans.length > 0) {
+      const { data: insertedExpenses, error: expErr } = await db
+        .from('expenses')
+        .insert(expensePlans.map((p) => p.row))
+        .select('id, description')
+      if (expErr) {
+        console.warn(`[payroll] expense batch insert failed: ${expErr.message}`)
+      } else {
+        // Match returned ids back by description (unique per employee+period).
+        const idByDescription = new Map(
+          ((insertedExpenses ?? []) as any[]).map((e) => [e.description, e.id]),
+        )
+        for (const p of expensePlans) {
+          const expenseId = idByDescription.get(p.row.description)
+          if (!expenseId) continue
+          await db.from('payroll_run_lines').update({ expense_id: expenseId }).eq('id', p.line_id)
           expensesWritten += 1
-        } else if (expErr) {
-          console.warn(`[payroll] expense insert failed for ${emp.employee_code}: ${expErr.message}`)
         }
       }
     }

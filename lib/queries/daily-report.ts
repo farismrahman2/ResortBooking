@@ -35,12 +35,16 @@ export interface DailyReportRow {
 export async function getDailyReport(date: string): Promise<DailyReportRow[]> {
   const supabase = createClient()
 
-  // Fetch all non-cancelled bookings that start on or before `date`
+  // Bookings that actually cover `date` — daylong on the day, night stays
+  // through checkout morning (inclusive). With only the upper bound this
+  // fetched every booking ever; past the 1000-row response cap, in-house
+  // bookings silently fell OFF the daily report.
   const { data: bookings, error } = await supabase
     .from('bookings')
     .select('*, booking_rooms(*)')
     .neq('status', 'cancelled')
     .lte('visit_date', date)
+    .or(`check_out_date.gte.${date},and(check_out_date.is.null,visit_date.eq.${date})`)
     .order('visit_date', { ascending: true })
 
   if (error) throw new Error(`getDailyReport: ${error.message}`)

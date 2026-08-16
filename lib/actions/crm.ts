@@ -9,7 +9,7 @@ import {
 } from '@/lib/validators/crm'
 import { formatAccountCode } from '@/lib/crm/account-code'
 import { getAccountDeleteImpact, type AccountDeleteImpact } from '@/lib/queries/crm'
-import { generateBookingNumber } from '@/lib/utils'
+import { generateBookingNumber, isUniqueViolation } from '@/lib/utils'
 import { formatOpportunityCode } from '@/lib/crm/opportunity-code'
 import { DEFAULT_PROBABILITY_BY_STAGE, getProbabilityForStage } from '@/lib/crm/stage-probabilities'
 import type { OpportunityStage, LostReason } from '@/lib/supabase/types-crm'
@@ -454,6 +454,12 @@ export async function changeStage(id: string, newStage: OpportunityStage, notes?
     const db = dbc()
     const { data: opp } = await db.from('crm_opportunities').select('stage, probability_pct').eq('id', id).maybeSingle()
     if (!opp) return { success: false, error: 'Opportunity not found' }
+    // Closed opportunities stay closed: a Won opp has a linked booking and a
+    // won_client account behind it — silently dragging it back to "proposal"
+    // orphans both. Reopening is a deliberate act, not a stage change.
+    if (opp.stage === 'won' || opp.stage === 'lost') {
+      return { success: false, error: `This opportunity is already ${opp.stage} and can't change stage.` }
+    }
     const prob = getProbabilityForStage(newStage, opp.stage as OpportunityStage, opp.probability_pct)
     const { error } = await db.from('crm_opportunities').update({
       stage: newStage, probability_pct: prob, updated_at: new Date().toISOString(),
@@ -489,6 +495,15 @@ export async function markWon(
     `).eq('id', id).maybeSingle()
     if (!opp) return { success: false, error: 'Opportunity not found' }
     if (opp.stage === 'won') return { success: false, error: 'Already won' }
+    if (opp.stage === 'lost') return { success: false, error: 'This opportunity was marked lost — reopen it before marking won.' }
+
+    // Client-supplied money that lands directly in bookings.subtotal.
+    if (!Number.isFinite(input.actualValue) || input.actualValue <= 0 || input.actualValue > 100_000_000) {
+      return { success: false, error: 'Enter the actual value as a positive amount' }
+    }
+    if (!input.eventDate || !/^\d{4}-\d{2}-\d{2}$/.test(input.eventDate)) {
+      return { success: false, error: 'Pick the event date' }
+    }
 
     const prevStage = opp.stage as OpportunityStage
     const prevProb  = opp.probability_pct as number
@@ -504,10 +519,15 @@ export async function markWon(
     await db.from('crm_accounts').update({ status: 'won_client', updated_at: new Date().toISOString() })
       .eq('id', opp.account_id).neq('status', 'won_client')
 
-    // 3. Create the tentative (draft) booking — mapped to the real bookings schema
-    const bookingNumber = await generateBookingNumber(createClient())
+    // 3. Create the tentative (draft) booking — mapped to the real bookings
+    // schema. MAX+1 numbering can collide with a concurrent conversion; the
+    // unique index rejects the loser with 23505 and we retry.
     const contact = opp.primary_contact
-    const { data: booking, error: bErr } = await db.from('bookings').insert({
+    let booking: { id: string; booking_number: string } | null = null
+    let bErr: { message?: string } | null = null
+    for (let attempt = 0; attempt < 3; attempt++) {
+    const bookingNumber = await generateBookingNumber(createClient())
+    const res = await db.from('bookings').insert({
       booking_number:     bookingNumber,
       customer_name:      opp.account?.company_name ?? opp.opportunity_name,
       customer_phone:     contact?.phone ?? '',
@@ -537,6 +557,10 @@ export async function markWon(
       company_name:         opp.account?.company_name ?? null,
       corporate_account_id: opp.account_id ?? null,
     }).select('id, booking_number').single()
+    booking = res.data
+    bErr    = res.error
+    if (booking || !isUniqueViolation(res.error, 'booking_number')) break
+    }
 
     if (bErr || !booking) {
       // Roll the opportunity back — never leave a Won opp without a booking.
@@ -572,11 +596,14 @@ export async function markLost(id: string, reason: LostReason, notes?: string): 
   await requirePermission('crm', 'write')
   try {
     const db = dbc()
-    const { error } = await db.from('crm_opportunities').update({
+    // A won opportunity has a live booking behind it — it can't quietly become
+    // "lost". The predicate makes the guard atomic under concurrent clicks.
+    const { data: updated, error } = await db.from('crm_opportunities').update({
       stage: 'lost', probability_pct: 0, lost_at: new Date().toISOString(),
       lost_reason: reason, lost_notes: notes ?? null, updated_at: new Date().toISOString(),
-    }).eq('id', id)
+    }).eq('id', id).not('stage', 'in', '(won,lost)').select('id')
     if (error) return { success: false, error: error.message }
+    if (!updated?.length) return { success: false, error: 'This opportunity is already closed (won or lost).' }
     await logHistory('crm_opportunity', id, 'edited', { action: 'lost', reason })
     revalidatePath('/crm/pipeline')
     revalidatePath(`/crm/opportunities/${id}`)
@@ -590,10 +617,11 @@ export async function markOnHold(id: string, resumeDate: string): Promise<Action
   await requirePermission('crm', 'write')
   try {
     const db = dbc()
-    const { error } = await db.from('crm_opportunities').update({
+    const { data: updated, error } = await db.from('crm_opportunities').update({
       stage: 'on_hold', hold_resume_date: resumeDate, updated_at: new Date().toISOString(),
-    }).eq('id', id)
+    }).eq('id', id).not('stage', 'in', '(won,lost)').select('id')
     if (error) return { success: false, error: error.message }
+    if (!updated?.length) return { success: false, error: 'This opportunity is already closed (won or lost).' }
     await logHistory('crm_opportunity', id, 'edited', { action: 'on_hold', resume: resumeDate })
     revalidatePath('/crm/pipeline')
     revalidatePath(`/crm/opportunities/${id}`)

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import { safeCall } from '@/lib/actions/safe-call'
 import { useRouter } from 'next/navigation'
 import { Plus, Save, Trash2, AlertCircle, CheckCircle2, Coffee, BedDouble } from 'lucide-react'
 import { Input } from '@/components/ui/Input'
@@ -70,14 +71,14 @@ export function ChargeCatalogClient({ categories, items }: Props) {
     }
     setError(null); setSavedAt(null)
     startTransition(async () => {
-      const r = await createChargeItem({
+      const r = await safeCall(() => createChargeItem({
         category_id:   categoryId,
         name:          draft.name,
         default_price: draft.price ?? 0,
         description:   '',
         display_order: 0,
         is_active:     true,
-      })
+      }))
       if (!r.success) { setError(r.error); return }
       setNewItem((p) => ({ ...p, [categoryId]: { name: '', price: 0 } }))
       setSavedAt(new Date().toLocaleTimeString())
@@ -87,21 +88,21 @@ export function ChargeCatalogClient({ categories, items }: Props) {
 
   function toggleItem(id: string) {
     startTransition(async () => {
-      const r = await toggleChargeItemActive(id)
+      const r = await safeCall(() => toggleChargeItemActive(id))
       if (!r.success) { setError(r.error); return }
       router.refresh()
     })
   }
   function toggleCoffee(id: string) {
     startTransition(async () => {
-      const r = await toggleChargeItemCoffeeShop(id)
+      const r = await safeCall(() => toggleChargeItemCoffeeShop(id))
       if (!r.success) { setError(r.error); return }
       router.refresh()
     })
   }
   function toggleRoom(id: string) {
     startTransition(async () => {
-      const r = await toggleChargeItemRoomExtra(id)
+      const r = await safeCall(() => toggleChargeItemRoomExtra(id))
       if (!r.success) { setError(r.error); return }
       router.refresh()
     })

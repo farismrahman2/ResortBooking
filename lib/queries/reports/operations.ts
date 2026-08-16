@@ -101,17 +101,27 @@ export interface PickupWeekRow { week_start: string; week_label: string; rooms_b
 /** Pickup pace: forward-looking 8-week occupancy */
 export const getPickupPace = unstable_cache(
   async (): Promise<PickupWeekRow[]> => {
+    // ONE RPC over the whole 8-week span, bucketed into weeks in memory — this
+    // used to await the same RPC 8 times sequentially, one per week.
     const today = new Date()
+    const spanStart = today
+    const spanEnd   = addDays(today, 8 * 7 - 1)
+    const { data } = await db().rpc('reports_daily_occupancy', {
+      p_from: toIsoDate(spanStart), p_to: toIsoDate(spanEnd),
+    })
+    const rows = (data ?? []) as Array<{ date: string; rooms_occupied: number; total_rooms: number }>
+    const byDate = new Map(rows.map((r) => [r.date, r]))
+
     const weeks: PickupWeekRow[] = []
     for (let i = 0; i < 8; i++) {
       const start = addDays(today, i * 7)
       const end   = addDays(start, 6)
-      const { data } = await db().rpc('reports_daily_occupancy', {
-        p_from: toIsoDate(start), p_to: toIsoDate(end),
-      })
-      const rows = (data ?? []) as Array<{ rooms_occupied: number; total_rooms: number }>
-      const booked    = rows.reduce((s, r) => s + Number(r.rooms_occupied ?? 0), 0)
-      const available = rows.reduce((s, r) => s + Number(r.total_rooms ?? 0), 0)
+      let booked = 0, available = 0
+      for (let d = start; d <= end; d = addDays(d, 1)) {
+        const row = byDate.get(toIsoDate(d))
+        booked    += Number(row?.rooms_occupied ?? 0)
+        available += Number(row?.total_rooms ?? 0)
+      }
       weeks.push({
         week_start: toIsoDate(start),
         week_label: `${format(start, 'd MMM')}–${format(end, 'd MMM')}`,

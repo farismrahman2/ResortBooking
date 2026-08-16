@@ -1,4 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
+import { calcChargesTotal } from '@/lib/checkout/totals'
+import { todayDhaka, addDaysIso } from '@/lib/dates'
 import type {
   CheckoutRow,
   CheckoutWithFull,
@@ -218,8 +220,11 @@ export async function listCheckoutCandidates(opts: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = supabase as any
 
-  const today = new Date().toISOString().slice(0, 10)
-  const thirtyDaysAgoIso = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString().slice(0, 10)
+  // Business dates in Asia/Dhaka: the UTC calendar is a day behind from
+  // midnight to 6am local, which put "today's checkouts" on the wrong tab
+  // exactly when the early shift starts.
+  const today = todayDhaka()
+  const thirtyDaysAgoIso = addDaysIso(today, -30)
 
   // Caller-supplied minVisitDate wins over the default 30-day floor (front desk
   // gets a tighter window). Pull all confirmed/checked-out bookings whose stay
@@ -248,17 +253,43 @@ export async function listCheckoutCandidates(opts: {
     }
   }
 
+  // charges_total / payments_total on the checkout row are snapshots written
+  // at FINALIZE — on a draft they are still 0, so the list's Net Due ignored
+  // every charge added and payment taken so far. Sum them live for drafts.
+  const draftIds = [...checkoutsByBooking.values()]
+    .filter((c) => c.status === 'draft')
+    .map((c) => c.id)
+  const liveCharges  = new Map<string, number>()
+  const livePayments = new Map<string, number>()
+  if (draftIds.length > 0) {
+    const [{ data: chargeRows }, { data: paymentRows }] = await Promise.all([
+      db.from('checkout_charges').select('checkout_id, amount, quantity, unit_price').in('checkout_id', draftIds),
+      db.from('checkout_payments').select('checkout_id, amount').in('checkout_id', draftIds),
+    ])
+    for (const r of (chargeRows ?? []) as any[]) {
+      liveCharges.set(r.checkout_id, (liveCharges.get(r.checkout_id) ?? 0) + calcChargesTotal([r]))
+    }
+    for (const r of (paymentRows ?? []) as any[]) {
+      livePayments.set(r.checkout_id, (livePayments.get(r.checkout_id) ?? 0) + Number(r.amount ?? 0))
+    }
+  }
+
   const rows: CheckoutListRow[] = (bookings ?? []).map((b: any) => {
     const c = checkoutsByBooking.get(b.id) ?? null
     // Override DB-generated net_due with the corrected formula that includes
-    // booking.total AND the discount. For drafts, advance_amount may not be
-    // snapshotted yet → use the live advance_paid. Mirrors lib/checkout/totals.ts::calcNetDue.
+    // booking.total AND the discount. For drafts, advance/charges/payments are
+    // not snapshotted yet → use the live values. Mirrors lib/checkout/totals.ts::calcNetDue.
     if (c) {
+      const isDraft        = c.status !== 'finalized'
       const bookingTotal   = Number(b.total ?? 0)
-      const advance        = c.status === 'finalized' ? c.advance_amount : Number(b.advance_paid ?? 0)
+      const advance        = isDraft ? Number(b.advance_paid ?? 0) : c.advance_amount
+      const chargesTotal   = isDraft ? (liveCharges.get(c.id) ?? 0) : c.charges_total
+      const paymentsTotal  = isDraft ? (livePayments.get(c.id) ?? 0) : c.payments_total
       const discountAmount = Number(c.discount_amount ?? 0)
+      c.charges_total  = chargesTotal
+      c.payments_total = paymentsTotal
       c.net_due = Math.round(
-        (bookingTotal + c.charges_total - discountAmount - advance - c.payments_total) * 100,
+        (bookingTotal + chargesTotal - discountAmount - advance - paymentsTotal) * 100,
       ) / 100
     }
     return {

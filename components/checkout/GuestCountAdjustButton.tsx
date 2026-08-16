@@ -8,6 +8,7 @@ import { NumberInput } from '@/components/ui/NumberInput'
 import { Textarea } from '@/components/ui/Textarea'
 import { Users, AlertCircle, AlertTriangle } from 'lucide-react'
 import { adjustActualGuestCount } from '@/lib/actions/checkout'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   checkoutId:     string
@@ -47,11 +48,11 @@ export function GuestCountAdjustButton({
     setError(null)
     if (reason.trim().length < 2) { setError('Reason is required (this will be flagged for admin review).'); return }
     startTransition(async () => {
-      const r = await adjustActualGuestCount(checkoutId, {
+      const r = await safeCall(() => adjustActualGuestCount(checkoutId, {
         actual_adults:   adults,
         actual_children: children,
         reason,
-      })
+      }))
       if (!r.success) { setError(r.error); return }
       setOpen(false)
       router.refresh()

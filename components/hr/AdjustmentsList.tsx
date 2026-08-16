@@ -9,6 +9,7 @@ import { deleteAdjustment } from '@/lib/actions/salary-adjustments'
 import type { SalaryAdjustmentRow } from '@/lib/supabase/types'
 import { toast } from '@/lib/toast'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   rows: SalaryAdjustmentRow[]
@@ -23,7 +24,7 @@ export function AdjustmentsList({ rows }: Props) {
     const ok = await confirm({ title: 'Delete this adjustment?', description: 'It will be removed from the payroll calculation.', confirmLabel: 'Delete', danger: true })
     if (!ok) return
     startTransition(async () => {
-      const r = await deleteAdjustment(id)
+      const r = await safeCall(() => deleteAdjustment(id))
       if (!r.success) { toast.error(r.error); return }
       toast.success('Adjustment removed')
       router.refresh()

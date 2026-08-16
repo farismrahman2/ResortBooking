@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/Button'
 import { setSalesStartDate } from '@/lib/actions/crm'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   userId:  string
@@ -20,7 +21,7 @@ export function SalesStartDateEditor({ userId, initial }: Props) {
   function save() {
     setError(null); setSaved(false)
     startTransition(async () => {
-      const res = await setSalesStartDate(userId, value || null)
+      const res = await safeCall(() => setSalesStartDate(userId, value || null))
       if (!res.success) { setError(res.error); return }
       setSaved(true); router.refresh()
     })

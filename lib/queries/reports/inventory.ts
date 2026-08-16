@@ -1,3 +1,4 @@
+import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -27,15 +28,28 @@ interface JoinedLine {
   } | null
 }
 
-async function fetchLines(): Promise<JoinedLine[]> {
+/**
+ * Movement lines joined with movement + item, BOUNDED to the report range and
+ * deduped per request with React cache().
+ *
+ * The old version pulled the ENTIRE inv_movement_lines table — and was called
+ * separately by consumption, COGS, wastage and slow-moving, so one report page
+ * view scanned the whole table several times over. Past PostgREST's 1000-row
+ * response cap the scan silently truncated, corrupting every derived number.
+ */
+const fetchLines = cache(async function fetchLines(from: string, to: string): Promise<JoinedLine[]> {
   const { data, error } = await db().from('inv_movement_lines').select(`
     quantity, unit_price, adjustment_direction,
-    movement:inv_movements (movement_type, movement_date, status, store_id, adjustment_reason),
+    movement:inv_movements!inner (movement_type, movement_date, status, store_id, adjustment_reason),
     item:inv_items (name, sku_code, category_id, store_id, avg_purchase_price, unit:inv_units (abbreviation))
   `)
+    .gte('movement.movement_date', from)
+    .lte('movement.movement_date', to)
+    .eq('movement.status', 'completed')
+    .limit(10_000)
   if (error) throw new Error(`[reports.inventory] ${error.message}`)
   return (data ?? []) as JoinedLine[]
-}
+})
 
 function inRange(date: string, r: DateRange): boolean {
   return date >= r.from && date <= r.to
@@ -77,7 +91,7 @@ export async function getStockOnHand(): Promise<{ rows: StockOnHandRow[]; total:
 export interface ConsumptionRow { category: string; quantity: number; value: number }
 
 export async function getConsumptionByCategory(range: DateRange): Promise<{ rows: ConsumptionRow[]; total: number }> {
-  const lines = await fetchLines()
+  const lines = await fetchLines(range.from, range.to)
   const map = new Map<string, ConsumptionRow>()
   let total = 0
   for (const l of lines) {
@@ -115,7 +129,7 @@ export interface CostOfGoodsResult {
 
 export async function getCostOfGoods(range: DateRange): Promise<CostOfGoodsResult> {
   const [lines, { data: kitchenStore }] = await Promise.all([
-    fetchLines(),
+    fetchLines(range.from, range.to),
     db().from('inv_stores').select('id').eq('slug', 'kitchen').maybeSingle(),
   ])
   const kitchenId = kitchenStore?.id
@@ -147,7 +161,7 @@ export async function getCostOfGoods(range: DateRange): Promise<CostOfGoodsResul
 export interface WastageRow { reason: string; quantity: number; value: number }
 
 export async function getWastage(range: DateRange): Promise<{ rows: WastageRow[]; total: number }> {
-  const lines = await fetchLines()
+  const lines = await fetchLines(range.from, range.to)
   const map = new Map<string, WastageRow>()
   let total = 0
   for (const l of lines) {
@@ -177,22 +191,21 @@ export async function getSlowMoving(days = 60): Promise<SlowMovingRow[]> {
   const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days)
   const cutoffIso = cutoff.toISOString().slice(0, 10)
 
-  const [{ data: items }, lines] = await Promise.all([
+  // Issue lines only, filtered in SQL via the !inner join — the old version
+  // fetched the whole movement-lines table twice (once through fetchLines whose
+  // result was never even used, once unfiltered here).
+  const [{ data: items }, { data: issueLines }] = await Promise.all([
     db().from('inv_items').select('id, name, sku_code, current_stock, unit:inv_units (abbreviation)')
       .eq('is_active', true).gt('current_stock', 0),
-    fetchLines(),
+    db().from('inv_movement_lines').select(`
+      item_id, movement:inv_movements!inner (movement_type, status, movement_date)
+    `)
+      .eq('movement.movement_type', 'issue')
+      .eq('movement.status', 'completed'),
   ])
 
   // Most recent completed issue date per item
   const lastIssue = new Map<string, string>()
-  for (const l of lines) {
-    if (!l.movement || l.movement.status !== 'completed' || l.movement.movement_type !== 'issue') continue
-    // item id isn't selected on the join; match via sku later — instead track by name+sku key
-  }
-  // We need item_id on lines; re-query lines with item_id for accuracy.
-  const { data: issueLines } = await db().from('inv_movement_lines').select(`
-    item_id, movement:inv_movements (movement_type, status, movement_date)
-  `)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const l of (issueLines ?? []) as any[]) {
     if (!l.movement || l.movement.status !== 'completed' || l.movement.movement_type !== 'issue') continue

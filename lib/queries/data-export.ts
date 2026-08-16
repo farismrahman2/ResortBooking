@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { getHolidayDateStrings } from '@/lib/queries/settings'
 import { hashGuestId } from '@/lib/data-export/csv'
+import { addDaysIso } from '@/lib/dates'
 
 const PAGE = 1000
 
@@ -109,8 +110,10 @@ export async function getBookingsForExport(params: {
   for (let from = 0; ; from += PAGE) {
     let q = db.from('bookings')
       .select('id, booking_number, customer_phone, customer_name, package_type, package_name:package_snapshot->>name, package_title:package_snapshot->>title, visit_date, check_out_date, nights, adults, children_paid, children_free, drivers, extra_beds, subtotal, discount, service_charge_pct, total, advance_paid, status, source_module, sales_employee_id, is_corporate, company_name, corporate_account_id, created_at')
+      // Exclusive next-day bound: `< to T23:59:59` dropped anything created in
+      // the last second of the range's final day.
       .gte('created_at', `${params.from}T00:00:00+06:00`)
-      .lt('created_at', `${params.to}T23:59:59+06:00`)
+      .lt('created_at', `${addDaysIso(params.to, 1)}T00:00:00+06:00`)
       .order('created_at', { ascending: true })
       .range(from, from + PAGE - 1)
     for (const status of exclude) q = q.neq('status', status)

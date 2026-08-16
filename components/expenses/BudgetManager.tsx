@@ -13,6 +13,7 @@ import type {
   BudgetPeriodType,
 } from '@/lib/supabase/types'
 import type { BudgetVsActualRow } from '@/lib/queries/expenses'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface BudgetManagerProps {
   period:       BudgetPeriodType
@@ -57,10 +58,20 @@ export function BudgetManager({ period, periodStart, periodLabel, categories, vs
       })
     }
     return rows
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [period, periodStart])
+  }, [period, periodStart, categories, vsActual])
 
+  // useState captures only the FIRST render's rows — navigating to another
+  // period (or refreshing after a save) recomputed `initial` but left the old
+  // period's budget_ids in state, so Delete removed the WRONG period's budget
+  // and a just-saved budget still claimed "no saved budget to remove".
+  // Reset state whenever the server-derived rows change (React's sanctioned
+  // adjust-state-during-render pattern).
   const [rowState, setRowState] = useState<RowState[]>(initial)
+  const [lastInitial, setLastInitial] = useState(initial)
+  if (initial !== lastInitial) {
+    setLastInitial(initial)
+    setRowState(initial)
+  }
 
   function setBudget(idx: number, value: number) {
     setRowState((prev) => prev.map((r, i) => (i === idx ? { ...r, budget: value } : r)))
@@ -85,12 +96,12 @@ export function BudgetManager({ period, periodStart, periodLabel, categories, vs
       return
     }
     startTransition(async () => {
-      const result = await upsertBudget({
+      const result = await safeCall(() => upsertBudget({
         category_id:  row.category_id,
         period_type:  period,
         period_start: periodStart,
         amount:       row.budget,
-      })
+      }))
       if (!result.success) { setError(result.error); return }
       router.refresh()
     })
@@ -105,7 +116,7 @@ export function BudgetManager({ period, periodStart, periodLabel, categories, vs
     if (!confirm(`Remove the ${period} budget for ${categoryName(row.category_id)}?`)) return
     setError(null)
     startTransition(async () => {
-      const result = await deleteBudget(row.budget_id!)
+      const result = await safeCall(() => deleteBudget(row.budget_id!))
       if (!result.success) { setError(result.error); return }
       router.refresh()
     })

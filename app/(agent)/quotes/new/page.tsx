@@ -10,24 +10,19 @@ import type { SalesEmployee } from '@/lib/supabase/types'
 export const dynamic = 'force-dynamic'
 
 export default async function NewQuotePage() {
-  const [packages, rooms, settings, holidays] = await Promise.all([
+  // All six reads are independent — one round of parallel fetches instead of
+  // three. The last two stay best-effort: sales employees need HR migration
+  // 001, corporate accounts need the CRM module.
+  const [packages, rooms, settings, holidays, salesEmployees, corporateAccounts] = await Promise.all([
     getActivePackagesWithPrices(),
     getRoomInventory(),
     getSettings(),
     getHolidayDates(),
+    listSalesEmployees().catch(() => [] as SalesEmployee[]),
+    listAccounts({ ownerView: 'all' })
+      .then((accs) => accs.map((a): CorporateAccountOption => ({ id: a.id, company_name: a.company_name, account_code: a.account_code })))
+      .catch(() => [] as CorporateAccountOption[]),
   ])
-
-  // Best-effort — works even if HR migration 001 hasn't been run yet
-  let salesEmployees: SalesEmployee[] = []
-  try { salesEmployees = await listSalesEmployees() } catch { salesEmployees = [] }
-
-  // Best-effort — CRM module may not be installed; the dropdown gracefully
-  // hides when corporateAccounts is empty.
-  let corporateAccounts: CorporateAccountOption[] = []
-  try {
-    const accs = await listAccounts({ ownerView: 'all' })
-    corporateAccounts = accs.map((a) => ({ id: a.id, company_name: a.company_name, account_code: a.account_code }))
-  } catch { corporateAccounts = [] }
 
   const holidayDates = holidays.map((h) => h.date)
 

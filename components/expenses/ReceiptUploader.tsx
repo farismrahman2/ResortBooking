@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Upload, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { attachReceipt } from '@/lib/actions/expenses'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface ReceiptUploaderProps {
   expenseId: string
@@ -49,13 +50,13 @@ export function ReceiptUploader({ expenseId, expenseDate }: ReceiptUploaderProps
     if (uploadError) return `${file.name}: ${uploadError.message}`
 
     // Record the attachment row server-side
-    const result = await attachReceipt({
+    const result = await safeCall(() => attachReceipt({
       expense_id:   expenseId,
       storage_path: storagePath,
       file_name:    file.name,
       mime_type:    file.type as typeof ALLOWED_MIME[number],
       size_bytes:   file.size,
-    })
+    }))
 
     if (!result.success) {
       // Best-effort cleanup if metadata insert fails

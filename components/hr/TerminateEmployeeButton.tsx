@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/Textarea'
 import { Select } from '@/components/ui/Select'
 import { toISODate } from '@/lib/formatters/dates'
 import { terminateEmployee, reactivateEmployee } from '@/lib/actions/employees'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   employeeId: string
@@ -28,11 +29,11 @@ export function TerminateEmployeeButton({ employeeId, isInactive }: Props) {
     setError(null)
     if (!reason.trim()) { setError('Reason is required.'); return }
     startTransition(async () => {
-      const result = await terminateEmployee(employeeId, {
+      const result = await safeCall(() => terminateEmployee(employeeId, {
         termination_date:   date,
         termination_reason: reason,
         status,
-      })
+      }))
       if (!result.success) { setError(result.error); return }
       setOpen(false)
       router.refresh()
@@ -41,7 +42,7 @@ export function TerminateEmployeeButton({ employeeId, isInactive }: Props) {
 
   function handleReactivate() {
     startTransition(async () => {
-      const result = await reactivateEmployee(employeeId)
+      const result = await safeCall(() => reactivateEmployee(employeeId))
       if (result.success) router.refresh()
     })
   }

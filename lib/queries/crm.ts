@@ -7,6 +7,8 @@ import type {
 } from '@/lib/supabase/types-crm'
 import { STAGE_ORDER } from '@/lib/crm/stage-probabilities'
 import { getKpiPeriods } from '@/lib/crm/kpi-dates'
+import { todayDhaka, addDaysIso } from '@/lib/dates'
+import { sanitizeSearch } from '@/lib/utils'
 import { KPI_METRICS, kpiStatus, type KpiMetric, type KpiStatus } from '@/lib/crm/kpi-metrics'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -37,6 +39,9 @@ export interface AccountFilters {
   ownerView?: 'mine' | 'all'
   /** When true, inactive (soft-deleted) accounts are included. */
   includeInactive?: boolean
+  /** 'recent' = most recently engaged first (for hub widgets). Default: name. */
+  orderBy?:   'name' | 'recent'
+  limit?:     number
 }
 
 const ACCOUNT_SELECT = `
@@ -99,7 +104,11 @@ async function decorateAccounts(rows: CrmAccount[]): Promise<CrmAccountWithRelat
 export async function listAccounts(filters: AccountFilters = {}): Promise<CrmAccountWithRelations[]> {
   const vis = await getCrmVisibility()
   let q = db().from('crm_accounts').select(ACCOUNT_SELECT)
-    .order('company_name', { ascending: true })
+  q = filters.orderBy === 'recent'
+    ? q.order('last_engaged_at', { ascending: false, nullsFirst: false })
+        .order('created_at', { ascending: false })
+    : q.order('company_name', { ascending: true })
+  if (filters.limit) q = q.limit(filters.limit)
   if (!filters.includeInactive) q = q.eq('is_active', true)
 
   if (vis) {
@@ -109,7 +118,10 @@ export async function listAccounts(filters: AccountFilters = {}): Promise<CrmAcc
   if (filters.status)   q = q.eq('status', filters.status)
   if (filters.sectorId) q = q.eq('sector_id', filters.sectorId)
   if (filters.tierId)   q = q.eq('tier_id', filters.tierId)
-  if (filters.search)   q = q.or(`company_name.ilike.%${filters.search}%,account_code.ilike.%${filters.search}%`)
+  if (filters.search) {
+    const term = sanitizeSearch(filters.search)   // commas/parens are .or() syntax and used to break the query
+    if (term) q = q.or(`company_name.ilike.%${term}%,account_code.ilike.%${term}%`)
+  }
 
   const { data, error } = await q
   if (error) throw new Error(`[crm.listAccounts] ${error.message}`)
@@ -227,11 +239,9 @@ export async function getCrmHubKpis(): Promise<CrmHubKpis> {
   const by_status: Record<string, number> = {}
   for (const r of (data ?? []) as Array<{ status: string }>) by_status[r.status] = (by_status[r.status] ?? 0) + 1
 
-  // Recent = top 5 by last_engaged_at (falls back to created order via listAccounts)
-  const recentRows = await listAccounts({ ownerView: 'mine' })
-  const recent = [...recentRows]
-    .sort((a, b) => (b.last_engaged_at ?? b.created_at).localeCompare(a.last_engaged_at ?? a.created_at))
-    .slice(0, 5)
+  // Recent = top 5 by last_engaged_at. Fetch exactly five — this used to pull
+  // and decorate EVERY account (with contacts, owners, parents) to show 5 rows.
+  const recent = await listAccounts({ ownerView: 'mine', orderBy: 'recent', limit: 5 })
 
   return { total_accounts: (data ?? []).length, by_status, recent }
 }
@@ -358,9 +368,10 @@ export async function getActivitiesByAccount(accountId: string): Promise<CrmActi
 }
 
 export async function getNextStepsDue(daysAhead = 7): Promise<CrmActivityWithRelations[]> {
-  const today = new Date().toISOString().slice(0, 10)
-  const end = new Date(); end.setDate(end.getDate() + daysAhead)
-  const endIso = end.toISOString().slice(0, 10)
+  // Dhaka calendar, not UTC — before 6am local, UTC is still "yesterday" and
+  // the widget showed follow-ups due today as not-yet-due.
+  const today = todayDhaka()
+  const endIso = addDaysIso(today, daysAhead)
   const vis = await getCrmVisibility()
   let q = db().from('crm_activities').select('*')
     .not('next_step_date', 'is', null).gte('next_step_date', today).lte('next_step_date', endIso)

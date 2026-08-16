@@ -6,6 +6,7 @@ import { Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { deleteExpense } from '@/lib/actions/expenses'
+import { safeCall } from '@/lib/actions/safe-call'
 
 export function DeleteExpenseButton({ id }: { id: string }) {
   const router = useRouter()
@@ -16,7 +17,7 @@ export function DeleteExpenseButton({ id }: { id: string }) {
   function handleDelete() {
     setError(null)
     startTransition(async () => {
-      const result = await deleteExpense(id)
+      const result = await safeCall(() => deleteExpense(id))
       if (!result.success) { setError(result.error); return }
       router.push('/expenses')
     })

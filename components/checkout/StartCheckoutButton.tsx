@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { ReceiptText, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { getOrCreateDraftCheckout } from '@/lib/actions/checkout-charges'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   bookingId: string
@@ -18,7 +19,7 @@ export function StartCheckoutButton({ bookingId }: Props) {
   function handleClick() {
     setError(null)
     startTransition(async () => {
-      const r = await getOrCreateDraftCheckout(bookingId)
+      const r = await safeCall(() => getOrCreateDraftCheckout(bookingId))
       if (!r.success) { setError(r.error); return }
       router.refresh()
     })

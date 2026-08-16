@@ -19,6 +19,7 @@ import {
 } from '@/components/hr/labels'
 import { toISODate } from '@/lib/formatters/dates'
 import type { EmployeeRow } from '@/lib/supabase/types'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface EmployeeFormProps {
   /** When provided → edit mode. */
@@ -95,8 +96,8 @@ export function EmployeeForm({ existing, suggestedCode }: EmployeeFormProps) {
     startTransition(async () => {
       try {
         const result = isEdit
-          ? await updateEmployee(existing!.id, values)
-          : await createEmployee(values)
+          ? await safeCall(() => updateEmployee(existing!.id, values))
+          : await safeCall(() => createEmployee(values))
         if (!result.success) { setError(result.error); return }
         const newId = isEdit ? existing!.id : (result as { success: true; data: { id: string } }).data.id
         router.push(`/hr/employees/${newId}`)

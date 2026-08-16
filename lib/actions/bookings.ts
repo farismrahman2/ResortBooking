@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
-import { generateBookingNumber } from '@/lib/utils'
+import { generateBookingNumber, isUniqueViolation } from '@/lib/utils'
 import { calculateDaylong, calculateNight } from '@/lib/engine/calculator'
 import { getHolidayDateStrings } from '@/lib/queries/settings'
 import { checkAvailabilityConflict, getBookedRoomNumbers } from '@/lib/queries/availability'
@@ -36,6 +36,20 @@ export async function convertQuoteToBooking(
       .single()
 
     if (qErr || !quote) return { success: false, error: 'Quote not found' }
+
+    // Already converted (double-click, two agents, a retry after a timeout):
+    // hand back the existing booking instead of minting a second one.
+    if (quote.converted_to_booking_id) {
+      const { data: existing } = await db
+        .from('bookings')
+        .select('id, booking_number')
+        .eq('id', quote.converted_to_booking_id)
+        .single()
+      if (existing) {
+        return { success: true, data: { bookingId: existing.id, bookingNumber: existing.booking_number } }
+      }
+      return { success: false, error: 'This quote was already converted to a booking.' }
+    }
 
     // Soft duplicate check — exclude the source quote itself
     if (!allowDuplicate) {
@@ -109,11 +123,14 @@ export async function convertQuoteToBooking(
       }
     }
 
-    // Generate booking number
-    const booking_number = await generateBookingNumber(supabase as any)
-
-    // Insert booking (mirror of quote)
-    const { data: booking, error: bErr } = await db
+    // Generate the booking number and insert. MAX+1 numbering can collide when
+    // two conversions run at the same moment — the unique index rejects the
+    // loser with 23505, and we retry with a freshly read number.
+    let booking: { id: string; booking_number: string } | null = null
+    let bErr: { message?: string } | null = null
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const booking_number = await generateBookingNumber(supabase as any)
+      const res = await db
       .from('bookings')
       .insert({
         booking_number,
@@ -146,12 +163,18 @@ export async function convertQuoteToBooking(
       })
       .select('id, booking_number')
       .single()
+      booking = res.data
+      bErr    = res.error
+      if (booking || !isUniqueViolation(res.error, 'booking_number')) break
+    }
 
     if (bErr || !booking) return { success: false, error: bErr?.message ?? 'Booking insert failed' }
 
-    // Copy quote rooms → booking rooms (including any pre-assigned room numbers)
+    // Copy quote rooms → booking rooms (including any pre-assigned room numbers).
+    // If this insert fails the booking would exist with zero rooms — invisible
+    // to every room-conflict check — so undo the booking rather than continue.
     if (quoteRooms?.length) {
-      await db.from('booking_rooms').insert(
+      const { error: roomsErr } = await db.from('booking_rooms').insert(
         quoteRooms.map((r: any) => ({
           booking_id:   booking.id,
           room_type:    r.room_type as RoomType,
@@ -160,6 +183,10 @@ export async function convertQuoteToBooking(
           room_numbers: r.room_numbers ?? [],
         })),
       )
+      if (roomsErr) {
+        await db.from('bookings').delete().eq('id', booking.id)
+        return { success: false, error: `Could not copy rooms to the booking: ${roomsErr.message}` }
+      }
     }
 
     // Update quote: mark as confirmed + link to booking
@@ -202,13 +229,23 @@ export async function updateAdvancePaid(
 ): Promise<ActionResult> {
   await requirePermission('bookings', 'write')
   try {
+    // Client-supplied money — validate before it reaches the row.
+    for (const [label, v] of [['Advance paid', advance_paid], ['Advance required', advance_required]] as const) {
+      if (!Number.isFinite(v) || v < 0 || v > 10_000_000) {
+        return { success: false, error: `${label} must be a number between 0 and 1,00,00,000` }
+      }
+    }
+
     const supabase = createClient()
-    const { error } = await supabase
+    const { data: updated, error } = await supabase
       .from('bookings')
       .update({ advance_paid, advance_required })
       .eq('id', bookingId)
+      .neq('status', 'cancelled')   // a cancelled booking's money must stay as it ended
+      .select('id')
 
     if (error) return { success: false, error: error.message }
+    if (!updated?.length) return { success: false, error: 'Booking not found, or it is cancelled' }
 
     await supabase.from('history_log').insert({
       entity_type: 'booking',
@@ -431,6 +468,19 @@ export async function updateBooking(
     const unassignedErr = findUnassignedRoomNumbersError(rooms.filter((r) => r.qty > 0))
     if (unassignedErr) return { success: false, error: unassignedErr }
 
+    // Same guard as date changes and room swaps: a cancelled or checked-out
+    // booking's totals are history — rewriting them after the fact corrupts
+    // revenue stats. (The Edit button renders regardless of status.)
+    const { data: current } = await (supabase as any)
+      .from('bookings')
+      .select('status')
+      .eq('id', bookingId)
+      .single()
+    if (!current) return { success: false, error: 'Booking not found' }
+    if (current.status !== 'confirmed') {
+      return { success: false, error: `Only confirmed bookings can be edited (this one is ${String(current.status).replace(/_/g, ' ')})` }
+    }
+
     // Recalculate totals using the frozen snapshot
     let calc
     if (package_type === 'daylong') {
@@ -471,7 +521,43 @@ export async function updateBooking(
       })
     }
 
-    // Update booking record
+    // Replace booking rooms. Neither step used to be checked: a failed insert
+    // left the booking with ZERO rooms while still reporting success — and a
+    // roomless booking is invisible to every room-conflict check, so its rooms
+    // could be sold twice. Capture the old rows first and restore them if the
+    // insert fails.
+    const { data: oldRooms } = await (supabase as any)
+      .from('booking_rooms')
+      .select('room_type, qty, unit_price, room_numbers')
+      .eq('booking_id', bookingId)
+
+    const { error: delErr } = await supabase.from('booking_rooms').delete().eq('booking_id', bookingId)
+    if (delErr) return { success: false, error: `Could not update rooms: ${delErr.message}` }
+
+    const activeRooms = rooms.filter((r) => r.qty > 0)
+    if (activeRooms.length > 0) {
+      const { error: insErr } = await supabase.from('booking_rooms').insert(
+        activeRooms.map((r) => ({
+          booking_id:   bookingId,
+          room_type:    r.room_type,
+          qty:          r.qty,
+          unit_price:   r.unit_price,
+          room_numbers: r.room_numbers ?? [],
+        })),
+      )
+      if (insErr) {
+        // Best-effort restore of the rooms we just deleted.
+        if (oldRooms?.length) {
+          await (supabase as any).from('booking_rooms').insert(
+            oldRooms.map((r: any) => ({ ...r, booking_id: bookingId })),
+          )
+        }
+        return { success: false, error: `Could not save rooms — the booking was left unchanged: ${insErr.message}` }
+      }
+    }
+
+    // Update the booking header AFTER the rooms landed, so a failure above
+    // leaves the whole booking untouched rather than new totals on old rooms.
     const { error: bookingErr } = await supabase
       .from('bookings')
       .update({
@@ -494,22 +580,7 @@ export async function updateBooking(
       })
       .eq('id', bookingId)
 
-    if (bookingErr) return { success: false, error: bookingErr.message }
-
-    // Replace booking rooms
-    await supabase.from('booking_rooms').delete().eq('booking_id', bookingId)
-    const activeRooms = rooms.filter((r) => r.qty > 0)
-    if (activeRooms.length > 0) {
-      await supabase.from('booking_rooms').insert(
-        activeRooms.map((r) => ({
-          booking_id:   bookingId,
-          room_type:    r.room_type,
-          qty:          r.qty,
-          unit_price:   r.unit_price,
-          room_numbers: r.room_numbers ?? [],
-        })),
-      )
-    }
+    if (bookingErr) return { success: false, error: `Rooms were saved but the totals were not: ${bookingErr.message}` }
 
     await supabase.from('history_log').insert({
       entity_type: 'booking',

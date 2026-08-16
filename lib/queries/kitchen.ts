@@ -372,12 +372,15 @@ export const listApprovers = cachedRef<Array<{ id: string; full_name: string }>>
   'kitchen-approvers',
   async (sdb) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data } = await (sdb as any)
+    const { data, error } = await (sdb as any)
       .from('employees')
       .select('id, full_name')
       .in('employment_status', ['active', 'on_leave'])
       .order('full_name')
       .limit(300)
+    // THROW, never return [] — an error here would cache an empty approver
+    // dropdown for 15 minutes, blocking every approval in that window.
+    if (error) throw new Error(`listApprovers: ${error.message}`)
     return (data ?? []) as Array<{ id: string; full_name: string }>
   },
   { tags: [KITCHEN_CATALOGUE_TAG], revalidate: 900 },

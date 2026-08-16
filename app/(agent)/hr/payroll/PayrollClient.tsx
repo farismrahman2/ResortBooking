@@ -8,6 +8,7 @@ import { ChevronLeft, ChevronRight, AlertCircle, CheckCircle2, Lock } from 'luci
 import { formatPeriod, PAYROLL_STATUS_BADGE, PAYROLL_STATUS_LABELS } from '@/components/hr/labels'
 import { finalizePayrollRun } from '@/lib/actions/payroll'
 import type { PaymentMethod, PayrollRunStatus } from '@/lib/supabase/types'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   periodIso:    string
@@ -50,7 +51,7 @@ export function PayrollControlBar({
     )) return
     setError(null); setSuccess(null)
     startTransition(async () => {
-      const r = await finalizePayrollRun(periodIso, method)
+      const r = await safeCall(() => finalizePayrollRun(periodIso, method))
       if (!r.success) { setError(r.error); return }
       setSuccess(`Finalized. ${r.data.expenses_written} expense rows written.`)
       router.refresh()

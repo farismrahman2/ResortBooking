@@ -13,6 +13,7 @@ import { formatDate } from '@/lib/formatters/dates'
 import { CATEGORY_GROUP_BADGE, PAYMENT_METHOD_OPTIONS } from '@/components/expenses/labels'
 import type { ExpenseRowWithRefs, PaymentMethod } from '@/lib/supabase/types'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   draft: ExpenseRowWithRefs
@@ -36,12 +37,12 @@ export function DraftConfirmCard({ draft }: Props) {
       return
     }
     startTransition(async () => {
-      const result = await confirmDraftExpense(draft.id, {
+      const result = await safeCall(() => confirmDraftExpense(draft.id, {
         amount,
         description:      description.trim() || null,
         payment_method:   paymentMethod,
         reference_number: reference.trim() || null,
-      })
+      }))
       if (!result.success) setError(result.error)
       else router.refresh()
     })
@@ -52,7 +53,7 @@ export function DraftConfirmCard({ draft }: Props) {
     if (!ok) return
     setError(null)
     startTransition(async () => {
-      const result = await discardDraftExpense(draft.id)
+      const result = await safeCall(() => discardDraftExpense(draft.id))
       if (!result.success) setError(result.error)
       else router.refresh()
     })

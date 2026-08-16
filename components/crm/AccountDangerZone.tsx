@@ -12,6 +12,7 @@ import {
 import type { AccountDeleteImpact } from '@/lib/queries/crm'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
 import { toast } from '@/lib/toast'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   accountId:   string
@@ -42,7 +43,7 @@ export function AccountDangerZone({ accountId, companyName, isActive, isAdmin }:
   function handleDeactivate() {
     setError(null)
     startTransition(async () => {
-      const r = await deactivateAccount(accountId)
+      const r = await safeCall(() => deactivateAccount(accountId))
       if (!r.success) { setError(r.error); return }
       router.refresh()
       toast.success(`${companyName} deactivated`, {
@@ -50,7 +51,7 @@ export function AccountDangerZone({ accountId, companyName, isActive, isAdmin }:
         action: {
           label: 'Undo',
           onClick: async () => {
-            const back = await reactivateAccount(accountId)
+            const back = await safeCall(() => reactivateAccount(accountId))
             if (back.success) { toast.success(`${companyName} restored`); router.refresh() }
             else toast.error(back.error)
           },
@@ -62,7 +63,7 @@ export function AccountDangerZone({ accountId, companyName, isActive, isAdmin }:
   function handleReactivate() {
     setError(null)
     startTransition(async () => {
-      const r = await reactivateAccount(accountId)
+      const r = await safeCall(() => reactivateAccount(accountId))
       if (!r.success) { setError(r.error); return }
       router.refresh()
     })
@@ -74,7 +75,7 @@ export function AccountDangerZone({ accountId, companyName, isActive, isAdmin }:
     setImpactError(null)
     setDeleteOpen(true)
     startTransition(async () => {
-      const r = await getAccountDeleteImpactAction(accountId)
+      const r = await safeCall(() => getAccountDeleteImpactAction(accountId))
       if (!r.success) { setImpactError(r.error); return }
       setImpact(r.data)
     })
@@ -83,7 +84,7 @@ export function AccountDangerZone({ accountId, companyName, isActive, isAdmin }:
   function handleHardDelete() {
     setError(null)
     startTransition(async () => {
-      const r = await hardDeleteAccount(accountId, confirmText)
+      const r = await safeCall(() => hardDeleteAccount(accountId, confirmText))
       if (!r.success) { setError(r.error); return }
       const unlinked = r.data.orphanedBookings
       toast.success(`${companyName} permanently deleted`, {

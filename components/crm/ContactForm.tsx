@@ -10,6 +10,7 @@ import { createContact, updateContact } from '@/lib/actions/crm'
 import type { ContactFormInput } from '@/lib/validators/crm'
 import type { CrmContact, Department } from '@/lib/supabase/types-crm'
 import { DEPARTMENT_LABELS } from './labels'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   accountId: string
@@ -52,7 +53,7 @@ export function ContactForm({ accountId, contact }: Props) {
       notes:           form.notes.trim() || null,
     }
     startTransition(async () => {
-      const res = contact ? await updateContact(contact.id, payload) : await createContact(payload)
+      const res = contact ? await safeCall(() => updateContact(contact.id, payload)) : await safeCall(() => createContact(payload))
       if (!res.success) { setError(res.error); return }
       router.push(`/crm/accounts/${accountId}`)
       router.refresh()

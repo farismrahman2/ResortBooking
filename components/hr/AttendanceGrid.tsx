@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition, useMemo } from 'react'
+import { safeCall } from '@/lib/actions/safe-call'
 import { useRouter } from 'next/navigation'
 import { Copy, Check } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -94,12 +95,12 @@ export function AttendanceGrid({ date, employees, attendance, leaveTypes }: Prop
     if (!entry?.status) return
     setError(null)
     startTransition(async () => {
-      const r = await markAttendance({
+      const r = await safeCall(() => markAttendance({
         employee_id:   empId,
         date,
         status:        entry.status,
         leave_type_id: entry.leave_type_id,
-      })
+      }))
       if (!r.success) { setError(r.error); return }
       setSavedAt(new Date().toLocaleTimeString())
       router.refresh()
@@ -189,7 +190,7 @@ export function AttendanceGrid({ date, employees, attendance, leaveTypes }: Prop
       )
     if (filled.length === 0) { setError('Set a status on at least one employee.'); return }
     startTransition(async () => {
-      const r = await bulkMarkAttendance({ date, entries: filled })
+      const r = await safeCall(() => bulkMarkAttendance({ date, entries: filled }))
       if (!r.success) { setError(r.error); return }
       setSavedAt(new Date().toLocaleTimeString())
       router.refresh()

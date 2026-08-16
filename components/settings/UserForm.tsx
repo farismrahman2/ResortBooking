@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/Button'
 import { newUserSchema, type NewUserInput } from '@/lib/validators/users'
 import { createUser } from '@/lib/actions/users'
 import type { RoleRow } from '@/lib/supabase/types'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   roles: RoleRow[]
@@ -57,7 +58,7 @@ export function UserForm({ roles }: Props) {
   function onSubmit(values: NewUserInput) {
     setError(null)
     startTransition(async () => {
-      const r = await createUser(values)
+      const r = await safeCall(() => createUser(values))
       if (!r.success) { setError(r.error); return }
       setTempPassword(r.data.temp_password)
       setTempEmail(values.email)

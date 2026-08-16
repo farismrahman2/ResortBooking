@@ -11,6 +11,7 @@ import { applyDiscount, clearDiscount } from '@/lib/actions/checkout'
 import { formatBDT } from '@/lib/formatters/currency'
 import { cn } from '@/lib/utils'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   open:        boolean
@@ -53,7 +54,7 @@ export function DiscountModal({ open, onClose, checkoutId, subtotal, current }: 
     if (mode === 'percent' && value > 100) { setError('Percent must be 0–100'); return }
     if (mode === 'fixed' && value > subtotal) { setError(`Discount cannot exceed the bill (${formatBDT(subtotal)})`); return }
     startTransition(async () => {
-      const r = await applyDiscount(checkoutId, { mode, value, reason })
+      const r = await safeCall(() => applyDiscount(checkoutId, { mode, value, reason }))
       if (!r.success) { setError(r.error); return }
       onClose()
       router.refresh()
@@ -64,7 +65,7 @@ export function DiscountModal({ open, onClose, checkoutId, subtotal, current }: 
     const ok = await confirm({ title: 'Remove the discount?', description: 'The checkout total returns to the undiscounted amount.', confirmLabel: 'Remove', danger: true })
     if (!ok) return
     startTransition(async () => {
-      const r = await clearDiscount(checkoutId)
+      const r = await safeCall(() => clearDiscount(checkoutId))
       if (!r.success) { setError(r.error); return }
       onClose()
       router.refresh()

@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import { attachVisitCard, removeVisitCard } from '@/lib/actions/field-visits'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
+import { safeCall } from '@/lib/actions/safe-call'
 
 export interface CardItem {
   id:            string
@@ -66,11 +67,11 @@ export function VisitCardCapture({
         .upload(path, file, { contentType: file.type, upsert: false })
       if (upErr) { toast.error(upErr.message); return }
 
-      const r = await attachVisitCard({
+      const r = await safeCall(() => attachVisitCard({
         visit_id: visitId, storage_path: path, file_name: file.name,
         mime_type: file.type, size_bytes: file.size,
         contact_label: contactLabel ?? null,
-      })
+      }))
       if (!r.success) {
         // Don't leave an orphaned object behind if the metadata insert failed.
         await supabase.storage.from('field-visit-cards').remove([path])
@@ -89,7 +90,7 @@ export function VisitCardCapture({
 
   function handleRemove(card: CardItem) {
     startTransition(async () => {
-      const r = await removeVisitCard(card.id)
+      const r = await safeCall(() => removeVisitCard(card.id))
       if (!r.success) { toast.error(r.error); return }
       toast.success('Card removed')
       setPreview(null)

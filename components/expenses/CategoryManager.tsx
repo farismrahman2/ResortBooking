@@ -14,6 +14,7 @@ import { categoryFormSchema, type CategoryFormInput } from '@/lib/validators/exp
 import { createCategory, updateCategory, toggleCategoryActive } from '@/lib/actions/expenses'
 import { CATEGORY_GROUP_OPTIONS, CATEGORY_GROUP_BADGE } from '@/components/expenses/labels'
 import type { ExpenseCategoryRow } from '@/lib/supabase/types'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface CategoryManagerProps {
   categories: ExpenseCategoryRow[]
@@ -36,7 +37,7 @@ export function CategoryManager({ categories }: CategoryManagerProps) {
 
   function handleToggleActive(id: string) {
     startTransition(async () => {
-      const result = await toggleCategoryActive(id)
+      const result = await safeCall(() => toggleCategoryActive(id))
       if (!result.success) setError(result.error)
       else router.refresh()
     })
@@ -161,7 +162,7 @@ function CategoryFormModal({
   function onSubmit(values: CategoryFormInput) {
     setError(null)
     startTransition(async () => {
-      const result = isEdit ? await updateCategory(editing!.id, values) : await createCategory(values)
+      const result = isEdit ? await safeCall(() => updateCategory(editing!.id, values)) : await safeCall(() => createCategory(values))
       if (!result.success) { setError(result.error); return }
       onClose(); reset(); router.refresh()
     })

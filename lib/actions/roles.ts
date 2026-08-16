@@ -66,7 +66,9 @@ export async function updateRolePermissions(
       }
     }
 
-    // UPSERT each permission row
+    // One batch UPSERT on UNIQUE(role_id, module_id). The old per-row
+    // select-then-write loop made ~34 sequential round trips per save and
+    // could stop halfway, leaving the grid part-old part-new.
     const rows = Object.entries(parsed.permissions).map(([moduleId, level]) => ({
       role_id:    roleId,
       module_id:  moduleId,
@@ -74,26 +76,11 @@ export async function updateRolePermissions(
       updated_by: ctx?.user_id ?? null,
     }))
 
-    // We do per-row upsert so we get clear error messages per failure
-    for (const row of rows) {
-      const { data: existing } = await db
+    if (rows.length > 0) {
+      const { error } = await db
         .from('role_permissions')
-        .select('id, level')
-        .eq('role_id', row.role_id)
-        .eq('module_id', row.module_id)
-        .maybeSingle()
-
-      if (existing) {
-        if (existing.level === row.level) continue   // no-op
-        const { error } = await db
-          .from('role_permissions')
-          .update({ level: row.level, updated_by: row.updated_by })
-          .eq('id', existing.id)
-        if (error) return { success: false, error: error.message }
-      } else {
-        const { error } = await db.from('role_permissions').insert(row)
-        if (error) return { success: false, error: error.message }
-      }
+        .upsert(rows, { onConflict: 'role_id,module_id' })
+      if (error) return { success: false, error: error.message }
     }
 
     await logHistory(roleId, 'edited', 'role_permissions_updated', {
@@ -105,6 +92,12 @@ export async function updateRolePermissions(
     revalidatePath(`/settings/roles/${role.slug}`)
     return { success: true }
   } catch (err) {
+    // requirePermission redirects on denial; that throw is Next control flow,
+    // not a failure — swallowing it here turned the redirect into a
+    // "NEXT_REDIRECT" error toast.
+    if (err && typeof err === 'object' && 'digest' in err
+      && typeof (err as { digest?: unknown }).digest === 'string'
+      && ((err as { digest: string }).digest).startsWith('NEXT_')) throw err
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }
 }

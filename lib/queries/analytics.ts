@@ -102,12 +102,14 @@ export const BOOKING_CHECKOUT_SELECT = `
 
 export async function getTotalsSummary(from: string, to: string): Promise<TotalsSummary> {
   const supabase = createClient()
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('bookings')
     .select(`id, total, advance_paid, ${BOOKING_CHECKOUT_SELECT}`)
     .gte('visit_date', from)
     .lte('visit_date', to)
     .neq('status', 'cancelled')
+  // A failed query used to render as ZERO revenue — throw so the page errors visibly.
+  if (error) throw new Error(`[analytics.getTotalsSummary] ${error.message}`)
 
   const rows = data ?? []
   const total_bookings = rows.length
@@ -134,12 +136,14 @@ export async function getTotalsSummary(from: string, to: string): Promise<Totals
 
 export async function getDailyRevenue(from: string, to: string): Promise<DailyRevenueRow[]> {
   const supabase = createClient()
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('bookings')
     .select(`visit_date, subtotal, discount, total, advance_paid, ${BOOKING_CHECKOUT_SELECT}`)
     .gte('visit_date', from)
     .lte('visit_date', to)
     .neq('status', 'cancelled')
+  // A failed query used to render as ZERO revenue — throw so the page errors visibly.
+  if (error) throw new Error(`[analytics.getDailyRevenue] ${error.message}`)
 
   // Aggregate by visit_date
   const map = new Map<string, DailyRevenueRow>()
@@ -172,12 +176,14 @@ export async function getDailyRevenue(from: string, to: string): Promise<DailyRe
 
 export async function getPackageTypeBreakdown(from: string, to: string): Promise<PackageTypeBreakdown> {
   const supabase = createClient()
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('bookings')
     .select(`package_type, total, advance_paid, ${BOOKING_CHECKOUT_SELECT}`)
     .gte('visit_date', from)
     .lte('visit_date', to)
     .neq('status', 'cancelled')
+  // A failed query used to render as ZERO revenue — throw so the page errors visibly.
+  if (error) throw new Error(`[analytics.getPackageTypeBreakdown] ${error.message}`)
 
   const empty = (): PackageTypeStats => ({ booking_count: 0, total: 0, collected: 0, outstanding: 0 })
   const out: PackageTypeBreakdown = { daylong: empty(), night: empty() }

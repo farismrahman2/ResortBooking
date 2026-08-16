@@ -49,9 +49,16 @@ export const salaryAdjustmentTypeSchema = z.enum([
   // 'loan_repayment' is system-generated; not user-creatable.
 ])
 
+/**
+ * Month fields are matched with `.eq('applies_to_month', 'YYYY-MM-01')` by
+ * payroll — an adjustment saved as the 15th silently never made it into any
+ * payroll run. Normalise every incoming date to the 1st.
+ */
+const monthFirstDay = isoDate.transform((v) => `${v.slice(0, 7)}-01`)
+
 export const adjustmentFormSchema = z.object({
   employee_id:       z.string().uuid(),
-  applies_to_month:  isoDate,                      // YYYY-MM-01
+  applies_to_month:  monthFirstDay,                // any day in the month → YYYY-MM-01
   type:              salaryAdjustmentTypeSchema,
   amount:            z.coerce.number().positive(),
   description:       z.string().trim().max(500).nullable().optional().or(z.literal('')),
@@ -72,7 +79,7 @@ export type LeaveTypeFormInput = z.infer<typeof leaveTypeFormSchema>
 // ── Service charge ───────────────────────────────────────────────────────────
 export const serviceChargeFormSchema = z.object({
   employee_id:       z.string().uuid(),
-  applies_to_month:  isoDate,
+  applies_to_month:  monthFirstDay,                // any day in the month → YYYY-MM-01
   amount:            z.coerce.number().min(0),
   notes:             z.string().trim().max(500).nullable().optional().or(z.literal('')),
 })

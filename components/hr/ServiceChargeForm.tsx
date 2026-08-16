@@ -7,6 +7,7 @@ import { NumberInput } from '@/components/ui/NumberInput'
 import { upsertServiceCharge, deleteServiceCharge } from '@/lib/actions/service-charge'
 import { formatBDT } from '@/lib/formatters/currency'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Row {
   id?: string
@@ -42,12 +43,12 @@ export function ServiceChargeForm({ monthIso, rows }: Props) {
     setSavingId(empId)
     const amount = local[empId] ?? 0
     startTransition(async () => {
-      const r = await upsertServiceCharge({
+      const r = await safeCall(() => upsertServiceCharge({
         employee_id:      empId,
         applies_to_month: monthIso,
         amount,
         notes:            '',
-      })
+      }))
       setSavingId(null)
       if (!r.success) { setError(r.error); return }
       router.refresh()
@@ -62,7 +63,7 @@ export function ServiceChargeForm({ monthIso, rows }: Props) {
     const ok = await confirm({ title: 'Remove this entry?', description: 'The service-charge payout line will be deleted.', confirmLabel: 'Remove', danger: true })
     if (!ok) return
     startTransition(async () => {
-      const r = await deleteServiceCharge(rowId)
+      const r = await safeCall(() => deleteServiceCharge(rowId))
       if (!r.success) { setError(r.error); return }
       setLocal((p) => ({ ...p, [empId]: 0 }))
       router.refresh()

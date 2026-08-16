@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState, useTransition } from 'react'
+import { safeCall } from '@/lib/actions/safe-call'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { PhoneOff, Search, ThumbsDown } from 'lucide-react'
@@ -93,7 +94,7 @@ function PendingTab({ pending, canWrite, canViewBookings, onRecord }: {
   function skip(booking: QaPendingBooking, status: 'unreachable' | 'declined') {
     setError(null)
     startTransition(async () => {
-      const res = await markQaCallSkipped({ booking_id: booking.id, status })
+      const res = await safeCall(() => markQaCallSkipped({ booking_id: booking.id, status }))
       if (!res.success) { setError(res.error); return }
       router.refresh()
     })

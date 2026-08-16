@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/Button'
 import { updateTier } from '@/lib/actions/crm'
 import type { CrmTier } from '@/lib/supabase/types-crm'
+import { safeCall } from '@/lib/actions/safe-call'
 
 export function TiersEditor({ tiers }: { tiers: CrmTier[] }) {
   const router = useRouter()
@@ -19,7 +20,7 @@ export function TiersEditor({ tiers }: { tiers: CrmTier[] }) {
     setError(null); setSavedId(null)
     const d = draft[id]
     startTransition(async () => {
-      const res = await updateTier(id, { default_discount_pct: Number(d.pct), description: d.desc.trim() || null })
+      const res = await safeCall(() => updateTier(id, { default_discount_pct: Number(d.pct), description: d.desc.trim() || null }))
       if (!res.success) { setError(res.error); return }
       setSavedId(id); router.refresh()
     })

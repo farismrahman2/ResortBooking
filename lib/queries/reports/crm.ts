@@ -1,3 +1,4 @@
+import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { getCrmVisibility } from '@/lib/crm/visibility'
 import { STAGE_LABELS } from '@/lib/crm/stage-probabilities'
@@ -12,8 +13,10 @@ interface OppRow {
   expected_event_date: string | null; won_at: string | null
 }
 
-/** Fetch opportunities scoped to the viewer's visibility. */
-async function visibleOpps(): Promise<OppRow[]> {
+/** Fetch opportunities scoped to the viewer's visibility.
+ *  React cache(): the CRM report page calls several section builders that each
+ *  need these rows — without dedup the SAME query ran up to 4× per request. */
+const visibleOpps = cache(async function visibleOpps(): Promise<OppRow[]> {
   const vis = await getCrmVisibility()
   let q = db().from('crm_opportunities')
     .select('id, account_id, owner_user_id, stage, est_value, weighted_value, actual_value, expected_event_date, won_at')
@@ -22,17 +25,17 @@ async function visibleOpps(): Promise<OppRow[]> {
   const { data, error } = await q
   if (error) throw new Error(`[reports.crm] ${error.message}`)
   return (data ?? []) as OppRow[]
-}
+})
 
-async function accountMeta(): Promise<Map<string, { company_name: string; sector_id: string | null; tier_id: string | null }>> {
+const accountMeta = cache(async function accountMeta(): Promise<Map<string, { company_name: string; sector_id: string | null; tier_id: string | null }>> {
   const { data } = await db().from('crm_accounts').select('id, company_name, sector_id, tier_id')
   const m = new Map<string, { company_name: string; sector_id: string | null; tier_id: string | null }>()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const a of (data ?? []) as any[]) m.set(a.id, { company_name: a.company_name, sector_id: a.sector_id, tier_id: a.tier_id })
   return m
-}
+})
 
-async function nameMaps() {
+const nameMaps = cache(async function nameMaps() {
   const [{ data: sectors }, { data: tiers }, { data: users }] = await Promise.all([
     db().from('crm_sectors').select('id, display_name'),
     db().from('crm_tiers').select('id, display_name'),
@@ -45,7 +48,7 @@ async function nameMaps() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const uName = new Map((users ?? []).map((u: any) => [u.user_id, u.full_name]))
   return { sName, tName, uName }
-}
+})
 
 // ── Pipeline forecast ────────────────────────────────────────────────────────
 

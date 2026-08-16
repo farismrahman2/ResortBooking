@@ -12,6 +12,7 @@ import { formatDate } from '@/lib/formatters/dates'
 import { cn } from '@/lib/utils'
 import type { DuplicateGroup } from '@/lib/queries/duplicate-bookings'
 import { toast } from '@/lib/toast'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   groups:   DuplicateGroup[]
@@ -34,7 +35,7 @@ export function DuplicateBookingsTable({ groups, canWrite }: Props) {
       : `Cancel ${number}? This booking has activity attached (charges, payments, or checkout). Make sure you really want to cancel.`
     if (!confirm(msg)) return
     startTransition(async () => {
-      const r = await cancelBooking(id)
+      const r = await safeCall(() => cancelBooking(id))
       if (!r.success) { toast.error(r.error); return }
       toast.success('Duplicate cancelled')
       router.refresh()

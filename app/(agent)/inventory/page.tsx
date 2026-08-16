@@ -18,9 +18,13 @@ export default async function InventoryHubPage() {
   const perStore: Record<string, { skus: number; low: number }> = {}
 
   try {
-    stores = await listStores()
-    kpis = await getInventoryHubKpis()
-    const allItems = await listItems({ activeOnly: true })
+    // Independent reads — fetch together instead of one after the other.
+    let allItems: Awaited<ReturnType<typeof listItems>>
+    ;[stores, kpis, allItems] = await Promise.all([
+      listStores(),
+      getInventoryHubKpis(),
+      listItems({ activeOnly: true }),
+    ])
     for (const s of stores) perStore[s.id] = { skus: 0, low: 0 }
     for (const it of allItems) {
       const bucket = perStore[it.store_id]

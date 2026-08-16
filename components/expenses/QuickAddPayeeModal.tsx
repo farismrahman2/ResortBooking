@@ -13,6 +13,7 @@ import { payeeFormSchema, type PayeeFormInput } from '@/lib/validators/expense'
 import { createPayee } from '@/lib/actions/expenses'
 import { PAYEE_TYPE_OPTIONS } from '@/components/expenses/labels'
 import type { ExpensePayeeRow, PayeeType } from '@/lib/supabase/types'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface QuickAddPayeeModalProps {
   open:      boolean
@@ -51,7 +52,7 @@ export function QuickAddPayeeModal({ open, onClose, onCreated, defaultType }: Qu
   function onSubmit(values: PayeeFormInput) {
     setError(null)
     startTransition(async () => {
-      const result = await createPayee(values)
+      const result = await safeCall(() => createPayee(values))
       if (!result.success) { setError(result.error); return }
       onCreated({
         id:            result.data.id,

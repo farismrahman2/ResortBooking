@@ -12,6 +12,7 @@ import { categoryFormSchema, type CategoryFormInput } from '@/lib/validators/exp
 import { createCategory } from '@/lib/actions/expenses'
 import { CATEGORY_GROUP_OPTIONS } from '@/components/expenses/labels'
 import type { ExpenseCategoryRow, ExpenseCategoryGroup } from '@/lib/supabase/types'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface QuickAddCategoryModalProps {
   open:      boolean
@@ -66,7 +67,7 @@ export function QuickAddCategoryModal({ open, onClose, onCreated }: QuickAddCate
   function onSubmit(values: CategoryFormInput) {
     setError(null)
     startTransition(async () => {
-      const result = await createCategory(values)
+      const result = await safeCall(() => createCategory(values))
       if (!result.success) { setError(result.error); return }
       // Pass back a row shaped like ExpenseCategoryRow so the parent can append it.
       onCreated({

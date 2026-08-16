@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition, useMemo, useEffect } from 'react'
+import { safeCall } from '@/lib/actions/safe-call'
 import { useRouter } from 'next/navigation'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
@@ -207,14 +208,14 @@ export function AddChargeModal({ open, onClose, bookingId, snapshot, nights, ext
     if (tab === 'catalog') {
       if (!chosen) { setError('Pick an item from the list'); return }
       startTransition(async () => {
-        const r = await addCharge({
+        const r = await safeCall(() => addCharge({
           booking_id:     bookingId,
           category_id:    chosen.category_id,
           charge_item_id: chosen.id,
           description:    chosen.name,
           quantity:       catalogQty,
           unit_price:     catalogPrice,
-        })
+        }))
         if (!r.success) { setError(r.error); return }
         reset()
         onClose()
@@ -237,13 +238,13 @@ export function AddChargeModal({ open, onClose, bookingId, snapshot, nights, ext
       }
       const finalUnitPrice = upsalePrice * upsaleMultiplier
       startTransition(async () => {
-        const r = await addCharge({
+        const r = await safeCall(() => addCharge({
           booking_id:  bookingId,
           category_id: category.id,
           description,
           quantity:    upsaleQty,
           unit_price:  finalUnitPrice,
-        })
+        }))
         if (!r.success) { setError(r.error); return }
         reset()
         onClose()
@@ -253,14 +254,14 @@ export function AddChargeModal({ open, onClose, bookingId, snapshot, nights, ext
       if (!freeCat) { setError('Pick a category'); return }
       if (!freeDesc.trim()) { setError('Description is required'); return }
       startTransition(async () => {
-        const r = await addCharge({
+        const r = await safeCall(() => addCharge({
           booking_id:  bookingId,
           category_id: freeCat,
           description: freeDesc.trim(),
           quantity:    freeQty,
           unit_price:  freePrice,
           notes:       freeNotes,
-        })
+        }))
         if (!r.success) { setError(r.error); return }
         reset()
         onClose()

@@ -11,6 +11,7 @@ import { computeDepreciation } from '@/lib/fixed-assets/depreciation'
 import { DISPOSAL_METHOD_LABELS } from './labels'
 import { formatBDT } from '@/lib/formatters/currency'
 import type { DisposalMethod } from '@/lib/supabase/types-fixed-assets'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   assetId:               string
@@ -42,10 +43,10 @@ export function DisposeAssetForm({ assetId, assetTag, acquisitionCost, salvageVa
   function submit() {
     setError(null)
     startTransition(async () => {
-      const res = await disposeAsset({
+      const res = await safeCall(() => disposeAsset({
         asset_id: assetId, disposal_date: date, disposal_method: method,
         disposal_proceeds: proceeds === '' ? null : proceedsNum, disposal_notes: notes.trim() || null,
-      })
+      }))
       if (!res.success) { setError(res.error); return }
       router.push(`/fixed-assets/assets/${assetId}`)
       router.refresh()

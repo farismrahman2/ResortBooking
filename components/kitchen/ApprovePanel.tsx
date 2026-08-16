@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import { safeCall } from '@/lib/actions/safe-call'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -11,7 +12,6 @@ import { useConfirm } from '@/components/ui/ConfirmDialog'
 import {
   approveRequisition, submitRequisition, cancelRequisition, reopenRequisition,
 } from '@/lib/actions/kitchen'
-import { safeCall } from '@/lib/actions/safe-call'
 import type { RequisitionStatus } from '@/lib/supabase/types-kitchen'
 import type { SalesEmployee } from '@/lib/supabase/types'
 

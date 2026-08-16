@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { recordCountedQty, bulkMarkMatching, finalizeCount, cancelCount } from '@/lib/actions/inventory'
 import { formatQty } from './labels'
 import type { InvCountFull } from '@/lib/supabase/types-inventory'
+import { safeCall } from '@/lib/actions/safe-call'
 
 export function CountSheet({ count }: { count: InvCountFull }) {
   const router = useRouter()
@@ -23,7 +24,7 @@ export function CountSheet({ count }: { count: InvCountFull }) {
     const qty = raw === '' ? null : Number(raw)
     if (qty != null && (isNaN(qty) || qty < 0)) return
     startTransition(async () => {
-      const res = await recordCountedQty(count.id, itemId, qty)
+      const res = await safeCall(() => recordCountedQty(count.id, itemId, qty))
       if (!res.success) setError(res.error)
     })
   }

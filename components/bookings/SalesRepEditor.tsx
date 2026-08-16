@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { setBookingSalesRep } from '@/lib/actions/bookings'
 import type { SalesEmployee } from '@/lib/supabase/types'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   bookingId:     string
@@ -35,7 +36,7 @@ export function SalesRepEditor({ bookingId, current, options, canEdit }: Props) 
   function save() {
     setError(null)
     startTransition(async () => {
-      const r = await setBookingSalesRep(bookingId, pickedId || null)
+      const r = await safeCall(() => setBookingSalesRep(bookingId, pickedId || null))
       if (!r.success) { setError(r.error); return }
       setOpen(false)
       router.refresh()

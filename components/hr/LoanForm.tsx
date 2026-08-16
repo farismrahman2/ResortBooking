@@ -13,6 +13,7 @@ import { loanFormSchema, type LoanFormInput } from '@/lib/validators/hr'
 import { createLoan } from '@/lib/actions/loans'
 import { toISODate } from '@/lib/formatters/dates'
 import type { EmployeeWithCurrentSalary } from '@/lib/supabase/types'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   employees: Pick<EmployeeWithCurrentSalary, 'id' | 'employee_code' | 'full_name'>[]
@@ -45,7 +46,7 @@ export function LoanForm({ employees }: Props) {
   function onSubmit(values: LoanFormInput) {
     setError(null)
     startTransition(async () => {
-      const r = await createLoan(values)
+      const r = await safeCall(() => createLoan(values))
       if (!r.success) { setError(r.error); return }
       router.refresh()
     })

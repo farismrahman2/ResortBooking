@@ -6,6 +6,7 @@ import { Save, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { upsertSetting } from '@/lib/actions/settings'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   currentTotalRooms: string
@@ -27,7 +28,7 @@ export function PropertyForm({ currentTotalRooms, inventoryFallback }: Props) {
       return
     }
     startTransition(async () => {
-      const r = await upsertSetting('total_rooms', trimmed)
+      const r = await safeCall(() => upsertSetting('total_rooms', trimmed))
       if (!r.success) { setError(r.error); return }
       setSavedAt(new Date().toLocaleTimeString())
       router.refresh()

@@ -193,12 +193,18 @@ export type DayMealHeadcounts = Partial<Record<string, DayMealCount>>
  * Drivers ride along with whichever meals their booking participates in.
  */
 export async function getDayMealHeadcounts(date: string): Promise<DayMealHeadcounts> {
+  // Bounded to bookings that actually cover `date`. With only the upper bound
+  // this scanned every booking ever created on each call — and once past the
+  // 1000-row response cap, whole bookings silently vanished from the counts.
+  // A booking feeds meals from visit_date through check_out_date INCLUSIVE
+  // (checkout-morning breakfast), or just visit_date for daylong.
   const { data, error } = await dbc()
     .from('bookings')
     .select('package_type, visit_date, check_out_date, status, adults, children_paid, children_free, drivers, package_snapshot')
     .neq('status', 'cancelled')
     .neq('status', 'no_show')
     .lte('visit_date', date)
+    .or(`check_out_date.gte.${date},and(check_out_date.is.null,visit_date.eq.${date})`)
   if (error) throw new Error(`getDayMealHeadcounts: ${error.message}`)
 
   const empty = (): DayMealCount => ({ adults: 0, children: 0, drivers: 0, total: 0, bookings: 0 })

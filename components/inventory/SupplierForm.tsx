@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button'
 import { createSupplier, updateSupplier } from '@/lib/actions/inventory'
 import type { SupplierFormInput } from '@/lib/validators/inventory'
 import type { InvSupplier } from '@/lib/supabase/types-inventory'
+import { safeCall } from '@/lib/actions/safe-call'
 
 export function SupplierForm({
   supplier, kitchenVendors = [],
@@ -43,7 +44,7 @@ export function SupplierForm({
       kitchen_vendor_id: form.kitchen_vendor_id || null,
     }
     startTransition(async () => {
-      const res = supplier ? await updateSupplier(supplier.id, payload) : await createSupplier(payload)
+      const res = supplier ? await safeCall(() => updateSupplier(supplier.id, payload)) : await safeCall(() => createSupplier(payload))
       if (!res.success) { setError(res.error); return }
       router.push('/inventory/suppliers')
       router.refresh()

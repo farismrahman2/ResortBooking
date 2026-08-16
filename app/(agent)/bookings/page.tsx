@@ -5,7 +5,12 @@ import { BookingsClient } from './BookingsClient'
 export const dynamic = 'force-dynamic'
 
 export default async function BookingsPage() {
-  const bookings = await getBookings()
+  // Newest first + an explicit cap: unbounded, PostgREST silently truncates at
+  // 1000 rows, and with the old ascending order that meant the 1000 OLDEST
+  // bookings — newly created bookings stopped appearing in this list at all.
+  // Descending keeps every recent and upcoming booking; only deep history
+  // falls off the end once the resort has 1000+ bookings.
+  const bookings = await getBookings({ order: 'desc', limit: 1000 })
 
   return (
     <div className="flex flex-col">

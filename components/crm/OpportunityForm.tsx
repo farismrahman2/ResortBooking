@@ -10,6 +10,7 @@ import { createOpportunity, updateOpportunity } from '@/lib/actions/crm'
 import type { OpportunityFormInput } from '@/lib/validators/crm'
 import type { CrmOpportunity, CrmContact, EventType } from '@/lib/supabase/types-crm'
 import { EVENT_TYPE_LABELS } from './labels'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface OwnerOption { id: string; name: string }
 
@@ -56,8 +57,8 @@ export function OpportunityForm({ accountId, owners, contacts, defaultOwnerId, o
     }
     startTransition(async () => {
       const res = opportunity
-        ? await updateOpportunity(opportunity.id, { ...payload, probability_pct: form.probability_pct === '' ? undefined : Number(form.probability_pct) })
-        : await createOpportunity(payload)
+        ? await safeCall(() => updateOpportunity(opportunity.id, { ...payload, probability_pct: form.probability_pct === '' ? undefined : Number(form.probability_pct) }))
+        : await safeCall(() => createOpportunity(payload))
       if (!res.success) { setError(res.error); return }
       router.push(opportunity ? `/crm/opportunities/${opportunity.id}` : '/crm/pipeline')
       router.refresh()

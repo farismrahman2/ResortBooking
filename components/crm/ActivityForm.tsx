@@ -10,6 +10,7 @@ import { createActivity } from '@/lib/actions/crm'
 import type { ActivityFormInput } from '@/lib/validators/crm'
 import type { CrmContact, CrmOpportunity, ActivityType, ActivityOutcome } from '@/lib/supabase/types-crm'
 import { ACTIVITY_TYPE_LABELS } from './labels'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   accountId:     string
@@ -51,7 +52,7 @@ export function ActivityForm({ accountId, contacts, opportunities, onDone }: Pro
       next_step_date: form.next_step_date || null,
     }
     startTransition(async () => {
-      const res = await createActivity(payload)
+      const res = await safeCall(() => createActivity(payload))
       if (!res.success) { setError(res.error); return }
       onDone?.()
       router.refresh()

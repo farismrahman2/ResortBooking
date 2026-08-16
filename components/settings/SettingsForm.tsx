@@ -6,6 +6,7 @@ import type { SettingsMap } from '@/lib/supabase/types'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Textarea } from '@/components/ui/Textarea'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface SettingsFormProps {
   initialSettings: SettingsMap
@@ -31,12 +32,12 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
   const handleSave = () => {
     setError(null)
     startTransition(async () => {
-      const result = await upsertSettings({
+      const result = await safeCall(() => upsertSettings({
         payment_instructions: paymentInstructions,
         contact_numbers: contactNumbers,
         default_notes: defaultNotes,
         whatsapp_footer_text: whatsappFooter,
-      })
+      }))
       if (!result.success) {
         setError(result.error ?? 'Failed to save settings')
         return

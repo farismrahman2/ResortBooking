@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { recordAuditLine, finalizeAudit, cancelAudit } from '@/lib/actions/fixed-assets'
 import type { FaAuditFull, FaLocation, AssetCondition } from '@/lib/supabase/types-fixed-assets'
 import { CONDITION_LABELS } from './labels'
+import { safeCall } from '@/lib/actions/safe-call'
 
 export function AuditSheet({ audit, locations }: { audit: FaAuditFull; locations: FaLocation[] }) {
   const router = useRouter()
@@ -17,9 +18,9 @@ export function AuditSheet({ audit, locations }: { audit: FaAuditFull; locations
   function mark(assetId: string, found: boolean, foundLoc: string, foundCond: string) {
     setError(null)
     startTransition(async () => {
-      const res = await recordAuditLine(audit.id, assetId, {
+      const res = await safeCall(() => recordAuditLine(audit.id, assetId, {
         found, found_at_location_id: foundLoc || null, found_condition: foundCond || null,
-      })
+      }))
       if (!res.success) setError(res.error)
       else router.refresh()
     })

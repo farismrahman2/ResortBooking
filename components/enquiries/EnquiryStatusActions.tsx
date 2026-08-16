@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { updateEnquiryStatus } from '@/lib/actions/enquiries'
 import type { EnquiryStatus } from '@/lib/supabase/types'
+import { safeCall } from '@/lib/actions/safe-call'
 
 const STEPS: Array<{ key: EnquiryStatus; label: string; active: string }> = [
   { key: 'new',       label: 'New',       active: 'bg-blue-600 text-white border-blue-600' },
@@ -27,7 +28,7 @@ export function EnquiryStatusActions({ id, current, canWrite }: Props) {
     if (status === current || pending || !canWrite) return
     setError(null)
     startTransition(async () => {
-      const res = await updateEnquiryStatus({ id, status })
+      const res = await safeCall(() => updateEnquiryStatus({ id, status }))
       if (!res.success) { setError(res.error ?? 'Failed to update'); return }
       router.refresh()
     })

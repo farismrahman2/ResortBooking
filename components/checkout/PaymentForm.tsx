@@ -19,6 +19,7 @@ import { formatBDT } from '@/lib/formatters/currency'
 import type { CheckoutPaymentRow } from '@/lib/supabase/types'
 import { toast } from '@/lib/toast'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   checkoutId: string
@@ -48,7 +49,7 @@ export function PaymentForm({ checkoutId, payments, suggestedAmount, disabled }:
   function onSubmit(values: AddPaymentInput) {
     setError(null)
     startTransition(async () => {
-      const r = await addPayment(checkoutId, values)
+      const r = await safeCall(() => addPayment(checkoutId, values))
       if (!r.success) { setError(r.error); return }
       reset({ amount: 0, method: 'cash', reference: '', notes: '' })
       router.refresh()
@@ -59,7 +60,7 @@ export function PaymentForm({ checkoutId, payments, suggestedAmount, disabled }:
     const ok = await confirm({ title: 'Remove this payment?', description: 'The outstanding balance will increase by this amount.', confirmLabel: 'Remove', danger: true })
     if (!ok) return
     startTransition(async () => {
-      const r = await removePayment(id)
+      const r = await safeCall(() => removePayment(id))
       if (!r.success) { toast.error(r.error); return }
       toast.success('Payment removed')
       router.refresh()

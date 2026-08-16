@@ -16,7 +16,7 @@ import {
   getRoomTypeUtilization,
 } from '@/lib/queries/analytics'
 import { getUpsalesSummary, type UpsalesSummary } from '@/lib/queries/upsales'
-import { toISODate } from '@/lib/formatters/dates'
+import { todayDhaka, monthStartDhaka } from '@/lib/dates'
 
 export const dynamic = 'force-dynamic'
 
@@ -25,27 +25,22 @@ interface PageProps {
 }
 
 export default async function AnalyticsPage({ searchParams }: PageProps) {
-  // Default range: current month
-  const now = new Date()
-  const defaultFrom = toISODate(new Date(now.getFullYear(), now.getMonth(), 1))
-  const defaultTo   = toISODate(new Date(now.getFullYear(), now.getMonth() + 1, 0))
-  const from = searchParams.from ?? defaultFrom
-  const to   = searchParams.to   ?? defaultTo
+  // Default range: current month on the RESORT's calendar (UTC is a day behind
+  // Asia/Dhaka until 6am local).
+  const today = todayDhaka()
+  const [ty, tm] = today.split('-').map(Number)
+  const from = searchParams.from ?? monthStartDhaka(today)
+  const to   = searchParams.to   ?? new Date(Date.UTC(ty, tm, 0)).toISOString().slice(0, 10)
 
-  const [summary, daily, packages, rooms] = await Promise.all([
+  // All five independent — one parallel round (upsales stays best-effort:
+  // the checkout module may not be migrated yet).
+  const [summary, daily, packages, rooms, upsales] = await Promise.all([
     getTotalsSummary(from, to),
     getDailyRevenue(from, to),
     getPackageTypeBreakdown(from, to),
     getRoomTypeUtilization(from, to),
+    getUpsalesSummary({ from, to }).catch(() => null as UpsalesSummary | null),
   ])
-
-  // Best-effort — if checkouts table doesn't exist yet, skip the panel.
-  let upsales: UpsalesSummary | null = null
-  try {
-    upsales = await getUpsalesSummary({ from, to })
-  } catch {
-    upsales = null
-  }
 
   return (
     <div className="flex h-full flex-col">

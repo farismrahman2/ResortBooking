@@ -5,8 +5,10 @@ import { QuotesClient } from './QuotesClient'
 export const dynamic = 'force-dynamic'
 
 export default async function QuotesPage() {
+  // 1000 newest, matching /bookings: the tab counts span the whole table, so
+  // a 50-row fetch made search and the tabs disagree with their own numbers.
   const [quotes, statusCounts] = await Promise.all([
-    getQuotes({ limit: 50 }),
+    getQuotes({ limit: 1000 }),
     getQuoteStatusCounts(),
   ])
 

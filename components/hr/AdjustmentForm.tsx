@@ -13,6 +13,7 @@ import { Textarea } from '@/components/ui/Textarea'
 import { adjustmentFormSchema, type AdjustmentFormInput } from '@/lib/validators/hr'
 import { createAdjustment } from '@/lib/actions/salary-adjustments'
 import { SALARY_ADJUSTMENT_OPTIONS } from '@/components/hr/labels'
+import { safeCall } from '@/lib/actions/safe-call'
 
 interface Props {
   employeeId: string
@@ -46,7 +47,7 @@ export function AdjustmentForm({ employeeId }: Props) {
   function onSubmit(values: AdjustmentFormInput) {
     setError(null)
     startTransition(async () => {
-      const r = await createAdjustment({ ...values, employee_id: employeeId })
+      const r = await safeCall(() => createAdjustment({ ...values, employee_id: employeeId }))
       if (!r.success) { setError(r.error); return }
       reset({
         employee_id:      employeeId,
