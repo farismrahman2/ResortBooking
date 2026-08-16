@@ -23,7 +23,7 @@ import type { PricedLine } from '@/lib/kitchen/messages'
  */
 export function BillMessage({
   receiptNo, supplyDate, eventDate, requisitionNo, isEmergency,
-  lines, template, rejected,
+  lines, template, rejected, deliveryCharge = 0,
 }: {
   receiptNo:     string
   supplyDate:    string
@@ -33,13 +33,14 @@ export function BillMessage({
   lines:         PricedLine[]
   template:      string | null
   rejected:      Array<{ item_name: string; qty: number; reason: string | null }>
+  deliveryCharge?: number
 }) {
   const [copied, setCopied] = useState(false)
 
   const fallback = buildBillMessage({
-    receiptNo, supplyDate, eventDate, requisitionNo, isEmergency, lines,
+    receiptNo, supplyDate, eventDate, requisitionNo, isEmergency, lines, deliveryCharge,
   })
-  const total = lines.reduce((s, l) => s + l.amount, 0)
+  const total = lines.reduce((s, l) => s + l.amount, 0) + deliveryCharge
   const text = applyTemplate(template, {
     receipt_no:     receiptNo,
     supply_date:    supplyDate,

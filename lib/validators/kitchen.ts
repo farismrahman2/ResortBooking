@@ -168,6 +168,11 @@ export const deliveryDraftSchema = z.object({
   supplier_memo_no:  nullableStr,
   /** What the supplier's own paper says the total is — compared, never used. */
   supplier_memo_total: optionalPrice,
+  /** Van fare / carrying charge — billed on top of the lines. */
+  delivery_charge:   z.preprocess(
+    (v) => (v === '' || v === null || v === undefined ? 0 : v),
+    z.coerce.number().min(0).max(1_000_000).catch(0),
+  ).default(0),
   received_by_employee_id: z.string().uuid().nullish().transform((v) => v || null),
   notes:             nullableStr,
   lines:             z.array(deliveryLineSchema).default([]),

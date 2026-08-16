@@ -34,6 +34,7 @@ export const getDeliveryById = cache(async (id: string): Promise<DeliveryWithLin
   return {
     ...data,
     total_amount: Number(data.total_amount),
+    delivery_charge: Number(data.delivery_charge ?? 0),
     supplier_memo_total: data.supplier_memo_total === null || data.supplier_memo_total === undefined
       ? null : Number(data.supplier_memo_total),
     lines,

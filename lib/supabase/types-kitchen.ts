@@ -142,6 +142,8 @@ export interface KitchenDelivery {
   supplier_memo_total: number | null
   received_by_employee_id: string | null
   status:             DeliveryStatus
+  /** Vendor's charge for bringing the goods (van fare). Included in total_amount. */
+  delivery_charge:    number
   total_amount:       number
   memo_photo_path:    string | null
   notes:              string | null

@@ -145,6 +145,12 @@ export default async function DeliveryDetailPage({ params }: { params: { id: str
                       })}
                     </tbody>
                     <tfoot>
+                      {del.delivery_charge > 0 && (
+                        <tr className="border-t border-gray-200">
+                          <td colSpan={4} className="px-3 py-2 text-right text-sm text-gray-600">Delivery charge</td>
+                          <td className="px-3 py-2 text-right text-sm font-semibold">{formatBDT(del.delivery_charge)}</td>
+                        </tr>
+                      )}
                       <tr className="border-t border-gray-200 bg-gray-50">
                         <td colSpan={4} className="px-3 py-2 text-right text-sm font-medium text-gray-700">Total</td>
                         <td className="px-3 py-2 text-right text-base font-bold">{formatBDT(del.total_amount)}</td>
@@ -163,6 +169,7 @@ export default async function DeliveryDetailPage({ params }: { params: { id: str
                     lines={priced}
                     template={vendor?.bill_template ?? null}
                     rejected={rejected}
+                    deliveryCharge={del.delivery_charge}
                   />
                 )}
 
