@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { Pencil, Printer, Send } from 'lucide-react'
 import { Topbar } from '@/components/layout/Topbar'
-import { requirePermission, hasPermission } from '@/lib/auth/permissions'
+import { requirePermission, hasPermission, isAdmin } from '@/lib/auth/permissions'
 import {
   getRequisitionById, getVendorSections, getDispatchStatus, getRequisitionFamily,
   listApprovers,
@@ -10,6 +10,7 @@ import {
 import { listKitchenDocuments } from '@/lib/queries/kitchen-docs'
 import { ApprovePanel } from '@/components/kitchen/ApprovePanel'
 import { AmendPanel } from '@/components/kitchen/AmendPanel'
+import { AdminDeleteButton } from '@/components/kitchen/AdminDeleteButton'
 import { EffectiveOrder } from '@/components/kitchen/EffectiveOrder'
 import { DocumentCapture } from '@/components/kitchen/DocumentCapture'
 import { MigrationErrorBanner } from '@/components/ui/MigrationErrorBanner'
@@ -21,7 +22,10 @@ export const dynamic = 'force-dynamic'
 
 export default async function RequisitionDetailPage({ params }: { params: { id: string } }) {
   await requirePermission('kitchen', 'read')
-  const canWrite = await hasPermission('kitchen', 'write')
+  const [canWrite, admin] = await Promise.all([
+    hasPermission('kitchen', 'write'),
+    isAdmin(),
+  ])
 
   try {
     const [req, sections, employees, dispatched, docs] = await Promise.all([
@@ -144,6 +148,9 @@ export default async function RequisitionDetailPage({ params }: { params: { id: 
                     amendments={family.amendments}
                     canWrite={canWrite}
                   />
+                )}
+                {admin && (
+                  <AdminDeleteButton kind="requisition" id={req.id} recordNo={req.requisition_no} />
                 )}
               </div>
             </div>

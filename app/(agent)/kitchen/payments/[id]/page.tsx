@@ -2,11 +2,12 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { Pencil, ChevronLeft, Ban } from 'lucide-react'
 import { Topbar } from '@/components/layout/Topbar'
-import { requirePermission, hasPermission } from '@/lib/auth/permissions'
+import { requirePermission, hasPermission, isAdmin } from '@/lib/auth/permissions'
 import { getPaymentById } from '@/lib/queries/kitchen-ledger'
 import { listKitchenVendors } from '@/lib/queries/kitchen'
 import { listKitchenDocuments } from '@/lib/queries/kitchen-docs'
 import { CancelPaymentButton } from '@/components/kitchen/CancelPaymentButton'
+import { AdminDeleteButton } from '@/components/kitchen/AdminDeleteButton'
 import { DocumentCapture } from '@/components/kitchen/DocumentCapture'
 import { formatDate } from '@/lib/formatters/dates'
 import { formatBDT } from '@/lib/formatters/currency'
@@ -16,7 +17,10 @@ export const dynamic = 'force-dynamic'
 
 export default async function PaymentDetailPage({ params }: { params: { id: string } }) {
   await requirePermission('kitchen', 'read')
-  const canWrite = await hasPermission('kitchen', 'write')
+  const [canWrite, admin] = await Promise.all([
+    hasPermission('kitchen', 'write'),
+    isAdmin(),
+  ])
 
   const [payment, vendors, docs] = await Promise.all([
     getPaymentById(params.id),
@@ -122,6 +126,10 @@ export default async function PaymentDetailPage({ params }: { params: { id: stri
 
           {canWrite && payment.status !== 'cancelled' && (
             <CancelPaymentButton paymentId={payment.id} />
+          )}
+
+          {admin && (
+            <AdminDeleteButton kind="payment" id={payment.id} recordNo={payment.payment_no} />
           )}
 
           <Link href="/kitchen/payments" className="inline-flex items-center gap-1 text-sm text-forest-700 hover:underline">
