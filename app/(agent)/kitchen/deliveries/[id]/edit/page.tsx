@@ -7,7 +7,9 @@ import {
 import {
   getDeliveryById, buildDeliveryLinesFromRequisition,
 } from '@/lib/queries/kitchen-ledger'
+import { listKitchenDocuments } from '@/lib/queries/kitchen-docs'
 import { DeliveryForm } from '@/components/kitchen/DeliveryForm'
+import { DocumentCapture } from '@/components/kitchen/DocumentCapture'
 import { MigrationErrorBanner } from '@/components/ui/MigrationErrorBanner'
 
 export const dynamic = 'force-dynamic'
@@ -20,11 +22,12 @@ export default async function EditDeliveryPage({
 }) {
   await requirePermission('kitchen', 'write')
   try {
-    const [existing, vendors, items, employees] = await Promise.all([
+    const [existing, vendors, items, employees, docs] = await Promise.all([
       getDeliveryById(params.id),
       listKitchenVendors(),
       listKitchenItems(),
       listApprovers().catch(() => []),
+      listKitchenDocuments('delivery', params.id).catch(() => []),
     ])
     // Confirmed means the supplier has been billed — read-only from here.
     if (existing && existing.status !== 'draft') redirect(`/kitchen/deliveries/${params.id}`)
@@ -58,6 +61,19 @@ export default async function EditDeliveryPage({
             requisitionNo={req?.requisition_no ?? null}
             requisitionId={existing ? null : (reqId ?? null)}
             defaultVendorId={existing ? null : (vendorId ?? null)}
+            receiptCapture={
+              /* Rendered right under the memo fields: photograph the
+                 supplier's receipt-book page as proof at the moment the memo
+                 number is typed. The delivery id is minted in the URL, so
+                 photos taken before the first autosave still attach to the
+                 right delivery. */
+              <DocumentCapture
+                entityType="delivery" entityId={params.id} docs={docs}
+                kind="receipt" label="Receipt photos (proof of the memo)"
+                hint="Photograph the supplier's receipt book page — when their total is questioned later, this photo settles it."
+                editable
+              />
+            }
           />
         </div>
       </div>

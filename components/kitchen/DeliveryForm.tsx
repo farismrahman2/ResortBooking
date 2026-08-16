@@ -9,6 +9,7 @@ import { saveDelivery, confirmDelivery } from '@/lib/actions/kitchen-ledger'
 import { safeCall } from '@/lib/actions/safe-call'
 import { formatBDT } from '@/lib/formatters/currency'
 import { buildSearchIndex, searchItems } from '@/lib/kitchen/item-search'
+import { todayDhaka } from '@/lib/dates'
 import type { KitchenVendor, DeliveryWithLines } from '@/lib/supabase/types-kitchen'
 import type { PickerItemRow } from '@/lib/queries/kitchen'
 import type { SalesEmployee } from '@/lib/supabase/types'
@@ -59,7 +60,7 @@ const n = (v: string) => Number(v) || 0
  */
 export function DeliveryForm({
   deliveryId, initial, vendors, items, employees, prefill, isNew,
-  requisitionNo, requisitionId, defaultVendorId,
+  requisitionNo, requisitionId, defaultVendorId, receiptCapture,
 }: {
   deliveryId: string
   initial:    DeliveryWithLines | null
@@ -73,11 +74,14 @@ export function DeliveryForm({
   /** Set when receiving against a requisition — stored on the delivery. */
   requisitionId?: string | null
   defaultVendorId?: string | null
+  /** Slot rendered right under the memo fields — the receipt-photo capture,
+   *  so the proof is photographed at the moment the memo number is typed. */
+  receiptCapture?: React.ReactNode
 }) {
   const router = useRouter()
 
   const [vendorId, setVendorId]   = useState(initial?.kitchen_vendor_id ?? defaultVendorId ?? '')
-  const [date, setDate]           = useState(initial?.delivery_date ?? new Date().toISOString().slice(0, 10))
+  const [date, setDate]           = useState(initial?.delivery_date ?? todayDhaka())
   const [memoNo, setMemoNo]       = useState(initial?.supplier_memo_no ?? '')
   const [memoTotal, setMemoTotal] = useState(
     initial?.supplier_memo_total === null || initial?.supplier_memo_total === undefined
@@ -278,6 +282,8 @@ export function DeliveryForm({
           </select>
         </label>
       </div>
+
+      {receiptCapture}
 
       {requisitionNo && (
         <p className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">

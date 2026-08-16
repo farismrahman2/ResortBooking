@@ -48,9 +48,14 @@ function hasDeliveryContent(input: {
   return Array.isArray(input.lines) && input.lines.length > 0
 }
 
+/** MAX+1, not COUNT+1 — after any deletion COUNT falls behind the highest
+ *  number and every retry collides with a living row. */
 async function nextDeliveryNo(db: ReturnType<typeof dbc>, attempt: number): Promise<string> {
-  const { count } = await db.from('kitchen_deliveries').select('id', { count: 'exact', head: true })
-  return formatDeliveryNo((count ?? 0) + attempt)
+  const { data } = await db.from('kitchen_deliveries')
+    .select('delivery_no').like('delivery_no', 'DL-%')
+    .order('delivery_no', { ascending: false }).limit(1)
+  const last = Number(String(data?.[0]?.delivery_no ?? '').split('-').pop()) || 0
+  return formatDeliveryNo(last + attempt)
 }
 
 /**
@@ -268,9 +273,97 @@ export async function discardDelivery(id: string): Promise<ActionResult> {
 
 // ═══ Payments ═══════════════════════════════════════════════════════════════
 
+/** MAX+1, not COUNT+1 — see nextDeliveryNo. */
 async function nextPaymentNo(db: ReturnType<typeof dbc>, attempt: number): Promise<string> {
-  const { count } = await db.from('kitchen_vendor_payments').select('id', { count: 'exact', head: true })
-  return formatPaymentNo((count ?? 0) + attempt)
+  const { data } = await db.from('kitchen_vendor_payments')
+    .select('payment_no').like('payment_no', 'PY-%')
+    .order('payment_no', { ascending: false }).limit(1)
+  const last = Number(String(data?.[0]?.payment_no ?? '').split('-').pop()) || 0
+  return formatPaymentNo(last + attempt)
+}
+
+/**
+ * Keep the Expenses book in step with a vendor payment.
+ *
+ * This is the resort's actual food cash-out: dues are tallied from the
+ * receipt book and settled with one cheque. Until this landed, those cheques
+ * appeared ONLY in the kitchen ledger, so the expense book understated food
+ * cost by every taka paid to suppliers. One expense row per payment,
+ * source_module='kitchen' + source_id=payment id is the authoritative link —
+ * the expense can't be edited or deleted directly, the payment owns it.
+ *
+ * 'adjustment' payments move no money, so they carry no expense.
+ * Returns a human warning instead of failing the payment when the expense
+ * side can't be written (e.g. migration 009 not yet applied).
+ */
+async function syncPaymentExpense(
+  db: ReturnType<typeof dbc>,
+  paymentId: string,
+  p: {
+    kitchen_vendor_id: string; supplier_id: string | null; payment_date: string
+    method: string; cheque_no: string | null; amount: number
+  },
+): Promise<string | null> {
+  try {
+    if (p.method === 'adjustment') {
+      await db.from('expenses').delete()
+        .eq('source_module', 'kitchen').eq('source_id', paymentId)
+      return null
+    }
+
+    const [{ data: payment }, { data: vendor }, supplierRes] = await Promise.all([
+      db.from('kitchen_vendor_payments').select('payment_no').eq('id', paymentId).maybeSingle(),
+      db.from('kitchen_vendors').select('display_name').eq('id', p.kitchen_vendor_id).maybeSingle(),
+      // Payee: the explicitly chosen supplier, or whichever supplier record is
+      // linked to this kitchen vendor (one per vendor — enforced on save).
+      p.supplier_id
+        ? db.from('inv_suppliers').select('expense_payee_id').eq('id', p.supplier_id).maybeSingle()
+        : db.from('inv_suppliers').select('expense_payee_id')
+            .eq('kitchen_vendor_id', p.kitchen_vendor_id).eq('is_active', true).maybeSingle(),
+    ])
+
+    // Category: prefer the dedicated slug; create it if the seed hasn't run.
+    let { data: cat } = await db.from('expense_categories')
+      .select('id').eq('slug', 'kitchen_suppliers').maybeSingle()
+    if (!cat) {
+      const { data: created } = await db.from('expense_categories').insert({
+        name: 'Kitchen Suppliers', slug: 'kitchen_suppliers', category_group: 'bazar',
+        requires_description: false, requires_payee: false, is_active: true, display_order: 25,
+      }).select('id').single()
+      cat = created
+    }
+    if (!cat?.id) return 'Payment saved, but no expense category could be resolved — run migrations/kitchen-module/009_payment_expenses.sql.'
+
+    const vendorName = vendor?.display_name ?? 'kitchen supplier'
+    const description = `Kitchen supplier payment ${payment?.payment_no ?? ''} — ${vendorName}`.trim()
+      + (p.cheque_no ? ` (cheque ${p.cheque_no})` : '')
+    const row = {
+      expense_date:     p.payment_date,
+      category_id:      cat.id,
+      payee_id:         supplierRes?.data?.expense_payee_id ?? null,
+      description,
+      amount:           p.amount,
+      payment_method:   p.method,          // kitchen methods are a subset of expense methods
+      reference_number: p.cheque_no ?? null,
+      is_draft:         false,
+      source_module:    'kitchen',
+      source_id:        paymentId,
+    }
+
+    const { data: existing } = await db.from('expenses')
+      .select('id').eq('source_module', 'kitchen').eq('source_id', paymentId).maybeSingle()
+    const { error } = existing
+      ? await db.from('expenses').update(row).eq('id', existing.id)
+      : await db.from('expenses').insert(row)
+    if (error) {
+      console.warn(`[kitchen] payment expense not posted: ${error.message}`)
+      return `Payment saved, but it was NOT posted to Expenses (${error.message}). Run migrations/kitchen-module/009_payment_expenses.sql and re-save the payment.`
+    }
+    return null
+  } catch (err) {
+    console.warn('[kitchen] payment expense sync failed:', err)
+    return 'Payment saved, but it was NOT posted to Expenses — re-save it after checking the connection.'
+  }
 }
 
 /**
@@ -280,13 +373,13 @@ async function nextPaymentNo(db: ReturnType<typeof dbc>, attempt: number): Promi
  * the details are in front of whoever is typing. Allocations are replaced
  * wholesale, so editing a payment cannot leave an orphan settling a bill twice.
  *
- * Deliberately creates NO expense row. The cost was incurred when the goods
- * arrived; a payment moves money against a liability that already exists.
- * Posting here as well would count the same food twice.
+ * Each payment posts ONE matching expense row (see syncPaymentExpense) — this
+ * is the resort's cash-basis food cost. Deliveries deliberately do not post;
+ * posting on both sides would count the same food twice.
  */
 export async function recordPayment(
   input: unknown, paymentId?: string,
-): Promise<ActionData<{ id: string }>> {
+): Promise<ActionData<{ id: string; expenseWarning?: string | null }>> {
   await requirePermission('kitchen', 'write')
   try {
     const db = dbc()
@@ -370,14 +463,26 @@ export async function recordPayment(
       if (error) return { success: false, error: error.message }
     }
 
+    // Post (or update) the matching expense — the cash book's food cost.
+    const expenseWarning = await syncPaymentExpense(db, id as string, {
+      kitchen_vendor_id: p.kitchen_vendor_id,
+      supplier_id:       p.supplier_id,
+      payment_date:      p.payment_date,
+      method:            p.method,
+      cheque_no:         p.cheque_no,
+      amount:            p.amount,
+    })
+
     await logHistory('kitchen_payment', id as string, paymentId ? 'edited' : 'created',
       paymentId ? 'payment_updated' : 'payment_recorded',
-      { amount: p.amount, method: p.method, cheque_no: p.cheque_no, settles: p.allocations.length })
+      { amount: p.amount, method: p.method, cheque_no: p.cheque_no, settles: p.allocations.length,
+        expense_posted: !expenseWarning })
 
     revalidatePath('/kitchen/payments')
     revalidatePath('/kitchen/ledger')
     revalidatePath('/kitchen/deliveries')
-    return { success: true, data: { id: id as string } }
+    revalidatePath('/expenses')
+    return { success: true, data: { id: id as string, expenseWarning } }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }
@@ -407,12 +512,17 @@ export async function cancelPayment(id: string, reason: string): Promise<ActionR
     }).eq('id', id)
     if (error) return { success: false, error: error.message }
 
+    // A bounced cheque means the money never left — remove its expense row.
+    await db.from('expenses').delete()
+      .eq('source_module', 'kitchen').eq('source_id', id)
+
     await logHistory('kitchen_payment', id, 'edited', 'payment_cancelled', {
       payment_no: pay.payment_no, reason: reason.trim(),
     })
     revalidatePath('/kitchen/payments')
     revalidatePath('/kitchen/ledger')
     revalidatePath('/kitchen/deliveries')
+    revalidatePath('/expenses')
     return { success: true }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
