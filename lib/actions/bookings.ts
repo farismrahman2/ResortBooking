@@ -140,7 +140,9 @@ export async function convertQuoteToBooking(
         customer_notes:   quote.customer_notes,
         package_type:     quote.package_type,
         visit_date:       quote.visit_date,
-        check_out_date:   quote.check_out_date,
+        // Belt for legacy quotes saved before the validator cleared this:
+        // daylong never carries a check-out date.
+        check_out_date:   quote.package_type === 'daylong' ? null : quote.check_out_date,
         adults:           quote.adults,
         children_paid:    quote.children_paid,
         children_free:    quote.children_free,

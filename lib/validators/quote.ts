@@ -78,6 +78,14 @@ const BaseQuoteSchema = z.object({
 })
 
 export const CreateQuoteSchema = BaseQuoteSchema
+  // A daylong visit has no check-out date, FULL STOP. A quote drafted as a
+  // night stay and then switched to daylong used to keep its old check-out
+  // date invisibly — the converted booking then blocked room availability for
+  // a range the guest never stays, and the checkout screen filed the guest
+  // under the phantom check-out day instead of the visit day.
+  .transform((data) => (
+    data.package_type === 'daylong' ? { ...data, check_out_date: null } : data
+  ))
   .refine(
     (data) => {
       if (data.package_type === 'night') {
