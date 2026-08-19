@@ -46,6 +46,7 @@ export const REPORTS: ReportMeta[] = [
 
   // Operations
   { id: 'operations',             title: 'Operations',          description: 'Occupancy heatmap + pickup pace',                href: '/reports/operations',              section: 'operations',    icon: PieChart,   phase: 1 },
+  { id: 'guests',                 title: 'Guest numbers',       description: 'Guests served over any period — adults, children, drivers, day-by-day', href: '/reports/guests', section: 'operations', icon: Users, phase: 1 },
 
   // HR
   { id: 'hr-salary-vs-revenue',   title: 'Salary % of revenue', description: 'Payroll cost relative to income',                href: '/reports/hr/salary-vs-revenue',    section: 'hr',            icon: Briefcase, module: 'hr', phase: 1 },
