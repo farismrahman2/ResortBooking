@@ -1,5 +1,6 @@
+import { FileDown } from 'lucide-react'
 import { requirePermission, hasPermission } from '@/lib/auth/permissions'
-import { buildPeriodRange } from '@/lib/reports/periods'
+import { buildPeriodRange, toIsoDate } from '@/lib/reports/periods'
 import { computeAvailability } from '@/lib/reports/sufficient-data'
 import { getHubTotals, getHubTotalsForComparison, getRevenueSparkline } from '@/lib/queries/reports/hub'
 import { ReportShell } from '@/components/reports/ReportShell'
@@ -66,6 +67,8 @@ export default async function ReportsHubPage({ searchParams }: PageProps) {
     tilesBySection[r.section].push(r)
   }
 
+  const printHref = `/reports/print?from=${toIsoDate(period.from)}&to=${toIsoDate(period.to)}`
+
   return (
     <ReportShell
       title="Reports"
@@ -75,6 +78,14 @@ export default async function ReportsHubPage({ searchParams }: PageProps) {
       customFrom={searchParams.from}
       customTo={searchParams.to}
       mode={mode}
+      toolbar={
+        <a
+          href={printHref}
+          className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg bg-forest-700 px-3 text-xs font-semibold text-white"
+        >
+          <FileDown size={14} /> PDF report
+        </a>
+      }
     >
       {/* KPI strip */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
