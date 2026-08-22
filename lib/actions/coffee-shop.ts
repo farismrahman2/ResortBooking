@@ -6,6 +6,7 @@ import { requirePermission } from '@/lib/auth/permissions'
 import { coffeeShopSaleFormSchema } from '@/lib/validators/coffee-shop'
 import { isStillSameDayInDhaka } from '@/lib/coffee-shop/timezone'
 import { formatSaleNumber } from '@/lib/coffee-shop/sale-number'
+import { createIssueMovement, reverseIssueMovement } from '@/lib/inventory/stock'
 import type { ActionResult, ActionData } from './types'
 
 async function logHistory(
@@ -71,10 +72,84 @@ function computeTendered(input: ReturnType<typeof coffeeShopSaleFormSchema.parse
   return input.payments.reduce((s, p) => s + Number(p.amount ?? 0), 0)
 }
 
+/**
+ * Deduct sold stock: every sale item whose menu entry (charge_item) is linked
+ * to an inventory item becomes a line on one ISSUE movement from the Coffee
+ * Shop store — complimentary items included, they leave the shelf all the
+ * same. The movement id is stored on the sale so edits and voids can reverse
+ * it exactly.
+ *
+ * Best-effort by design: the sale (the money) must never fail because the
+ * stock side did. Returns a human warning when stock was NOT deducted.
+ */
+async function syncSaleStock(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  db: any,
+  saleId: string,
+  saleNumber: string,
+  saleDate: string,
+  items: Array<{ charge_item_id: string | null; quantity: number }>,
+  userId: string | null,
+): Promise<string | null> {
+  try {
+    const chargeIds = [...new Set(items.map((i) => i.charge_item_id).filter(Boolean))] as string[]
+    if (chargeIds.length === 0) return null
+
+    const { data: links } = await db.from('charge_items')
+      .select('id, inv_item_id').in('id', chargeIds).not('inv_item_id', 'is', null)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const invByCharge = new Map(((links ?? []) as any[]).map((l) => [l.id, l.inv_item_id as string]))
+    if (invByCharge.size === 0) return null   // nothing on this sale tracks stock
+
+    // Sum per inventory item (a sale can hold the same item twice).
+    const qtyByInvItem = new Map<string, number>()
+    for (const it of items) {
+      const invId = it.charge_item_id ? invByCharge.get(it.charge_item_id) : null
+      if (!invId) continue
+      qtyByInvItem.set(invId, (qtyByInvItem.get(invId) ?? 0) + Number(it.quantity))
+    }
+    if (qtyByInvItem.size === 0) return null
+
+    const { data: store } = await db.from('inv_stores')
+      .select('id').eq('slug', 'coffee_shop').maybeSingle()
+    if (!store?.id) {
+      return 'Sale saved, but stock was NOT deducted — run migrations/coffee-shop-module/002_inventory_link.sql to create the Coffee Shop store.'
+    }
+
+    const res = await createIssueMovement(db, {
+      store_id:   store.id,
+      date:       saleDate,
+      department: 'coffee_shop_sale',
+      notes:      `Auto from sale ${saleNumber}`,
+      created_by: userId,
+      lines:      [...qtyByInvItem.entries()].map(([item_id, quantity]) => ({ item_id, quantity })),
+    })
+    if (!res.success) {
+      return `Sale saved, but stock was NOT deducted: ${res.error}`
+    }
+    await db.from('coffee_shop_sales').update({ inv_movement_id: res.movement_id }).eq('id', saleId)
+    return null
+  } catch (err) {
+    console.warn('[coffee-shop] stock sync failed:', err)
+    return 'Sale saved, but stock was NOT deducted — check the connection and edit-resave the sale.'
+  }
+}
+
+/** Undo a sale's stock movement (edit or void). Best-effort, warns on failure. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function unwindSaleStock(db: any, saleId: string, reason: string): Promise<void> {
+  const { data: sale } = await db.from('coffee_shop_sales')
+    .select('inv_movement_id').eq('id', saleId).maybeSingle()
+  if (!sale?.inv_movement_id) return
+  const res = await reverseIssueMovement(db, sale.inv_movement_id, reason)
+  if (!res.success) console.warn(`[coffee-shop] stock unwind failed for sale ${saleId}: ${res.error}`)
+  await db.from('coffee_shop_sales').update({ inv_movement_id: null }).eq('id', saleId)
+}
+
 /** Create a new coffee shop sale (header + items + payments). */
 export async function createCoffeeShopSale(
   raw: unknown,
-): Promise<ActionData<{ sale_id: string; sale_number: string }>> {
+): Promise<ActionData<{ sale_id: string; sale_number: string; stockWarning?: string | null }>> {
   await requirePermission('coffee_shop', 'write')
   try {
     const parsed = coffeeShopSaleFormSchema.parse(raw)
@@ -167,12 +242,21 @@ export async function createCoffeeShopSale(
       return { success: false, error: `Payments insert failed: ${paymentsErr.message}` }
     }
 
+    // Deduct linked stock — comps included, they leave the shelf too.
+    const stockWarning = await syncSaleStock(
+      db, saleId, saleNumber, parsed.sale_date,
+      parsed.items.map((it) => ({ charge_item_id: it.charge_item_id ?? null, quantity: Number(it.quantity) })),
+      userId,
+    )
+
     await logHistory(saleId, 'created', 'coffee_shop_sale_created', {
       sale_number: saleNumber, net_amount: totals.net_amount, items: parsed.items.length,
+      stock_deducted: !stockWarning,
     })
     revalidatePath('/coffee-shop')
     revalidatePath('/coffee-shop/sales')
-    return { success: true, data: { sale_id: saleId, sale_number: saleNumber } }
+    revalidatePath('/coffee-shop/stock')
+    return { success: true, data: { sale_id: saleId, sale_number: saleNumber, stockWarning } }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }
@@ -259,12 +343,26 @@ export async function updateCoffeeShopSale(
     }).eq('id', saleId)
     if (updErr) { await restoreChildren(); return { success: false, error: `Sale totals not saved: ${updErr.message}` } }
 
+    // Stock: undo the old movement, write a fresh one for the edited lines.
+    await unwindSaleStock(db, saleId, `sale edited`)
+    const { data: saleRow } = await db.from('coffee_shop_sales')
+      .select('sale_number, sale_date').eq('id', saleId).maybeSingle()
+    const stockWarning = saleRow
+      ? await syncSaleStock(
+          db, saleId, saleRow.sale_number, saleRow.sale_date,
+          parsed.items.map((it) => ({ charge_item_id: it.charge_item_id ?? null, quantity: Number(it.quantity) })),
+          userId,
+        )
+      : null
+    if (stockWarning) console.warn(`[coffee-shop] ${stockWarning}`)
+
     await logHistory(saleId, 'edited', 'coffee_shop_sale_edited', {
-      net_amount: totals.net_amount, items: parsed.items.length,
+      net_amount: totals.net_amount, items: parsed.items.length, stock_deducted: !stockWarning,
     })
     revalidatePath('/coffee-shop')
     revalidatePath('/coffee-shop/sales')
     revalidatePath(`/coffee-shop/sales/${saleId}`)
+    revalidatePath('/coffee-shop/stock')
     return { success: true }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }
@@ -291,10 +389,13 @@ export async function voidCoffeeShopSale(saleId: string, reason: string): Promis
       status: 'voided', voided_at: new Date().toISOString(), voided_by: userId, void_reason: reason,
     }).eq('id', saleId)
     if (error) return { success: false, error: error.message }
+    // A voided sale never happened — the goods go back on the book.
+    await unwindSaleStock(db, saleId, `sale voided: ${reason}`)
     await logHistory(saleId, 'edited', 'coffee_shop_sale_voided', { reason })
     revalidatePath('/coffee-shop')
     revalidatePath('/coffee-shop/sales')
     revalidatePath(`/coffee-shop/sales/${saleId}`)
+    revalidatePath('/coffee-shop/stock')
     return { success: true }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) }

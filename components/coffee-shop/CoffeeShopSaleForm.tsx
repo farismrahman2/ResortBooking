@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { NumberInput } from '@/components/ui/NumberInput'
 import { createCoffeeShopSale, updateCoffeeShopSale } from '@/lib/actions/coffee-shop'
+import { toast } from '@/lib/toast'
 import { PAYMENT_METHOD_LABELS } from './labels'
 import { formatBDT } from '@/lib/formatters/currency'
 import { getTodayInDhaka } from '@/lib/coffee-shop/timezone'
@@ -229,6 +230,10 @@ export function CoffeeShopSaleForm({ categories, items, initial, saleId }: Props
         ? await safeCall(() => updateCoffeeShopSale(saleId!, payload))
         : await safeCall(() => createCoffeeShopSale(payload))
       if (!r.success) { setError(r.error); return }
+      // Stock is best-effort behind the sale — if it wasn't deducted, say so.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const stockWarning = (r as any).data?.stockWarning
+      if (stockWarning) toast.error(stockWarning)
       const id = isEdit ? saleId! : (r as any).data.sale_id  // eslint-disable-line @typescript-eslint/no-explicit-any
       router.push(`/coffee-shop/sales/${id}`)
       router.refresh()

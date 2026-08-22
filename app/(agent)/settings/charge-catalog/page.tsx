@@ -2,6 +2,7 @@ import { Topbar } from '@/components/layout/Topbar'
 import { ChargeCatalogClient } from '@/components/checkout/ChargeCatalogClient'
 import { MigrationErrorBanner } from '@/components/checkout/MigrationErrorBanner'
 import { listChargeCategories, listChargeItems } from '@/lib/queries/charge-catalog'
+import { listStores, listItems } from '@/lib/queries/inventory'
 import { requirePermission } from '@/lib/auth/permissions'
 
 export const dynamic = 'force-dynamic'
@@ -12,11 +13,22 @@ export default async function ChargeCatalogPage() {
   let migrationError: string | null = null
   let categories: Awaited<ReturnType<typeof listChargeCategories>> = []
   let items: Awaited<ReturnType<typeof listChargeItems>> = []
+  let stockItems: Array<{ id: string; name: string }> = []
   try {
     [categories, items] = await Promise.all([
       listChargeCategories({ includeInactive: true }),
       listChargeItems({ includeInactive: true }),
     ])
+    // Coffee Shop store items, for the per-menu-item stock link. Best-effort:
+    // absent until the inventory-link migration seeds the store.
+    try {
+      const stores = await listStores()
+      const coffeeStore = stores.find((s) => s.slug === 'coffee_shop')
+      if (coffeeStore) {
+        stockItems = (await listItems({ storeId: coffeeStore.id }))
+          .map((i) => ({ id: i.id, name: i.name }))
+      }
+    } catch { stockItems = [] }
   } catch (err) {
     migrationError = err instanceof Error ? err.message : String(err)
   }
@@ -27,7 +39,7 @@ export default async function ChargeCatalogPage() {
       <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6">
         <div className="mx-auto max-w-3xl space-y-4">
           {migrationError && <MigrationErrorBanner error={migrationError} />}
-          {!migrationError && <ChargeCatalogClient categories={categories} items={items} />}
+          {!migrationError && <ChargeCatalogClient categories={categories} items={items} stockItems={stockItems} />}
         </div>
       </div>
     </div>

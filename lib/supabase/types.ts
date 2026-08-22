@@ -583,6 +583,8 @@ export interface ChargeItemRow {
   is_available_in_coffee_shop: boolean
   /** Selectable as an extra to add to a guest booking via Add Charge. Default true. */
   is_available_as_room_extra: boolean
+  /** Inventory item this menu entry deducts from when sold (coffee shop stock). */
+  inv_item_id: string | null
   display_order: number
   created_at: string
   updated_at: string

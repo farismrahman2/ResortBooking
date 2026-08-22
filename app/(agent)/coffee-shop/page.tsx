@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Plus, Coffee } from 'lucide-react'
+import { Plus, Coffee, Boxes } from 'lucide-react'
 import { Topbar } from '@/components/layout/Topbar'
 import { Button } from '@/components/ui/Button'
 import { requirePermission, hasPermission } from '@/lib/auth/permissions'
@@ -41,13 +41,20 @@ export default async function CoffeeShopHubPage() {
           <>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs text-gray-500">Today, {today}</p>
-              {canWrite && (
-                <Link href="/coffee-shop/sales/new">
-                  <Button variant="primary" size="md" className="gap-1.5">
-                    <Plus size={14} /> New sale
+              <div className="flex items-center gap-2">
+                <Link href="/coffee-shop/stock">
+                  <Button variant="outline" size="md" className="gap-1.5">
+                    <Boxes size={14} /> Stock
                   </Button>
                 </Link>
-              )}
+                {canWrite && (
+                  <Link href="/coffee-shop/sales/new">
+                    <Button variant="primary" size="md" className="gap-1.5">
+                      <Plus size={14} /> New sale
+                    </Button>
+                  </Link>
+                )}
+              </div>
             </div>
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
