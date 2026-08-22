@@ -11,7 +11,8 @@ import {
   type CountFormInput,
 } from '@/lib/validators/inventory'
 import { formatSkuCode, storePrefixFromSlug, categoryPrefixFromSlug } from '@/lib/inventory/sku-generator'
-import { formatMovementNumber, type MovementNumberType } from '@/lib/inventory/movement-number'
+import { formatMovementNumber } from '@/lib/inventory/movement-number'
+import { applyStockDelta, applyStockDeltas, insertMovementHeader } from '@/lib/inventory/stock'
 import { computeAvgPurchasePrice } from '@/lib/inventory/avg-price'
 import { expenseCategoryForStore } from '@/lib/inventory/expense-category-mapping'
 import { todayDhaka } from '@/lib/dates'
@@ -280,49 +281,6 @@ export async function deactivateSupplier(id: string): Promise<ActionResult> {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Db = any
 
-/** Apply a signed delta to an item's stock, enforcing the negative-stock policy. */
-async function applyStockDelta(db: Db, itemId: string, delta: number): Promise<ActionResult> {
-  const { data: item } = await db.from('inv_items')
-    .select('current_stock, allow_negative_stock, name').eq('id', itemId).maybeSingle()
-  if (!item) return { success: false, error: 'Item not found' }
-  const next = Math.round((Number(item.current_stock) + delta) * 1000) / 1000
-  if (next < 0 && !item.allow_negative_stock) {
-    return { success: false, error: `Insufficient stock for ${item.name} (have ${item.current_stock}, change ${delta})` }
-  }
-  const { error } = await db.from('inv_items')
-    .update({ current_stock: next, updated_at: new Date().toISOString() }).eq('id', itemId)
-  if (error) return { success: false, error: error.message }
-  return { success: true }
-}
-
-/**
- * Apply a set of stock changes as one unit: on any failure, the deltas already
- * applied are reversed and the failure is RETURNED.
- *
- * Every call site used to fire applyStockDelta and ignore its result — a
- * failed delta (deleted item, race past the preflight, plain DB error) left
- * the movement recorded but the stock untouched, and nobody ever knew. Stock
- * numbers drifted from the paper trail silently.
- */
-async function applyStockDeltas(
-  db: Db,
-  deltas: Array<{ item_id: string; delta: number }>,
-): Promise<ActionResult> {
-  const applied: Array<{ item_id: string; delta: number }> = []
-  for (const d of deltas) {
-    if (d.delta === 0) continue
-    const res = await applyStockDelta(db, d.item_id, d.delta)
-    if (!res.success) {
-      for (const a of applied.reverse()) {
-        await applyStockDelta(db, a.item_id, -a.delta)   // best-effort unwind
-      }
-      return res
-    }
-    applied.push(d)
-  }
-  return { success: true }
-}
-
 /** Pre-flight: confirm every decrement line can be applied, before any write. */
 async function preflightDecrements(
   db: Db,
@@ -362,26 +320,6 @@ async function recomputePurchasePrices(db: Db, itemId: string): Promise<void> {
 }
 
 /** Insert a movement header, retrying the number on UNIQUE collision. */
-async function insertMovementHeader(
-  db: Db,
-  type: MovementNumberType,
-  date: string,
-  row: Record<string, unknown>,
-): Promise<{ id: string; movement_number: string } | { error: string }> {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const { count } = await db.from('inv_movements')
-      .select('id', { count: 'exact', head: true })
-      .eq('movement_type', type === 'count' ? 'adjustment' : type)
-      .eq('movement_date', date)
-    const movementNumber = formatMovementNumber(type, date, (count ?? 0) + attempt)
-    const { data, error } = await db.from('inv_movements')
-      .insert({ ...row, movement_number: movementNumber }).select('id, movement_number').single()
-    if (!error) return data
-    if (error.code !== '23505') return { error: error.message }
-  }
-  return { error: 'Could not generate a unique movement number' }
-}
-
 async function storeSlug(db: Db, storeId: string): Promise<string | null> {
   const { data } = await db.from('inv_stores').select('slug').eq('id', storeId).maybeSingle()
   return data?.slug ?? null

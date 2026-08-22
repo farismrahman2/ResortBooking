@@ -119,6 +119,7 @@ export async function createChargeItem(input: unknown): Promise<ActionData<{ id:
         description:   parsed.description || null,
         display_order: parsed.display_order,
         is_active:     parsed.is_active,
+        inv_item_id:   parsed.inv_item_id ?? null,
       })
       .select('id')
       .single()
@@ -148,10 +149,39 @@ export async function updateChargeItem(id: string, input: unknown): Promise<Acti
         description:   parsed.description || null,
         display_order: parsed.display_order,
         is_active:     parsed.is_active,
+        inv_item_id:   parsed.inv_item_id ?? null,
       })
       .eq('id', id)
     if (error) return { success: false, error: error.message }
     await logHistory(id, 'edited', 'charge_item_edited', { name: parsed.name })
+    revalidateTag('charge-catalog')
+    revalidatePath('/settings/charge-catalog')
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/**
+ * Point a menu item at the stock item it deducts from (null unlinks). From
+ * then on every coffee-shop sale of this item writes an inventory issue and
+ * the shelf count keeps itself.
+ */
+export async function setChargeItemStockLink(
+  id: string, invItemId: string | null,
+): Promise<ActionResult> {
+  try {
+    await requirePermission('settings', 'write')
+    if (invItemId && !/^[0-9a-f-]{36}$/.test(invItemId)) {
+      return { success: false, error: 'Invalid stock item' }
+    }
+    const supabase = createClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = supabase as any
+    const { error } = await db.from('charge_items')
+      .update({ inv_item_id: invItemId }).eq('id', id)
+    if (error) return { success: false, error: error.message }
+    await logHistory(id, 'edited', 'charge_item_stock_link', { inv_item_id: invItemId })
     revalidateTag('charge-catalog')
     revalidatePath('/settings/charge-catalog')
     return { success: true }

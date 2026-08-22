@@ -15,6 +15,7 @@ export interface ExpenseCategoryMapping {
 const STORE_TO_EXPENSE_CATEGORY: Record<string, ExpenseCategoryMapping> = {
   kitchen:      { categorySlug: 'inventory_kitchen',      categoryGroup: 'bazar' },
   housekeeping: { categorySlug: 'inventory_housekeeping', categoryGroup: 'materials' },
+  coffee_shop:  { categorySlug: 'inventory_coffee_shop',  categoryGroup: 'beverages' },
 }
 
 /** Fallback maps any unmapped store to the housekeeping/materials bucket. */

@@ -16,6 +16,8 @@ export const chargeItemFormSchema = z.object({
   description:   z.string().trim().max(500).nullable().optional().or(z.literal('')),
   display_order: z.coerce.number().int().min(0).default(0),
   is_active:     z.coerce.boolean().default(true),
+  /** Stock item this menu entry deducts from when sold (coffee shop). */
+  inv_item_id:   z.string().uuid().nullish().transform((v) => v || null),
 })
 export type ChargeItemFormInput = z.infer<typeof chargeItemFormSchema>
 

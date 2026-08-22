@@ -17,6 +17,7 @@ import {
   toggleChargeItemActive,
   toggleChargeItemCoffeeShop,
   toggleChargeItemRoomExtra,
+  setChargeItemStockLink,
 } from '@/lib/actions/charge-catalog'
 import { CHARGE_CATEGORY_BADGE } from '@/components/checkout/labels'
 import { formatBDT } from '@/lib/formatters/currency'
@@ -28,11 +29,13 @@ import type {
 interface Props {
   categories: ChargeCategoryRow[]
   items:      ChargeItemWithCategory[]
+  /** Coffee Shop store inventory items — the stock a menu item can deduct from. */
+  stockItems?: Array<{ id: string; name: string }>
 }
 
 type AvailabilityFilter = 'all' | 'coffee_only' | 'room_only' | 'both_off'
 
-export function ChargeCatalogClient({ categories, items }: Props) {
+export function ChargeCatalogClient({ categories, items, stockItems = [] }: Props) {
   const router  = useRouter()
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -104,6 +107,14 @@ export function ChargeCatalogClient({ categories, items }: Props) {
     startTransition(async () => {
       const r = await safeCall(() => toggleChargeItemRoomExtra(id))
       if (!r.success) { setError(r.error); return }
+      router.refresh()
+    })
+  }
+  function setStockLink(id: string, invItemId: string | null) {
+    startTransition(async () => {
+      const r = await safeCall(() => setChargeItemStockLink(id, invItemId))
+      if (!r.success) { setError(r.error); return }
+      setSavedAt(new Date().toLocaleTimeString())
       router.refresh()
     })
   }
@@ -197,6 +208,7 @@ export function ChargeCatalogClient({ categories, items }: Props) {
                         <th className="px-4 py-2 text-right font-medium">Default Price</th>
                         <th className="px-4 py-2 font-medium">Coffee shop</th>
                         <th className="px-4 py-2 font-medium">Room extra</th>
+                        {stockItems.length > 0 && <th className="px-4 py-2 font-medium">Stock link</th>}
                         <th className="px-4 py-2 font-medium">Active</th>
                       </tr>
                     </thead>
@@ -237,6 +249,23 @@ export function ChargeCatalogClient({ categories, items }: Props) {
                               <BedDouble size={10} /> {it.is_available_as_room_extra ? 'Yes' : 'No'}
                             </button>
                           </td>
+                          {stockItems.length > 0 && (
+                            <td className="px-4 py-2.5">
+                              {/* Selling this menu item deducts from the linked
+                                  stock item — comps included. "—" = untracked. */}
+                              <select
+                                value={it.inv_item_id ?? ''}
+                                disabled={pending}
+                                onChange={(e) => setStockLink(it.id, e.target.value || null)}
+                                className="max-w-[160px] rounded-lg border border-gray-300 bg-white px-1.5 py-1 text-xs"
+                              >
+                                <option value="">— untracked —</option>
+                                {stockItems.map((s) => (
+                                  <option key={s.id} value={s.id}>{s.name}</option>
+                                ))}
+                              </select>
+                            </td>
+                          )}
                           <td className="px-4 py-2.5">
                             <button
                               type="button"
