@@ -58,6 +58,7 @@ export function BookingWhatsAppOutput({ booking, settings, salesRepName, roomAva
       lineItems:           booking.line_items,
       subtotal:            booking.subtotal,
       discount:            booking.discount,
+      discountPct:         booking.discount_pct ?? 0,
       total:               booking.total,
       advanceRequired:     booking.advance_required,
       advancePaid:         booking.advance_paid,

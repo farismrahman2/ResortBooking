@@ -997,6 +997,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
               checkOut={selectedPackage.check_out}
               rooms={allRoomsWithComp}
               calcResult={calcResult}
+              discountPct={watchedValues.discount_pct ?? 0}
               mealsText={selectedPackage.meals}
               notesText={selectedPackage.notes}
               settings={settings}
@@ -1061,6 +1062,8 @@ interface WhatsAppPreviewProps {
   checkOut: string
   rooms: RS[]
   calcResult: CalculationResult
+  /** Percentage behind the discount, shown next to it in the message. */
+  discountPct?: number
   mealsText: string | null | undefined
   notesText: string | null | undefined
   settings: SettingsMap
@@ -1078,6 +1081,7 @@ function WhatsAppPreview({
   checkOut,
   rooms,
   calcResult,
+  discountPct,
   mealsText,
   notesText,
   settings,
@@ -1146,7 +1150,10 @@ function WhatsAppPreview({
   ]
 
   if (calcResult.discount > 0) {
-    lines.push(`  Discount:         -${formatBDT(calcResult.discount)}`)
+    // Match the final quote message: show the percentage when one was used.
+    const pct = Number(discountPct ?? 0)
+    const pctLabel = pct > 0 ? ` (${Number.isInteger(pct) ? pct : Math.round(pct * 10) / 10}%)` : ''
+    lines.push(`  Discount${pctLabel}:         -${formatBDT(calcResult.discount)}`)
   }
 
   lines.push(
