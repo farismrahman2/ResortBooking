@@ -54,6 +54,8 @@ export interface WhatsAppParams {
   }[]
   subtotal:            number
   discount:            number
+  /** When the discount came from a percentage, show it next to the amount. */
+  discountPct?:        number
   total:               number
   advanceRequired:     number
   advancePaid:         number
@@ -121,6 +123,9 @@ export function formatWhatsApp(p: WhatsAppParams): string {
     })
     .join('\n')
 
+  // 12.5 → "12.5", 15 → "15" — no trailing ".0" noise in the message.
+  const trimPct = (n: number) => (Number.isInteger(n) ? String(n) : String(Math.round(n * 10) / 10))
+
   // Build the output
   const lines: string[] = [
     SEP,
@@ -149,7 +154,11 @@ export function formatWhatsApp(p: WhatsAppParams): string {
   ]
 
   if (p.discount > 0) {
-    lines.push(`  Discount:         -${formatBDT(p.discount).padStart(9)}`)
+    // "Discount (15%): -৳13,913" — the guest should see the rate they were
+    // given, not just the amount. Flat discounts keep the plain label.
+    const pctLabel = p.discountPct && p.discountPct > 0 ? ` (${trimPct(p.discountPct)}%)` : ''
+    const label = `Discount${pctLabel}:`
+    lines.push(`  ${label.padEnd(19)}-${formatBDT(p.discount).padStart(9)}`)
   }
 
   lines.push(

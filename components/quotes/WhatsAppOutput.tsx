@@ -51,6 +51,7 @@ export function WhatsAppOutput({ quote, settings, roomAvailableAfterNoon }: What
       lineItems:           quote.line_items,
       subtotal:            quote.subtotal,
       discount:            quote.discount,
+      discountPct:         quote.discount_pct ?? 0,
       total:               quote.total,
       advanceRequired:     quote.advance_required,
       advancePaid:         quote.advance_paid,
