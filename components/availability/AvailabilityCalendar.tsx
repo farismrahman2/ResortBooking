@@ -80,6 +80,13 @@ function downloadCsv(content: string, filename: string) {
   URL.revokeObjectURL(url)
 }
 
+interface DayGuests {
+  bookings: number; adults: number; children: number; drivers: number; guests: number
+  daylong_bookings: number; daylong_guests: number
+  night_bookings: number; night_guests: number
+  arriving: number
+}
+
 export function AvailabilityCalendar({ inventory }: AvailabilityCalendarProps) {
   const today = new Date().toISOString().split('T')[0]
   const [selectedDate,  setSelectedDate]  = useState(today)
@@ -90,6 +97,9 @@ export function AvailabilityCalendar({ inventory }: AvailabilityCalendarProps) {
   const [downloading,   setDownloading]   = useState(false)
   const [menuOpen,      setMenuOpen]      = useState(false)
   const menuRef                           = useRef<HTMLDivElement | null>(null)
+  const [guests,        setGuests]        = useState<DayGuests | null>(null)
+  const [guestsLoading, setGuestsLoading] = useState(false)
+  const guestsSeq                         = useRef(0)
 
   // Close the download menu on outside click / Escape
   useEffect(() => {
@@ -132,9 +142,27 @@ export function AvailabilityCalendar({ inventory }: AvailabilityCalendarProps) {
     }
   }
 
+  // Who's on site that day — fetched on every date tap so the answer is one
+  // tap away instead of buried in the room-allocation download.
+  async function fetchGuests(date: string) {
+    const seq = ++guestsSeq.current
+    setGuestsLoading(true)
+    try {
+      const res = await fetch(`/api/day-guests?date=${date}`)
+      if (!res.ok) throw new Error(await res.text())
+      const data = (await res.json()) as DayGuests
+      if (guestsSeq.current === seq) setGuests(data)   // ignore stale responses
+    } catch {
+      if (guestsSeq.current === seq) setGuests(null)
+    } finally {
+      if (guestsSeq.current === seq) setGuestsLoading(false)
+    }
+  }
+
   function handleCalendarClick(date: string) {
     setSelectedDate(date)
     void check(date)
+    void fetchGuests(date)
   }
 
   async function downloadAllocation() {
@@ -169,6 +197,37 @@ export function AvailabilityCalendar({ inventory }: AvailabilityCalendarProps) {
         onDateClick={handleCalendarClick}
         inventory={inventory}
       />
+
+      {/* Tap-a-date guest summary — who's on site, without opening the
+          room-allocation download. */}
+      {(guests || guestsLoading) && (
+        <div className="rounded-xl border border-forest-200 bg-forest-50/50 p-4">
+          {guestsLoading ? (
+            <p className="text-sm text-gray-500">Counting guests for {formattedDate}…</p>
+          ) : guests && (
+            <>
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <span className="text-sm font-semibold text-forest-900">{formattedDate}</span>
+                <span className="text-2xl font-bold tabular-nums text-forest-900">
+                  {guests.guests.toLocaleString('en-IN')}
+                </span>
+                <span className="text-sm text-forest-800">guest{guests.guests === 1 ? '' : 's'} on site</span>
+              </div>
+              <p className="mt-1 text-xs text-gray-700">
+                {guests.adults.toLocaleString('en-IN')} adults
+                {guests.children > 0 && ` · ${guests.children.toLocaleString('en-IN')} children`}
+                {guests.drivers > 0 && ` · ${guests.drivers.toLocaleString('en-IN')} drivers`}
+                {' — '}
+                {guests.daylong_bookings > 0 && `${guests.daylong_bookings} daylong (${guests.daylong_guests.toLocaleString('en-IN')} guests)`}
+                {guests.daylong_bookings > 0 && guests.night_bookings > 0 && ' · '}
+                {guests.night_bookings > 0 && `${guests.night_bookings} night stay${guests.night_bookings === 1 ? '' : 's'} (${guests.night_guests.toLocaleString('en-IN')} guests)`}
+                {guests.bookings === 0 && 'no bookings on this date'}
+                {guests.arriving > 0 && ` · ${guests.arriving} arriving that day`}
+              </p>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Controls */}
       <div className="flex flex-wrap items-end gap-4 rounded-xl border border-gray-200 bg-white p-5">
