@@ -218,6 +218,60 @@ export async function getAvailabilityRange(
   return result
 }
 
+export interface DayGuestCounts {
+  bookings:        number
+  adults:          number
+  children:        number
+  drivers:         number
+  guests:          number   // adults + children
+  daylong_bookings: number
+  daylong_guests:   number
+  night_bookings:   number
+  night_guests:     number
+  arriving:         number  // bookings whose visit_date IS this date
+}
+
+/**
+ * Everyone on site on a given date: daylong bookings on the day plus night
+ * stays covering that night ([visit_date, check_out_date) — the checkout-
+ * morning crowd has left by the time the day's guests arrive). Cancelled and
+ * no-show excluded. Powers the tap-a-date summary on the availability page.
+ */
+export async function getGuestsOnDate(date: string): Promise<DayGuestCounts> {
+  const supabase = createClient()
+  const { data, error } = await (supabase as any)  // eslint-disable-line @typescript-eslint/no-explicit-any
+    .from('bookings')
+    .select('package_type, visit_date, check_out_date, status, adults, children_paid, children_free, drivers')
+    .not('status', 'in', '(cancelled,no_show)')
+    .lte('visit_date', date)
+    .or(`check_out_date.gt.${date},and(check_out_date.is.null,visit_date.eq.${date})`)
+  if (error) throw new Error(`getGuestsOnDate: ${error.message}`)
+
+  const out: DayGuestCounts = {
+    bookings: 0, adults: 0, children: 0, drivers: 0, guests: 0,
+    daylong_bookings: 0, daylong_guests: 0, night_bookings: 0, night_guests: 0,
+    arriving: 0,
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const b of ((data ?? []) as any[])) {
+    const covers = b.check_out_date
+      ? b.visit_date <= date && b.check_out_date > date
+      : b.visit_date === date
+    if (!covers) continue
+    const adults   = Number(b.adults ?? 0)
+    const children = Number(b.children_paid ?? 0) + Number(b.children_free ?? 0)
+    out.bookings += 1
+    out.adults   += adults
+    out.children += children
+    out.drivers  += Number(b.drivers ?? 0)
+    out.guests   += adults + children
+    if (b.package_type === 'daylong') { out.daylong_bookings += 1; out.daylong_guests += adults + children }
+    else                              { out.night_bookings += 1;   out.night_guests += adults + children }
+    if (b.visit_date === date) out.arriving += 1
+  }
+  return out
+}
+
 /**
  * Return all room numbers that are already assigned in other bookings whose date
  * range overlaps [visitDate, checkOutDate). Pass excludeBookingId to exclude the
