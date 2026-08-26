@@ -96,7 +96,15 @@ export async function getIncomeByMethodRange(
       timeZone: 'Asia/Dhaka', year: 'numeric', month: '2-digit', day: '2-digit',
     }).format(new Date(iso))
 
-  const [advRes, coRes, csRes] = await Promise.all([
+  const [ledgerRes, advRes, coRes, csRes] = await Promise.all([
+    // Advance instalments — the real ledger: each part with the date, time and
+    // method it actually arrived. Absent until migration 003 runs.
+    db().from('booking_advance_payments')
+      .select('amount, method, paid_at')
+      .gte('paid_at', startTs).lt('paid_at', endTs)
+      .limit(10_000),
+    // Fallback for installs without the ledger: the booking's own advance,
+    // dated to when the booking was made.
     db().from('bookings')
       .select('created_at, advance_paid, advance_method')
       .gt('advance_paid', 0)
@@ -112,6 +120,10 @@ export async function getIncomeByMethodRange(
       .gte('sale.sale_date', fromIso).lte('sale.sale_date', toIso)
       .limit(10_000),
   ])
+  const ledgerMissing = Boolean(ledgerRes.error && /does not exist|42P01/i.test(ledgerRes.error.message))
+  if (ledgerRes.error && !ledgerMissing) {
+    throw new Error(`[incomeByMethodRange.advanceLedger] ${ledgerRes.error.message}`)
+  }
   if (advRes.error) throw new Error(`[incomeByMethodRange.advances] ${advRes.error.message}`)
   if (coRes.error)  throw new Error(`[incomeByMethodRange.checkout] ${coRes.error.message}`)
   if (csRes.error)  throw new Error(`[incomeByMethodRange.coffeeShop] ${csRes.error.message}`)
@@ -132,15 +144,28 @@ export async function getIncomeByMethodRange(
     dailyMap.set(day, rec)
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  for (const b of (advRes.data ?? []) as any[]) {
-    const amount = Number(b.advance_paid ?? 0)
-    // Recorded method when present (bKash / bank transfer selector on the
-    // quote), bKash for everything saved before the selector existed.
-    const m = (PAYMENT_METHODS as readonly string[]).includes(b.advance_method)
-      ? b.advance_method as PaymentMethod : 'bkash'
-    bySource.advances[m] += amount
-    addDaily(toDhakaDay(b.created_at), m, amount)
+  // The ledger is authoritative: a bKash part-payment on the 3rd and a bank
+  // transfer on the 9th land on their own days, in their own columns. Only
+  // when the ledger table doesn't exist do we fall back to the booking's
+  // single advance figure.
+  if (!ledgerMissing) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const p of (ledgerRes.data ?? []) as any[]) {
+      const amount = Number(p.amount ?? 0)
+      const m = (PAYMENT_METHODS as readonly string[]).includes(p.method)
+        ? p.method as PaymentMethod : 'other'
+      bySource.advances[m] += amount
+      addDaily(toDhakaDay(p.paid_at), m, amount)
+    }
+  } else {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const b of (advRes.data ?? []) as any[]) {
+      const amount = Number(b.advance_paid ?? 0)
+      const m = (PAYMENT_METHODS as readonly string[]).includes(b.advance_method)
+        ? b.advance_method as PaymentMethod : 'bkash'
+      bySource.advances[m] += amount
+      addDaily(toDhakaDay(b.created_at), m, amount)
+    }
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const p of (coRes.data ?? []) as any[]) {

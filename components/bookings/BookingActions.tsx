@@ -14,6 +14,8 @@ import { SwapRoomsModal } from '@/components/bookings/SwapRoomsModal'
 import { formatBDT } from '@/lib/formatters/currency'
 import { calculateDaylong, calculateNight } from '@/lib/engine/calculator'
 import { updateAdvancePaid, cancelBooking, updateBooking } from '@/lib/actions/bookings'
+import { AdvancePaymentsPanel } from '@/components/bookings/AdvancePaymentsPanel'
+import type { AdvancePaymentRow } from '@/lib/bookings/advance-methods'
 import { ROOM_NUMBERS } from '@/lib/config/rooms'
 import type { BookingWithRooms, RoomInventoryRow, RoomType, ExtraItem } from '@/lib/supabase/types'
 
@@ -35,9 +37,13 @@ interface BookingActionsProps {
   holidayDates:       string[]
   inventory:          RoomInventoryRow[]
   bookedRoomNumbers:  string[]   // room numbers taken by other bookings (same dates)
+  /** Advance instalments — each with its own date, time and method. */
+  advancePayments?:   AdvancePaymentRow[]
 }
 
-export function BookingActions({ booking, holidayDates, inventory, bookedRoomNumbers }: BookingActionsProps) {
+export function BookingActions({
+  booking, holidayDates, inventory, bookedRoomNumbers, advancePayments = [],
+}: BookingActionsProps) {
   const router  = useRouter()
   const snap    = booking.package_snapshot
 
@@ -218,7 +224,12 @@ export function BookingActions({ booking, holidayDates, inventory, bookedRoomNum
   const [cancelLoading, setCancelLoading] = useState(false)
   const [cancelError,   setCancelError]   = useState<string | null>(null)
 
-  const localRemaining = Math.max(0, advanceRequired - advancePaid)
+  // Once instalments exist they ARE the advance — the header number is just
+  // their sum, kept in step by the server on every add/remove.
+  const hasLedger   = advancePayments.length > 0
+  const ledgerTotal = advancePayments.reduce((s, p) => s + p.amount, 0)
+  const effectiveAdvancePaid = hasLedger ? ledgerTotal : advancePaid
+  const localRemaining = Math.max(0, advanceRequired - effectiveAdvancePaid)
 
   async function handleUpdatePayment() {
     setPaymentLoading(true); setPaymentError(null); setPaymentSuccess(false)
@@ -331,21 +342,39 @@ export function BookingActions({ booking, holidayDates, inventory, bookedRoomNum
       <div className="space-y-3 border-t border-gray-100 pt-4">
         <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Update Payment</h4>
         <div className="grid grid-cols-2 gap-3">
-          <NumberInput label="Advance Paid" prefix="৳" value={advancePaid} onChange={setAdvancePaid} />
+          {/* Advance Paid stays editable ONLY while no instalment ledger
+              exists (pre-migration installs) — once instalments are logged the
+              total is derived from them and typing over it would silently
+              contradict the ledger. */}
+          {hasLedger ? (
+            <div>
+              <label className="field-label">Advance Paid</label>
+              <p className="flex min-h-[42px] items-center rounded-lg border border-gray-200 bg-gray-50 px-3 font-mono text-sm font-semibold text-gray-800">
+                {formatBDT(ledgerTotal)}
+              </p>
+              <p className="mt-0.5 text-[10px] text-gray-500">
+                from {advancePayments.length} instalment{advancePayments.length === 1 ? '' : 's'} below
+              </p>
+            </div>
+          ) : (
+            <NumberInput label="Advance Paid" prefix="৳" value={advancePaid} onChange={setAdvancePaid} />
+          )}
           <NumberInput label="Advance Required" prefix="৳" value={advanceRequired} onChange={setAdvanceRequired} />
         </div>
-        <div>
-          <label className="field-label">Advance received via</label>
-          {/* Lands the advance in the right bucket of the money-received report. */}
-          <select
-            value={advanceMethod}
-            onChange={(e) => setAdvanceMethod(e.target.value as 'bkash' | 'bank_transfer')}
-            className="min-h-[42px] w-full rounded-lg border border-gray-300 bg-white px-3 text-sm focus:border-forest-600 focus:outline-none"
-          >
-            <option value="bkash">bKash</option>
-            <option value="bank_transfer">Bank transfer</option>
-          </select>
-        </div>
+        {!hasLedger && (
+          <div>
+            <label className="field-label">Advance received via</label>
+            {/* Lands the advance in the right bucket of the money-received report. */}
+            <select
+              value={advanceMethod}
+              onChange={(e) => setAdvanceMethod(e.target.value as 'bkash' | 'bank_transfer')}
+              className="min-h-[42px] w-full rounded-lg border border-gray-300 bg-white px-3 text-sm focus:border-forest-600 focus:outline-none"
+            >
+              <option value="bkash">bKash</option>
+              <option value="bank_transfer">Bank transfer</option>
+            </select>
+          </div>
+        )}
         <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
           <div className="flex items-center justify-between text-sm">
             <span className="text-gray-600">Due Advance</span>
@@ -363,6 +392,15 @@ export function BookingActions({ booking, holidayDates, inventory, bookedRoomNum
         <Button variant="primary" size="sm" loading={paymentLoading} onClick={handleUpdatePayment} className="w-full">
           Update Payment
         </Button>
+
+        {/* The instalment ledger — advances arrive in steps, each with its own
+            date, time and method. */}
+        <AdvancePaymentsPanel
+          bookingId={booking.id}
+          payments={advancePayments}
+          advanceRequired={advanceRequired}
+          disabled={booking.status === 'cancelled'}
+        />
       </div>
 
       {/* ── Cancel Booking ───────────────────────────────────── */}

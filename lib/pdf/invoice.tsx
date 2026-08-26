@@ -158,6 +158,9 @@ interface InvoiceProps {
   /** Optional logo PNG/JPEG/data-URI. When provided, rendered 60x60 left of the brand text. */
   logo?:         Buffer | string | null
   issuedBy:      string | null
+  /** Advance instalments — each with its own method, so the invoice can show
+   *  a bKash part-payment and a later bank transfer separately. */
+  advancePayments?: Array<{ amount: number; method: string; paid_at: string }>
 }
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
@@ -186,6 +189,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 export function Invoice({
   checkout, resortName, resortAddress, resortPhone, resortEmail, tagline, logo, issuedBy,
+  advancePayments,
 }: InvoiceProps) {
   const invoiceNo = checkout.id.slice(0, 8).toUpperCase()
   const issuedOn  = fmtDate(checkout.finalized_at ?? checkout.updated_at)
@@ -224,6 +228,20 @@ export function Invoice({
   for (const p of checkout.payments) {
     paymentsByMethod.set(p.method, (paymentsByMethod.get(p.method) ?? 0) + Number(p.amount))
   }
+
+  // Advance instalments grouped by method. Falls back to the booking's single
+  // recorded method for bookings taken before instalments were tracked.
+  const advanceMethodMap = new Map<string, number>()
+  for (const a of advancePayments ?? []) {
+    advanceMethodMap.set(a.method, (advanceMethodMap.get(a.method) ?? 0) + Number(a.amount))
+  }
+  if (advanceMethodMap.size === 0 && advance > 0) {
+    advanceMethodMap.set(
+      (booking as { advance_method?: string }).advance_method ?? 'bkash',
+      advance,
+    )
+  }
+  const advanceByMethod = [...advanceMethodMap.entries()]
 
   return (
     <Document title={`GCR Invoice ${invoiceNo}`}>
@@ -268,6 +286,9 @@ export function Invoice({
             <Text style={[styles.blockBody, { fontWeight: 'bold' }]}>{booking.customer_name}</Text>
             <Text style={styles.blockBody}>{booking.customer_phone}</Text>
             <Text style={styles.blockBody}>Booking: {booking.booking_number}</Text>
+            {/* When the booking was made — separate from the stay dates and
+                from the invoice date; accounts reconcile advances against it. */}
+            <Text style={styles.blockBody}>Booked on: {fmtDate(booking.created_at)}</Text>
           </View>
           <View style={styles.block}>
             <Text style={styles.blockLabel}>Stay</Text>
@@ -381,6 +402,14 @@ export function Invoice({
             <Text style={styles.totalLabel}>Advance Paid</Text>
             <Text style={styles.totalValue}>− {bdt(advance)}</Text>
           </View>
+          {/* How the advance actually arrived — one line per instalment, so a
+              bKash part-payment followed by a bank transfer both show. */}
+          {advanceByMethod.map(([method, amt]) => (
+            <View key={method} style={[styles.totalRow, { fontSize: 9, color: '#6b7280' }]}>
+              <Text>  · {PAYMENT_METHOD_LABELS[method] ?? method}</Text>
+              <Text>{bdt(amt)}</Text>
+            </View>
+          ))}
           <View style={styles.totalDivider} />
           <View style={styles.totalRow}>
             <Text style={[styles.totalLabel, { fontWeight: 'bold' }]}>Subtotal Due</Text>

@@ -5,6 +5,7 @@ import { renderToBuffer } from '@react-pdf/renderer'
 import { Invoice } from '@/lib/pdf/invoice'
 import { createClient } from '@/lib/supabase/server'
 import { getSettings } from '@/lib/queries/settings'
+import { listAdvancePayments } from '@/lib/queries/advance-payments'
 import { getCurrentUserContext, hasPermission } from '@/lib/auth/permissions'
 import {
   getCheckoutFull,
@@ -56,10 +57,12 @@ export async function GET(_req: Request, { params }: RouteParams) {
     checkout.advance_amount = Number(checkout.booking.advance_paid)
   }
 
-  const [settings, ctx, logo] = await Promise.all([
+  const [settings, ctx, logo, advancePayments] = await Promise.all([
     getSettings(),
     getCurrentUserContext(),
     loadLogo(),
+    // Instalment ledger — lets the invoice show the advance split by method.
+    listAdvancePayments(bookingId).catch(() => []),
   ])
 
   // Pull resort identity from settings (with sensible fallbacks)
@@ -79,6 +82,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
       tagline,
       logo,
       issuedBy: ctx?.profile.full_name ?? ctx?.email ?? null,
+      advancePayments,
     }),
   )
 

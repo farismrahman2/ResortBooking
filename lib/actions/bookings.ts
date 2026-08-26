@@ -8,7 +8,7 @@ import { getHolidayDateStrings } from '@/lib/queries/settings'
 import { checkAvailabilityConflict, getBookedRoomNumbers } from '@/lib/queries/availability'
 import { findDuplicateBookings } from '@/lib/queries/duplicate-bookings'
 import { ROOM_NUMBERS } from '@/lib/config/rooms'
-import { requirePermission } from '@/lib/auth/permissions'
+import { requirePermission, getCurrentUserContext } from '@/lib/auth/permissions'
 import { findUnassignedRoomNumbersError } from '@/lib/validators/quote'
 import type { ActionResult, ActionData } from './types'
 import type { RoomType, PackageType, PackageSnapshot } from '@/lib/supabase/types'
@@ -192,6 +192,24 @@ export async function convertQuoteToBooking(
       }
     }
 
+    // The advance taken on the quote becomes the first instalment in the
+    // booking's ledger, so every later top-up appends to a real history
+    // instead of overwriting one opaque number.
+    if (Number(quote.advance_paid ?? 0) > 0) {
+      const { error: advErr } = await db.from('booking_advance_payments').insert({
+        booking_id: booking.id,
+        amount:     Number(quote.advance_paid),
+        method:     quote.advance_method ?? 'bkash',
+        paid_at:    new Date().toISOString(),
+        notes:      `Advance taken on quote ${quote.quote_number}`,
+      })
+      // Ledger table absent (migration 003 not run) — the booking still holds
+      // advance_paid, so nothing is lost.
+      if (advErr && !/does not exist|42P01/i.test(advErr.message)) {
+        console.warn(`[bookings] advance ledger row not created: ${advErr.message}`)
+      }
+    }
+
     // Update quote: mark as confirmed + link to booking
     await db
       .from('quotes')
@@ -266,6 +284,135 @@ export async function updateAdvancePaid(
     return { success: true }
   } catch (err) {
     return { success: false, error: String(err) }
+  }
+}
+
+// ─── Advance instalments ─────────────────────────────────────────────────────
+
+/**
+ * Recompute `bookings.advance_paid` from the instalment ledger.
+ *
+ * The column stays denormalised because the pricing engine, every "remaining"
+ * figure and the invoice all read it — but the ledger is the truth, so it is
+ * re-derived on every change rather than incremented.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function syncAdvanceTotal(db: any, bookingId: string): Promise<number> {
+  const { data: rows } = await db
+    .from('booking_advance_payments')
+    .select('amount, method, paid_at')
+    .eq('booking_id', bookingId)
+    .order('paid_at', { ascending: true })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const list = (rows ?? []) as any[]
+  const total = Math.round(list.reduce((s, r) => s + Number(r.amount ?? 0), 0) * 100) / 100
+  await db.from('bookings').update({
+    advance_paid: total,
+    // The header method keeps meaning "how the FIRST advance arrived" — it is
+    // what older screens and reports read when they want one word for it.
+    ...(list.length ? { advance_method: list[0].method } : {}),
+  }).eq('id', bookingId)
+  return total
+}
+
+/**
+ * Log another advance instalment — the second bKash, the bank transfer that
+ * followed it — with the date and time it actually arrived.
+ */
+export async function addAdvancePayment(
+  bookingId: string,
+  input: {
+    amount:    number
+    method:    string
+    /** ISO datetime-local from the form, or omitted for "now". */
+    paid_at?:  string | null
+    reference?: string | null
+    notes?:    string | null
+  },
+): Promise<ActionData<{ advance_paid: number }>> {
+  await requirePermission('bookings', 'write')
+  try {
+    const amount = Number(input.amount)
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 10_000_000) {
+      return { success: false, error: 'Enter the amount received' }
+    }
+    const METHODS = ['bkash', 'bank_transfer', 'cash', 'nagad', 'rocket', 'card', 'other']
+    if (!METHODS.includes(input.method)) return { success: false, error: 'Pick how it was received' }
+
+    const supabase = createClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = supabase as any
+
+    const { data: booking } = await db.from('bookings')
+      .select('id, status, booking_number').eq('id', bookingId).maybeSingle()
+    if (!booking) return { success: false, error: 'Booking not found' }
+    if (booking.status === 'cancelled') {
+      return { success: false, error: 'This booking is cancelled — its payments are closed.' }
+    }
+
+    // A datetime-local value carries no zone; it is typed in Dhaka time.
+    const paidAt = input.paid_at
+      ? new Date(input.paid_at.length === 16 ? `${input.paid_at}:00+06:00` : input.paid_at).toISOString()
+      : new Date().toISOString()
+
+    const ctx = await getCurrentUserContext()
+    const { error } = await db.from('booking_advance_payments').insert({
+      booking_id: bookingId,
+      amount,
+      method:     input.method,
+      paid_at:    paidAt,
+      reference:  input.reference?.trim() || null,
+      notes:      input.notes?.trim() || null,
+      recorded_by: ctx?.user_id ?? null,
+    })
+    if (error) {
+      if (/does not exist|42P01/i.test(error.message)) {
+        return { success: false, error: 'Run migrations/platform-audit/003_advance_payments_ledger.sql to start logging advance instalments.' }
+      }
+      return { success: false, error: error.message }
+    }
+
+    const total = await syncAdvanceTotal(db, bookingId)
+
+    await db.from('history_log').insert({
+      entity_type: 'booking', entity_id: bookingId, event: 'edited', actor: 'system',
+      payload: { action: 'advance_payment_added', amount, method: input.method, paid_at: paidAt, advance_paid: total },
+    })
+
+    revalidatePath(`/bookings/${bookingId}`)
+    revalidatePath('/bookings')
+    return { success: true, data: { advance_paid: total } }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/** Remove a mis-keyed instalment. The total re-derives from what's left. */
+export async function deleteAdvancePayment(paymentId: string): Promise<ActionResult> {
+  await requirePermission('bookings', 'write')
+  try {
+    const supabase = createClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = supabase as any
+
+    const { data: row } = await db.from('booking_advance_payments')
+      .select('id, booking_id, amount, method').eq('id', paymentId).maybeSingle()
+    if (!row) return { success: false, error: 'Payment not found' }
+
+    const { error } = await db.from('booking_advance_payments').delete().eq('id', paymentId)
+    if (error) return { success: false, error: error.message }
+
+    const total = await syncAdvanceTotal(db, row.booking_id)
+    await db.from('history_log').insert({
+      entity_type: 'booking', entity_id: row.booking_id, event: 'edited', actor: 'system',
+      payload: { action: 'advance_payment_removed', amount: Number(row.amount), method: row.method, advance_paid: total },
+    })
+
+    revalidatePath(`/bookings/${row.booking_id}`)
+    revalidatePath('/bookings')
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
   }
 }
 
