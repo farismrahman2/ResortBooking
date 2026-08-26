@@ -3,11 +3,12 @@ import { createClient } from '@/lib/supabase/server'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = () => createClient() as any
 
-export const PAYMENT_METHODS = ['cash', 'bkash', 'card', 'bank_transfer', 'other'] as const
+export const PAYMENT_METHODS = ['cash', 'bkash', 'nagad', 'rocket', 'card', 'bank_transfer', 'other'] as const
 export type PaymentMethod = typeof PAYMENT_METHODS[number]
 
 export const METHOD_LABEL: Record<PaymentMethod, string> = {
-  cash: 'Cash', bkash: 'bKash', card: 'Card', bank_transfer: 'Bank transfer', other: 'Other',
+  cash: 'Cash', bkash: 'bKash', nagad: 'Nagad', rocket: 'Rocket',
+  card: 'Card', bank_transfer: 'Bank transfer', other: 'Other',
 }
 
 export interface IncomeByMethodRow {
@@ -45,6 +46,141 @@ export interface DailyIncomeByMethod {
  * so they're not attributable to a method and are excluded. Most settle via
  * checkout anyway, which is captured here.
  */
+export interface MethodRangeRow {
+  method:      PaymentMethod
+  advances:    number   // booking advances — all received via bKash at this resort
+  checkout:    number
+  coffee_shop: number
+  total:       number
+}
+
+export interface MethodDailyRow {
+  date:     string
+  byMethod: Record<PaymentMethod, number>
+  total:    number
+}
+
+export interface IncomeByMethodRange {
+  from: string
+  to:   string
+  rows: MethodRangeRow[]
+  daily: MethodDailyRow[]
+  totals: { advances: number; checkout: number; coffee_shop: number; total: number }
+}
+
+const r2 = (n: number) => Math.round(n * 100) / 100
+
+/**
+ * Everything the resort RECEIVED over a range, bucketed by payment method —
+ * the sheet accounts matches against the bank/bKash statements.
+ *
+ * Three inflows:
+ *   booking advances    — no method column exists; the resort takes every
+ *                         advance via bKash, so they are attributed to bKash,
+ *                         dated by the booking's creation day (Dhaka).
+ *                         Cancellations/no-shows stay included: the advance is
+ *                         non-refundable, the money really arrived.
+ *   checkout payments   — method-tagged, dated by paid_at (Dhaka day)
+ *   coffee-shop payments — method-tagged, dated by sale_date, completed sales
+ */
+export async function getIncomeByMethodRange(
+  fromIso: string, toIso: string,
+): Promise<IncomeByMethodRange> {
+  const startTs = `${fromIso}T00:00:00+06:00`
+  const endExcl = new Date(`${toIso}T00:00:00+06:00`)
+  endExcl.setDate(endExcl.getDate() + 1)
+  const endTs = endExcl.toISOString()
+
+  const toDhakaDay = (iso: string): string =>
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Dhaka', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date(iso))
+
+  const [advRes, coRes, csRes] = await Promise.all([
+    db().from('bookings')
+      .select('created_at, advance_paid')
+      .gt('advance_paid', 0)
+      .gte('created_at', startTs).lt('created_at', endTs)
+      .limit(10_000),
+    db().from('checkout_payments')
+      .select('amount, method, paid_at')
+      .gte('paid_at', startTs).lt('paid_at', endTs)
+      .limit(10_000),
+    db().from('coffee_shop_sale_payments')
+      .select('amount, method, sale:coffee_shop_sales!inner(sale_date, status)')
+      .eq('sale.status', 'completed')
+      .gte('sale.sale_date', fromIso).lte('sale.sale_date', toIso)
+      .limit(10_000),
+  ])
+  if (advRes.error) throw new Error(`[incomeByMethodRange.advances] ${advRes.error.message}`)
+  if (coRes.error)  throw new Error(`[incomeByMethodRange.checkout] ${coRes.error.message}`)
+  if (csRes.error)  throw new Error(`[incomeByMethodRange.coffeeShop] ${csRes.error.message}`)
+
+  const emptyByMethod = (): Record<PaymentMethod, number> =>
+    Object.fromEntries(PAYMENT_METHODS.map((m) => [m, 0])) as Record<PaymentMethod, number>
+
+  const bySource = {
+    advances:    emptyByMethod(),
+    checkout:    emptyByMethod(),
+    coffee_shop: emptyByMethod(),
+  }
+  const dailyMap = new Map<string, Record<PaymentMethod, number>>()
+  const addDaily = (day: string, method: PaymentMethod, amount: number) => {
+    if (day < fromIso || day > toIso) return   // Dhaka-day conversion can nudge edges
+    const rec = dailyMap.get(day) ?? emptyByMethod()
+    rec[method] += amount
+    dailyMap.set(day, rec)
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const b of (advRes.data ?? []) as any[]) {
+    const amount = Number(b.advance_paid ?? 0)
+    bySource.advances.bkash += amount
+    addDaily(toDhakaDay(b.created_at), 'bkash', amount)
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const p of (coRes.data ?? []) as any[]) {
+    const m = (PAYMENT_METHODS as readonly string[]).includes(p.method) ? p.method as PaymentMethod : 'other'
+    const amount = Number(p.amount ?? 0)
+    bySource.checkout[m] += amount
+    addDaily(toDhakaDay(p.paid_at), m, amount)
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const p of (csRes.data ?? []) as any[]) {
+    if (!p.sale || p.sale.status !== 'completed') continue
+    const m = (PAYMENT_METHODS as readonly string[]).includes(p.method) ? p.method as PaymentMethod : 'other'
+    const amount = Number(p.amount ?? 0)
+    bySource.coffee_shop[m] += amount
+    addDaily(p.sale.sale_date as string, m, amount)
+  }
+
+  const rows: MethodRangeRow[] = PAYMENT_METHODS.map((method) => {
+    const advances    = r2(bySource.advances[method])
+    const checkout    = r2(bySource.checkout[method])
+    const coffee_shop = r2(bySource.coffee_shop[method])
+    return { method, advances, checkout, coffee_shop, total: r2(advances + checkout + coffee_shop) }
+  })
+
+  const daily: MethodDailyRow[] = [...dailyMap.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, byMethod]) => ({
+      date,
+      byMethod: Object.fromEntries(
+        PAYMENT_METHODS.map((m) => [m, r2(byMethod[m])]),
+      ) as Record<PaymentMethod, number>,
+      total: r2(PAYMENT_METHODS.reduce((s, m) => s + byMethod[m], 0)),
+    }))
+
+  const totals = {
+    advances:    r2(rows.reduce((s, r) => s + r.advances, 0)),
+    checkout:    r2(rows.reduce((s, r) => s + r.checkout, 0)),
+    coffee_shop: r2(rows.reduce((s, r) => s + r.coffee_shop, 0)),
+    total:       r2(rows.reduce((s, r) => s + r.total, 0)),
+  }
+
+  return { from: fromIso, to: toIso, rows, daily, totals }
+}
+
 export async function getDailyIncomeByMethod(date: string): Promise<DailyIncomeByMethod> {
   // Dhaka local-day boundaries as ISO with offset.
   const startIso = `${date}T00:00:00+06:00`
