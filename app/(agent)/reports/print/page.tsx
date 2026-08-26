@@ -3,6 +3,7 @@ import { resolvePeriod } from '@/lib/reports/page-params'
 import { toIsoDate } from '@/lib/reports/periods'
 import { getHubTotals } from '@/lib/queries/reports/hub'
 import { getPackageRevenue, getDailyIncome, getIndustryKpis } from '@/lib/queries/reports/income'
+import { getIncomeByMethodRange, METHOD_LABEL, PAYMENT_METHODS } from '@/lib/queries/reports/income-by-method'
 import { getGuestReport } from '@/lib/queries/reports/guests'
 import { getOccupancyByDay } from '@/lib/queries/reports/operations'
 import { getCategoryBreakdownReports, getTopVendors } from '@/lib/queries/reports/expenses'
@@ -25,6 +26,7 @@ const monthLabel = (iso: string) =>
 const ALL_SECTIONS = [
   { id: 'summary',       label: 'Summary' },
   { id: 'income',        label: 'Income' },
+  { id: 'money',         label: 'Money received' },
   { id: 'guests',        label: 'Guests' },
   { id: 'operations',    label: 'Occupancy' },
   { id: 'expenses',      label: 'Expenses' },
@@ -75,7 +77,7 @@ export default async function PrintableReportPage({ searchParams }: PageProps) {
   const soft = <T,>(p: Promise<T>): Promise<T | null> => p.catch(() => null)
   const [
     hub, packages, dailyIncome, industry, guests, occupancy,
-    catBreakdown, vendors, pnl, salary, attendance, extras, topCharges, coffee,
+    catBreakdown, vendors, pnl, salary, attendance, extras, topCharges, coffee, money,
   ] = await Promise.all([
     has('summary')                          ? soft(getHubTotals(period))                : null,
     has('income')                           ? soft(getPackageRevenue(period))           : null,
@@ -91,6 +93,7 @@ export default async function PrintableReportPage({ searchParams }: PageProps) {
     has('extras')                           ? soft(getExtrasOverview(period))           : null,
     has('extras')                           ? soft(getTopChargeItems(period, 10))       : null,
     has('coffee')                           ? soft(getCoffeeShopOverview(period))       : null,
+    has('money')                            ? soft(getIncomeByMethodRange(fromIso, toIso)) : null,
   ])
 
   const days = Math.max(1, Math.round((period.to.getTime() - period.from.getTime()) / 86400_000) + 1)
@@ -241,6 +244,68 @@ export default async function PrintableReportPage({ searchParams }: PageProps) {
             )}
             {dailyIncome && days > 35 && (
               <p className="rpt-note">Daily breakdown omitted for ranges over 35 days — narrow the range to include it.</p>
+            )}
+          </section>
+        )}
+
+        {/* ── Money received by method ──────────────────────────────── */}
+        {has('money') && (
+          <section className="rpt-section">
+            <h2>Money received by method</h2>
+            {!money ? <Failed what="money received" /> : (
+              <>
+                <table>
+                  <thead><tr>
+                    <th>Method</th><th className="num">Advances</th><th className="num">Checkout</th>
+                    <th className="num">Coffee shop</th><th className="num">Total</th>
+                  </tr></thead>
+                  <tbody>
+                    {money.rows.filter((r) => r.total > 0).map((r) => (
+                      <tr key={r.method}>
+                        <td>{METHOD_LABEL[r.method]}</td>
+                        <td className="num">{r.advances ? formatBDT(r.advances) : '—'}</td>
+                        <td className="num">{r.checkout ? formatBDT(r.checkout) : '—'}</td>
+                        <td className="num">{r.coffee_shop ? formatBDT(r.coffee_shop) : '—'}</td>
+                        <td className="num"><strong>{formatBDT(r.total)}</strong></td>
+                      </tr>
+                    ))}
+                    <tr className="total">
+                      <td>Total received</td>
+                      <td className="num">{formatBDT(money.totals.advances)}</td>
+                      <td className="num">{formatBDT(money.totals.checkout)}</td>
+                      <td className="num">{formatBDT(money.totals.coffee_shop)}</td>
+                      <td className="num">{formatBDT(money.totals.total)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                {money.daily.length > 0 && days <= 35 && (
+                  <table>
+                    <thead><tr>
+                      <th>Date</th>
+                      {PAYMENT_METHODS.filter((m) => money.rows.find((r) => r.method === m && r.total > 0)).map((m) => (
+                        <th key={m} className="num">{METHOD_LABEL[m]}</th>
+                      ))}
+                      <th className="num">Total</th>
+                    </tr></thead>
+                    <tbody>
+                      {money.daily.map((d) => (
+                        <tr key={d.date}>
+                          <td>{formatDate(d.date)}</td>
+                          {PAYMENT_METHODS.filter((m) => money.rows.find((r) => r.method === m && r.total > 0)).map((m) => (
+                            <td key={m} className="num">{d.byMethod[m] ? formatBDT(d.byMethod[m]) : '—'}</td>
+                          ))}
+                          <td className="num"><strong>{formatBDT(d.total)}</strong></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+                <p className="rpt-note">
+                  Advances are counted as bKash (the resort takes every advance via bKash), dated by
+                  the day the booking was made; cancellations stay included — the advance is
+                  non-refundable. Checkout and coffee-shop takings carry their own methods.
+                </p>
+              </>
             )}
           </section>
         )}
