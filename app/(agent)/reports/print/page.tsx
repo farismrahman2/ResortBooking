@@ -309,10 +309,10 @@ export default async function PrintableReportPage({ searchParams }: PageProps) {
                   </table>
                 )}
                 <p className="rpt-note">
-                  Advances are bucketed by the method recorded on the quote (bKash or bank
-                  transfer; older bookings without one count as bKash), dated by the day the
-                  booking was made; cancellations stay included — the advance is non-refundable.
-                  Checkout and coffee-shop takings carry their own methods.
+                  Each advance instalment counts on the day it arrived, in the method it arrived
+                  by — a bKash part-payment and a later bank transfer sit in different columns.
+                  Cancellations stay included: the advance is non-refundable. Checkout and
+                  coffee-shop takings carry their own methods.
                 </p>
               </>
             )}

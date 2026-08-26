@@ -36,7 +36,7 @@ export default async function ReceivedByMethodReport({ searchParams }: PageProps
   return (
     <ReportShell
       title="Money Received by Method"
-      subtitle="Advances (bKash) + checkout + coffee shop — the sheet accounts matches against statements"
+      subtitle="Advance instalments + checkout + coffee shop — the sheet accounts matches against statements"
       period={period} preset={preset} customFrom={customFrom} customTo={customTo} mode={mode}
       toolbar={
         <a href={printHref}
@@ -47,7 +47,7 @@ export default async function ReceivedByMethodReport({ searchParams }: PageProps
     >
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
         <KpiCard label="Total received" value={formatBDT(data.totals.total)} mode="off" />
-        <KpiCard label="Booking advances" value={formatBDT(data.totals.advances)} mode="off" note="all via bKash" />
+        <KpiCard label="Booking advances" value={formatBDT(data.totals.advances)} mode="off" note="by instalment, as received" />
         <KpiCard label="Checkout payments" value={formatBDT(data.totals.checkout)} mode="off" />
         <KpiCard label="Coffee shop" value={formatBDT(data.totals.coffee_shop)} mode="off" />
       </div>
@@ -88,11 +88,11 @@ export default async function ReceivedByMethodReport({ searchParams }: PageProps
       )}
 
       <p className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">
-        Basis: booking advances are dated by the day the booking was made and bucketed by the
-        method recorded on the quote (bKash or bank transfer; older bookings without a recorded
-        method count as bKash). Advances are non-refundable, so cancellations stay included —
-        the money was received. Checkout payments carry their own method and payment time;
-        coffee-shop takings their sale date.
+        Basis: each advance instalment counts on the day it actually arrived, in the method it
+        arrived by — so a bKash part-payment and a later bank transfer land in different columns
+        and different days. Advances are non-refundable, so cancellations stay included: the money
+        was received. Checkout payments carry their own method and payment time; coffee-shop
+        takings their sale date.
       </p>
     </ReportShell>
   )
