@@ -44,6 +44,8 @@ export function BookingActions({ booking, holidayDates, inventory, bookedRoomNum
   // ── Payment state ─────────────────────────────────────────────────────────
   const [advancePaid,     setAdvancePaid]     = useState(booking.advance_paid)
   const [advanceRequired, setAdvanceRequired] = useState(booking.advance_required)
+  const [advanceMethod,   setAdvanceMethod]   = useState<'bkash' | 'bank_transfer'>(
+    ((booking as { advance_method?: 'bkash' | 'bank_transfer' }).advance_method) ?? 'bkash')
   const [paymentLoading,  setPaymentLoading]  = useState(false)
   const [paymentError,    setPaymentError]    = useState<string | null>(null)
   const [paymentSuccess,  setPaymentSuccess]  = useState(false)
@@ -221,7 +223,7 @@ export function BookingActions({ booking, holidayDates, inventory, bookedRoomNum
   async function handleUpdatePayment() {
     setPaymentLoading(true); setPaymentError(null); setPaymentSuccess(false)
     try {
-      const result = await updateAdvancePaid(booking.id, advancePaid, advanceRequired)
+      const result = await updateAdvancePaid(booking.id, advancePaid, advanceRequired, advanceMethod)
       if (!result.success) { setPaymentError(result.error ?? 'Update failed') }
       else { setPaymentSuccess(true); router.refresh(); setTimeout(() => setPaymentSuccess(false), 2500) }
     } catch (err) { setPaymentError(String(err)) }
@@ -331,6 +333,18 @@ export function BookingActions({ booking, holidayDates, inventory, bookedRoomNum
         <div className="grid grid-cols-2 gap-3">
           <NumberInput label="Advance Paid" prefix="৳" value={advancePaid} onChange={setAdvancePaid} />
           <NumberInput label="Advance Required" prefix="৳" value={advanceRequired} onChange={setAdvanceRequired} />
+        </div>
+        <div>
+          <label className="field-label">Advance received via</label>
+          {/* Lands the advance in the right bucket of the money-received report. */}
+          <select
+            value={advanceMethod}
+            onChange={(e) => setAdvanceMethod(e.target.value as 'bkash' | 'bank_transfer')}
+            className="min-h-[42px] w-full rounded-lg border border-gray-300 bg-white px-3 text-sm focus:border-forest-600 focus:outline-none"
+          >
+            <option value="bkash">bKash</option>
+            <option value="bank_transfer">Bank transfer</option>
+          </select>
         </div>
         <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
           <div className="flex items-center justify-between text-sm">

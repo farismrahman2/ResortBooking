@@ -107,6 +107,8 @@ export interface QuoteRow {
   total:               number     // generated
   advance_required:    number
   advance_paid:        number
+  /** How the advance was received — bKash unless recorded otherwise. */
+  advance_method?: 'bkash' | 'bank_transfer' | null
   due_advance:         number     // generated
   remaining:           number     // generated
   status: BookingStatus
@@ -157,6 +159,8 @@ export interface BookingRow {
   total:              number
   advance_required:   number
   advance_paid:       number
+  /** How the advance was received — bKash unless recorded otherwise. */
+  advance_method?: 'bkash' | 'bank_transfer' | null
   due_advance:        number
   remaining:          number
   status: BookingStatus

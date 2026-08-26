@@ -83,6 +83,7 @@ export default async function EditQuotePage({ params }: PageProps) {
     service_charge_pct: quote.service_charge_pct ?? 0,
     advance_required:   quote.advance_required,
     advance_paid:       quote.advance_paid,
+    advance_method:     ((quote as { advance_method?: 'bkash' | 'bank_transfer' }).advance_method ?? 'bkash'),
     sales_employee_id:  (quote as any).sales_employee_id ?? null,
     is_corporate:         (quote as any).is_corporate ?? false,
     company_name:         (quote as any).company_name ?? null,
