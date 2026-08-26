@@ -88,9 +88,11 @@ export default async function ReceivedByMethodReport({ searchParams }: PageProps
       )}
 
       <p className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">
-        Basis: booking advances are dated by the day the booking was made and counted as bKash
-        (advances are non-refundable, so cancellations stay included — the money was received).
-        Checkout payments carry their own method and payment time; coffee-shop takings their sale date.
+        Basis: booking advances are dated by the day the booking was made and bucketed by the
+        method recorded on the quote (bKash or bank transfer; older bookings without a recorded
+        method count as bKash). Advances are non-refundable, so cancellations stay included —
+        the money was received. Checkout payments carry their own method and payment time;
+        coffee-shop takings their sale date.
       </p>
     </ReportShell>
   )

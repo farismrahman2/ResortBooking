@@ -309,9 +309,10 @@ export default async function PrintableReportPage({ searchParams }: PageProps) {
                   </table>
                 )}
                 <p className="rpt-note">
-                  Advances are counted as bKash (the resort takes every advance via bKash), dated by
-                  the day the booking was made; cancellations stay included — the advance is
-                  non-refundable. Checkout and coffee-shop takings carry their own methods.
+                  Advances are bucketed by the method recorded on the quote (bKash or bank
+                  transfer; older bookings without one count as bKash), dated by the day the
+                  booking was made; cancellations stay included — the advance is non-refundable.
+                  Checkout and coffee-shop takings carry their own methods.
                 </p>
               </>
             )}

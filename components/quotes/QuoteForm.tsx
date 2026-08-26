@@ -107,6 +107,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
       service_charge_pct:  0,
       advance_required:    0,
       advance_paid:        0,
+      advance_method:      'bkash',
       extra_items:         [],
       sales_employee_id:   null,
       is_corporate:         false,
@@ -910,6 +911,25 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
                   onChange={(v) => field.onChange(v)}
                   error={errors.advance_paid?.message}
                 />
+              )}
+            />
+            <Controller
+              name="advance_method"
+              control={control}
+              render={({ field }) => (
+                <div>
+                  <label className="field-label">Advance received via</label>
+                  {/* Feeds the money-received-by-method reconciliation — the
+                      advance must land in the right statement bucket. */}
+                  <select
+                    value={field.value ?? 'bkash'}
+                    onChange={(e) => field.onChange(e.target.value)}
+                    className="min-h-[44px] w-full rounded-lg border border-gray-300 bg-white px-3 text-sm focus:border-forest-600 focus:outline-none"
+                  >
+                    <option value="bkash">bKash</option>
+                    <option value="bank_transfer">Bank transfer</option>
+                  </select>
+                </div>
               )}
             />
           </div>

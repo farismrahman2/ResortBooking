@@ -63,6 +63,9 @@ const BaseQuoteSchema = z.object({
   service_charge_pct:  z.number().int().min(0).max(100).default(0),
   advance_required:    z.number().int().min(0).default(0),
   advance_paid:        z.number().int().min(0).default(0),
+  /** How the advance arrived. This resort takes advances via bKash or bank
+   *  transfer only — feeds the money-received-by-method reconciliation. */
+  advance_method:      z.enum(['bkash', 'bank_transfer']).default('bkash'),
 
   // Extra custom items
   extra_items: z.array(ExtraItemSchema).default([]),

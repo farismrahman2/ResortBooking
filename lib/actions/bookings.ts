@@ -154,6 +154,7 @@ export async function convertQuoteToBooking(
         service_charge_pct:  quote.service_charge_pct ?? 0,
         advance_required:    quote.advance_required,
         advance_paid:        quote.advance_paid,
+        advance_method:      quote.advance_method ?? 'bkash',
         status:              'confirmed',
         sales_employee_id:   quote.sales_employee_id ?? null,
         is_corporate:         (quote as any).is_corporate ?? false,
@@ -228,6 +229,7 @@ export async function updateAdvancePaid(
   bookingId: string,
   advance_paid: number,
   advance_required: number,
+  advance_method?: 'bkash' | 'bank_transfer',
 ): Promise<ActionResult> {
   await requirePermission('bookings', 'write')
   try {
@@ -237,11 +239,14 @@ export async function updateAdvancePaid(
         return { success: false, error: `${label} must be a number between 0 and 1,00,00,000` }
       }
     }
+    if (advance_method && !['bkash', 'bank_transfer'].includes(advance_method)) {
+      return { success: false, error: 'Advance method must be bKash or bank transfer' }
+    }
 
     const supabase = createClient()
     const { data: updated, error } = await supabase
       .from('bookings')
-      .update({ advance_paid, advance_required })
+      .update({ advance_paid, advance_required, ...(advance_method ? { advance_method } : {}) })
       .eq('id', bookingId)
       .neq('status', 'cancelled')   // a cancelled booking's money must stay as it ended
       .select('id')

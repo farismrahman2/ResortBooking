@@ -98,7 +98,7 @@ export async function getIncomeByMethodRange(
 
   const [advRes, coRes, csRes] = await Promise.all([
     db().from('bookings')
-      .select('created_at, advance_paid')
+      .select('created_at, advance_paid, advance_method')
       .gt('advance_paid', 0)
       .gte('created_at', startTs).lt('created_at', endTs)
       .limit(10_000),
@@ -135,8 +135,12 @@ export async function getIncomeByMethodRange(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const b of (advRes.data ?? []) as any[]) {
     const amount = Number(b.advance_paid ?? 0)
-    bySource.advances.bkash += amount
-    addDaily(toDhakaDay(b.created_at), 'bkash', amount)
+    // Recorded method when present (bKash / bank transfer selector on the
+    // quote), bKash for everything saved before the selector existed.
+    const m = (PAYMENT_METHODS as readonly string[]).includes(b.advance_method)
+      ? b.advance_method as PaymentMethod : 'bkash'
+    bySource.advances[m] += amount
+    addDaily(toDhakaDay(b.created_at), m, amount)
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const p of (coRes.data ?? []) as any[]) {
