@@ -112,7 +112,9 @@ export default async function PrintableReportPage({ searchParams }: PageProps) {
   return (
     <>
       <style>{`
-        @page { size: A4; margin: 12mm; }
+        /* No fixed @page size: the phone's print dialog picks Letter, and
+           forcing A4 against it produced blank pages and clipped tables. */
+        @page { margin: 12mm; }
         .rpt {
           max-width: 186mm; margin: 0 auto; color: #111827; background: white;
           font-size: 9.5pt; line-height: 1.45;
@@ -120,8 +122,14 @@ export default async function PrintableReportPage({ searchParams }: PageProps) {
         .rpt h2 {
           margin: 0; padding-left: 8px; border-left: 4px solid #166534;
           font-size: 12pt; font-weight: 700; letter-spacing: 0.01em;
+          break-after: avoid;   /* never a heading orphaned at a page bottom */
         }
-        .rpt-section { margin-top: 9mm; break-inside: avoid-page; }
+        /* Sections FLOW across pages. break-inside: avoid-page here forced any
+           section taller than one page onto a fresh page and then clipped it —
+           a 26-day daily table lost every row after the first. Long tables now
+           split naturally, repeating their header row on each page. */
+        .rpt-section { margin-top: 9mm; }
+        .rpt thead { display: table-header-group; }
         .rpt-kpis {
           display: grid; grid-template-columns: repeat(4, 1fr); gap: 3mm; margin-top: 3mm;
         }
