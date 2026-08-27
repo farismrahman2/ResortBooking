@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { isMissingRelation } from '@/lib/supabase/errors'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = () => createClient() as any
@@ -120,11 +121,18 @@ export async function getIncomeByMethodRange(
       .gte('sale.sale_date', fromIso).lte('sale.sale_date', toIso)
       .limit(10_000),
   ])
-  const ledgerMissing = Boolean(ledgerRes.error && /does not exist|42P01/i.test(ledgerRes.error.message))
-  if (ledgerRes.error && !ledgerMissing) {
-    throw new Error(`[incomeByMethodRange.advanceLedger] ${ledgerRes.error.message}`)
+  // The advance ledger is optional: absent before migration 003, and briefly
+  // invisible to PostgREST right after it is created while the schema cache
+  // reloads. Any failure here falls back to the booking-level advance figure
+  // rather than taking down a reconciliation report the accountant is mid-way
+  // through — but it is logged, so a real fault is still visible.
+  const ledgerUsable = !ledgerRes.error
+  if (ledgerRes.error && !isMissingRelation(ledgerRes.error)) {
+    console.warn(`[incomeByMethodRange] advance ledger unreadable, using booking totals: ${ledgerRes.error.message}`)
   }
-  if (advRes.error) throw new Error(`[incomeByMethodRange.advances] ${advRes.error.message}`)
+  if (advRes.error && !ledgerUsable) {
+    throw new Error(`[incomeByMethodRange.advances] ${advRes.error.message}`)
+  }
   if (coRes.error)  throw new Error(`[incomeByMethodRange.checkout] ${coRes.error.message}`)
   if (csRes.error)  throw new Error(`[incomeByMethodRange.coffeeShop] ${csRes.error.message}`)
 
@@ -148,7 +156,7 @@ export async function getIncomeByMethodRange(
   // transfer on the 9th land on their own days, in their own columns. Only
   // when the ledger table doesn't exist do we fall back to the booking's
   // single advance figure.
-  if (!ledgerMissing) {
+  if (ledgerUsable) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const p of (ledgerRes.data ?? []) as any[]) {
       const amount = Number(p.amount ?? 0)
