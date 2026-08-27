@@ -13,11 +13,14 @@ export interface PrintSectionOption { id: string; label: string; enabled: boolea
  * dialog is the download — same pattern as the requisition sheet.
  */
 export function PrintReportToolbar({
-  from, to, sections,
+  from, to, sections, extraParams,
 }: {
   from: string
   to: string
   sections: PrintSectionOption[]
+  /** Section-specific params (account filter, dues threshold) that Update must
+   *  carry over — without this, changing the range silently resets them. */
+  extraParams?: Record<string, string | undefined>
 }) {
   const router = useRouter()
   const [f, setF] = useState(from)
@@ -28,6 +31,7 @@ export function PrintReportToolbar({
     const chosen = sections.filter((s) => on.has(s.id)).map((s) => s.id)
     const qs = new URLSearchParams({ from: f, to: t })
     if (chosen.length && chosen.length < sections.length) qs.set('sections', chosen.join(','))
+    for (const [k, v] of Object.entries(extraParams ?? {})) if (v) qs.set(k, v)
     router.push(`/reports/print?${qs.toString()}`)
   }
 
