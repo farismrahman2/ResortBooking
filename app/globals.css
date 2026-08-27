@@ -82,4 +82,40 @@
     background: white;
     font-size: 12px;
   }
+
+  /* The app shell pins itself to exactly one viewport — `h-screen
+     overflow-hidden` on the outer frame, with the page scrolling inside
+     <main class="overflow-y-auto">. A printer only ever receives what that
+     box actually shows, so a 300-row report came out as ONE clipped page no
+     matter how many pages of content it held.
+
+     Print has no viewport and no scrolling: release every height and overflow
+     constraint so the document flows onto as many sheets as it needs. */
+  html, body {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  body div,
+  body main,
+  body section,
+  body article {
+    overflow: visible !important;
+    max-height: none !important;
+  }
+  .h-screen,
+  .h-full {
+    height: auto !important;
+  }
+  main {
+    display: block !important;
+    height: auto !important;
+    flex: none !important;
+  }
+  /* Anything pinned to the window (sticky bars, floating actions) would
+     otherwise repeat on every sheet or cover the content. */
+  .fixed,
+  .sticky {
+    position: static !important;
+  }
 }
