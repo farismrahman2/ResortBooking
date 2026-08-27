@@ -14,7 +14,7 @@ import { getExtrasOverview, getTopChargeItems } from '@/lib/queries/reports/chec
 import { getCoffeeShopOverview } from '@/lib/queries/reports/coffee-shop'
 import { PrintReportToolbar, type PrintSectionOption } from '@/components/reports/PrintReportToolbar'
 import { formatBDT } from '@/lib/formatters/currency'
-import { formatDate } from '@/lib/formatters/dates'
+import { formatDate, formatDateShort } from '@/lib/formatters/dates'
 import { todayDhaka } from '@/lib/dates'
 
 export const dynamic = 'force-dynamic'
@@ -133,6 +133,14 @@ export default async function PrintableReportPage({ searchParams }: PageProps) {
            split naturally, repeating their header row on each page. */
         .rpt-section { margin-top: 9mm; }
         .rpt thead { display: table-header-group; }
+        /* Eight columns of transaction detail need to breathe on A4 — a size
+           down, tighter padding, and long references allowed to wrap rather
+           than force the table wider than the page. */
+        .rpt table.dense { font-size: 7.5pt; }
+        .rpt table.dense th,
+        .rpt table.dense td { padding: 0.9mm 1.2mm; }
+        .rpt table.dense td { overflow-wrap: anywhere; }
+        .rpt table.dense .nowrap { white-space: nowrap; }
         .rpt-kpis {
           display: grid; grid-template-columns: repeat(4, 1fr); gap: 3mm; margin-top: 3mm;
         }
@@ -356,7 +364,7 @@ export default async function PrintableReportPage({ searchParams }: PageProps) {
                       </tr>
                     </tbody>
                   </table>
-                  <table>
+                  <table className="dense">
                     <thead><tr>
                       <th>When</th><th>Guest / customer</th><th>Doc</th><th>Type</th>
                       <th>Method</th><th>Landed in</th><th>Reference</th><th className="num">Amount</th>
@@ -364,14 +372,14 @@ export default async function PrintableReportPage({ searchParams }: PageProps) {
                     <tbody>
                       {rows.map((r) => (
                         <tr key={`${r.source}-${r.id}`}>
-                          <td style={{ whiteSpace: 'nowrap' }}>{formatDate(r.date)}{r.time ? ` ${r.time}` : ''}</td>
+                          <td className="nowrap">{formatDateShort(r.date)}{r.time ? ` ${r.time}` : ''}</td>
                           <td>{r.party ?? '—'}</td>
-                          <td style={{ fontSize: '7.5pt' }}>{r.document ?? '—'}</td>
+                          <td>{r.document ?? '—'}</td>
                           <td>{SOURCE_LABEL[r.source]}</td>
                           <td>{METHOD_LABEL[r.method]}{r.card_last4 ? ` ••${r.card_last4}` : ''}</td>
                           <td>{r.account ?? '—'}</td>
-                          <td style={{ fontSize: '7.5pt' }}>{r.reference ?? '—'}</td>
-                          <td className="num">{formatBDT(r.amount)}</td>
+                          <td>{r.reference ?? '—'}</td>
+                          <td className="num nowrap">{formatBDT(r.amount)}</td>
                         </tr>
                       ))}
                       <tr className="total">
