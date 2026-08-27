@@ -15,6 +15,7 @@ import { BookingChargesTab } from '@/components/checkout/BookingChargesTab'
 import { CHECKOUT_STATUS_BADGE, CHECKOUT_STATUS_LABELS } from '@/components/checkout/labels'
 import { getBookingDetailWithCheckout } from '@/lib/queries/checkout'
 import { getBookingById } from '@/lib/queries/bookings'
+import { isMissingRelation } from '@/lib/supabase/errors'
 import { todayDhaka, addDaysIso } from '@/lib/dates'
 import { calcChargesTotal, calcPaymentsTotal, calcNetDue } from '@/lib/checkout/totals'
 import { getExtraGuestUnitPrice } from '@/lib/checkout/extras-pricing'
@@ -55,7 +56,7 @@ export default async function CheckoutDetailPage({ params }: PageProps) {
   if (!bundleRes.ok) {
     // Only a genuinely missing table means "run the migration". Anything else
     // (network blip, RLS refusal) should surface as an error, not a fake 404.
-    if (!/does not exist|42P01/i.test(bundleRes.message)) {
+    if (!isMissingRelation({ message: bundleRes.message })) {
       throw new Error(bundleRes.message)
     }
     migrationError = 'Checkout tables missing — apply migrations/checkout-module/000_create_checkout_tables.sql.'

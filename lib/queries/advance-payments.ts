@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { isMissingRelation } from '@/lib/supabase/errors'
 import type { AdvancePaymentRow } from '@/lib/bookings/advance-methods'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -16,7 +17,7 @@ export async function listAdvancePayments(bookingId: string): Promise<AdvancePay
   // The ledger is optional until migration 003 runs — an absent table means
   // "no instalments recorded", not a broken booking page.
   if (error) {
-    if (/does not exist|42P01/i.test(error.message)) return []
+    if (isMissingRelation(error)) return []
     throw new Error(`[advancePayments] ${error.message}`)
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

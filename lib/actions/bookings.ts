@@ -9,6 +9,7 @@ import { checkAvailabilityConflict, getBookedRoomNumbers } from '@/lib/queries/a
 import { findDuplicateBookings } from '@/lib/queries/duplicate-bookings'
 import { ROOM_NUMBERS } from '@/lib/config/rooms'
 import { requirePermission, getCurrentUserContext } from '@/lib/auth/permissions'
+import { isMissingRelation } from '@/lib/supabase/errors'
 import { findUnassignedRoomNumbersError } from '@/lib/validators/quote'
 import type { ActionResult, ActionData } from './types'
 import type { RoomType, PackageType, PackageSnapshot } from '@/lib/supabase/types'
@@ -205,7 +206,7 @@ export async function convertQuoteToBooking(
       })
       // Ledger table absent (migration 003 not run) — the booking still holds
       // advance_paid, so nothing is lost.
-      if (advErr && !/does not exist|42P01/i.test(advErr.message)) {
+      if (advErr && !isMissingRelation(advErr)) {
         console.warn(`[bookings] advance ledger row not created: ${advErr.message}`)
       }
     }
@@ -366,7 +367,7 @@ export async function addAdvancePayment(
       recorded_by: ctx?.user_id ?? null,
     })
     if (error) {
-      if (/does not exist|42P01/i.test(error.message)) {
+      if (isMissingRelation(error)) {
         return { success: false, error: 'Run migrations/platform-audit/003_advance_payments_ledger.sql to start logging advance instalments.' }
       }
       return { success: false, error: error.message }
