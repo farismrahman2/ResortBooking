@@ -9,6 +9,7 @@ import { safeCall } from '@/lib/actions/safe-call'
 import { toast } from '@/lib/toast'
 import {
   createPaymentAccount, updatePaymentAccount, togglePaymentAccountActive,
+  setAdvanceDefaultAccount,
 } from '@/lib/actions/payment-accounts'
 import type { PaymentAccount } from '@/lib/queries/payment-accounts'
 
@@ -73,6 +74,17 @@ export function PaymentAccountsClient({ accounts }: { accounts: PaymentAccount[]
     })
   }
 
+  function toggleAdvanceDefault(a: PaymentAccount) {
+    start(async () => {
+      const r = await safeCall(() => setAdvanceDefaultAccount(a.id))
+      if (!r.success) { toast.error(r.error); return }
+      toast.success(a.is_advance_default
+        ? `${a.display_name} is no longer the advance destination`
+        : `Advances by ${METHODS.find((m) => m.value === a.method)?.label ?? a.method} now go to ${a.display_name}`)
+      router.refresh()
+    })
+  }
+
   const patchOf = (a: PaymentAccount) => ({ ...a, ...(edits[a.id] ?? {}) })
   const setPatch = (id: string, p: Partial<PaymentAccount>) =>
     setEdits((prev) => ({ ...prev, [id]: { ...(prev[id] ?? {}), ...p } }))
@@ -123,6 +135,16 @@ export function PaymentAccountsClient({ accounts }: { accounts: PaymentAccount[]
                       ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                       : 'border-gray-300 bg-gray-100 text-gray-500'}`}>
                   {a.is_active ? 'Active' : 'Retired'}
+                </button>
+                {/* Advances of a tender always land in one place — bank
+                    transfer → EBL — so the agent is never asked at the desk. */}
+                <button type="button" onClick={() => toggleAdvanceDefault(a)} disabled={pending}
+                  title="Advances of this tender go here automatically"
+                  className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                    a.is_advance_default
+                      ? 'border-forest-300 bg-forest-50 text-forest-800'
+                      : 'border-gray-300 bg-white text-gray-500'}`}>
+                  {a.is_advance_default ? '★ Advances land here' : 'Set as advance destination'}
                 </button>
                 {dirty && (
                   <Button type="button" variant="primary" size="sm" className="ml-auto gap-1.5"

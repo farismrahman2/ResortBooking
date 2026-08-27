@@ -666,6 +666,12 @@ export interface CheckoutPaymentRow {
   paid_at: string
   recorded_by: string | null
   notes: string | null
+  /** Which of the resort's accounts/terminals took it. Mandatory for card and
+   *  bank transfer — a statement covers one account, never a whole method.
+   *  Optional on the type because rows predate migration 004/005. */
+  account_id?: string | null
+  /** Last four digits of the card, for dispute lookups. */
+  card_last4?: string | null
 }
 
 export interface ChargeItemWithCategory extends ChargeItemRow {
