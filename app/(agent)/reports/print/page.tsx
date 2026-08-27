@@ -5,6 +5,7 @@ import { getHubTotals } from '@/lib/queries/reports/hub'
 import { getPackageRevenue, getDailyIncome, getIndustryKpis } from '@/lib/queries/reports/income'
 import { getIncomeByMethodRange, METHOD_LABEL, PAYMENT_METHODS } from '@/lib/queries/reports/income-by-method'
 import { getPaymentTransactions, SOURCE_LABEL } from '@/lib/queries/reports/payment-transactions'
+import { getOutstandingDues } from '@/lib/queries/reports/dues'
 import { getGuestReport } from '@/lib/queries/reports/guests'
 import { getOccupancyByDay } from '@/lib/queries/reports/operations'
 import { getCategoryBreakdownReports, getTopVendors } from '@/lib/queries/reports/expenses'
@@ -29,6 +30,7 @@ const ALL_SECTIONS = [
   { id: 'income',        label: 'Income' },
   { id: 'money',         label: 'Money received' },
   { id: 'transactions',  label: 'Transaction detail' },
+  { id: 'dues',          label: 'Outstanding dues' },
   { id: 'guests',        label: 'Guests' },
   { id: 'operations',    label: 'Occupancy' },
   { id: 'expenses',      label: 'Expenses' },
@@ -40,7 +42,10 @@ const ALL_SECTIONS = [
 type SectionId = typeof ALL_SECTIONS[number]['id']
 
 interface PageProps {
-  searchParams: { from?: string; to?: string; period?: string; sections?: string; account?: string }
+  searchParams: {
+    from?: string; to?: string; period?: string; sections?: string
+    account?: string; minDays?: string
+  }
 }
 
 /**
@@ -74,12 +79,17 @@ export default async function PrintableReportPage({ searchParams }: PageProps) {
   const wanted = new Set(requested.filter((s) => permitted.has(s)))
   const has = (s: SectionId) => wanted.has(s)
 
+  const parsedMinDays = Number(searchParams.minDays)
+  const duesMinDays = Number.isFinite(parsedMinDays) && parsedMinDays >= 1 && parsedMinDays <= 3650
+    ? Math.floor(parsedMinDays)
+    : 6
+
   // Fetch everything the chosen sections need, in one parallel round. A failed
   // fetch nulls its section rather than erroring the whole document.
   const soft = <T,>(p: Promise<T>): Promise<T | null> => p.catch(() => null)
   const [
     hub, packages, dailyIncome, industry, guests, occupancy,
-    catBreakdown, vendors, pnl, salary, attendance, extras, topCharges, coffee, money, txns,
+    catBreakdown, vendors, pnl, salary, attendance, extras, topCharges, coffee, money, txns, dues,
   ] = await Promise.all([
     has('summary')                          ? soft(getHubTotals(period))                : null,
     has('income')                           ? soft(getPackageRevenue(period))           : null,
@@ -97,6 +107,9 @@ export default async function PrintableReportPage({ searchParams }: PageProps) {
     has('coffee')                           ? soft(getCoffeeShopOverview(period))       : null,
     has('money')                            ? soft(getIncomeByMethodRange(fromIso, toIso)) : null,
     has('transactions')                     ? soft(getPaymentTransactions(fromIso, toIso))  : null,
+    // Dues are a snapshot as of today — a debt is late relative to now, not to
+    // the report's range — so this one section ignores from/to by design.
+    has('dues')                             ? soft(getOutstandingDues(duesMinDays))      : null,
   ])
 
   const days = Math.max(1, Math.round((period.to.getTime() - period.from.getTime()) / 86400_000) + 1)
@@ -180,7 +193,11 @@ export default async function PrintableReportPage({ searchParams }: PageProps) {
         }
       `}</style>
 
-      <PrintReportToolbar from={fromIso} to={toIso} sections={sectionOptions} />
+      <PrintReportToolbar from={fromIso} to={toIso} sections={sectionOptions}
+        extraParams={{
+          account: searchParams.account,
+          minDays: duesMinDays === 6 ? undefined : String(duesMinDays),
+        }} />
 
       <div className="rpt">
         {/* ── Cover ─────────────────────────────────────────────────── */}
@@ -391,6 +408,66 @@ export default async function PrintableReportPage({ searchParams }: PageProps) {
                 </>
               )
             })()}
+          </section>
+        )}
+
+        {/* ── Outstanding dues ──────────────────────────────────────── */}
+        {has('dues') && (
+          <section className="rpt-section">
+            <h2>Outstanding dues</h2>
+            {!dues ? <Failed what="dues" /> : (
+              <>
+                <p className="rpt-note">
+                  A snapshot as of <strong>{formatDate(dues.asOf)}</strong> — not the report period.
+                  A balance is late relative to today, so this section always shows the current
+                  position. Aged from the day the guest left.
+                </p>
+                <table>
+                  <thead><tr>
+                    <th>Age</th><th className="num">Bookings</th><th className="num">Outstanding</th>
+                  </tr></thead>
+                  <tbody>
+                    {dues.buckets.map((b) => (
+                      <tr key={b.label}>
+                        <td>{b.label}</td>
+                        <td className="num">{nf(b.count)}</td>
+                        <td className="num">{formatBDT(b.total)}</td>
+                      </tr>
+                    ))}
+                    <tr className="total">
+                      <td>{duesMinDays > 1 ? `${duesMinDays}+ days overdue` : 'All overdue'}</td>
+                      <td className="num">{nf(dues.rows.length)}</td>
+                      <td className="num">{formatBDT(dues.totalOverdue)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <table className="dense">
+                  <thead><tr>
+                    <th className="num">Days</th><th>Guest</th><th>Booking</th><th>Left</th>
+                    <th>Phone</th><th className="num">Bill</th><th className="num">Paid</th>
+                    <th className="num">Still owed</th>
+                  </tr></thead>
+                  <tbody>
+                    {dues.rows.map((r) => (
+                      <tr key={r.booking_id}>
+                        <td className="num">{r.days_overdue}</td>
+                        <td>{r.customer_name}{r.is_corporate && r.company_name ? ` (${r.company_name})` : ''}</td>
+                        <td>{r.booking_number}</td>
+                        <td className="nowrap">{formatDateShort(r.due_since)}</td>
+                        <td className="nowrap">{r.customer_phone}</td>
+                        <td className="num">{formatBDT(r.total_bill)}</td>
+                        <td className="num">{formatBDT(r.collected)}</td>
+                        <td className="num nowrap"><strong>{formatBDT(r.outstanding)}</strong></td>
+                      </tr>
+                    ))}
+                    <tr className="total">
+                      <td colSpan={7}>{nf(dues.rows.length)} booking{dues.rows.length === 1 ? '' : 's'} to chase</td>
+                      <td className="num">{formatBDT(dues.totalOverdue)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </>
+            )}
           </section>
         )}
 
