@@ -41,12 +41,14 @@ function fmtWhen(iso: string): string {
  * and the money-received report can bucket each part on its own day.
  */
 export function AdvancePaymentsPanel({
-  bookingId, payments, advanceRequired, disabled,
+  bookingId, payments, advanceRequired, disabled, accounts = [],
 }: {
   bookingId:       string
   payments:        AdvancePaymentRow[]
   advanceRequired: number
   disabled?:       boolean
+  /** Where the money lands — banks, wallets, terminals. */
+  accounts?:       Array<{ id: string; display_name: string; method: string; bank_name: string | null }>
 }) {
   const router = useRouter()
   const [pending, start] = useTransition()
@@ -57,6 +59,10 @@ export function AdvancePaymentsPanel({
   const [method, setMethod] = useState<AdvanceMethod>('bkash')
   const [paidAt, setPaidAt] = useState(nowDhakaLocal)
   const [reference, setReference] = useState('')
+  // Default the destination to the first account for the chosen tender.
+  const matching = accounts.filter((a) => a.method === method)
+  const [accountId, setAccountId] = useState<string>('')
+  const effectiveAccountId = accountId || matching[0]?.id || ''
 
   const total = payments.reduce((s, p) => s + p.amount, 0)
   const due   = Math.max(0, advanceRequired - total)
@@ -67,10 +73,11 @@ export function AdvancePaymentsPanel({
     start(async () => {
       const r = await safeCall(() => addAdvancePayment(bookingId, {
         amount, method, paid_at: paidAt, reference: reference || null,
+        account_id: effectiveAccountId || null,
       }))
       if (!r.success) { setError(r.error); return }
       toast.success(`${formatBDT(amount)} logged — ${ADVANCE_METHOD_LABEL[method]}`)
-      setAmount(0); setReference(''); setPaidAt(nowDhakaLocal()); setOpen(false)
+      setAmount(0); setReference(''); setAccountId(''); setPaidAt(nowDhakaLocal()); setOpen(false)
       router.refresh()
     })
   }
@@ -173,6 +180,23 @@ export function AdvancePaymentsPanel({
               placeholder="bKash trx / slip no."
             />
           </div>
+          {accounts.length > 0 && (
+            <div>
+              <label className="field-label">Landed in</label>
+              <select
+                value={effectiveAccountId}
+                onChange={(e) => setAccountId(e.target.value)}
+                className="min-h-[42px] w-full rounded-lg border border-gray-300 bg-white px-2 text-sm"
+              >
+                <option value="">— not specified —</option>
+                {(matching.length ? matching : accounts).map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.display_name}{a.bank_name ? ` · ${a.bank_name}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="flex gap-2">
             <Button type="button" variant="outline" size="md" className="flex-1"
               onClick={() => { setOpen(false); setError(null) }}>

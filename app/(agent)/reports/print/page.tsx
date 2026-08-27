@@ -4,6 +4,7 @@ import { toIsoDate } from '@/lib/reports/periods'
 import { getHubTotals } from '@/lib/queries/reports/hub'
 import { getPackageRevenue, getDailyIncome, getIndustryKpis } from '@/lib/queries/reports/income'
 import { getIncomeByMethodRange, METHOD_LABEL, PAYMENT_METHODS } from '@/lib/queries/reports/income-by-method'
+import { getPaymentTransactions, SOURCE_LABEL } from '@/lib/queries/reports/payment-transactions'
 import { getGuestReport } from '@/lib/queries/reports/guests'
 import { getOccupancyByDay } from '@/lib/queries/reports/operations'
 import { getCategoryBreakdownReports, getTopVendors } from '@/lib/queries/reports/expenses'
@@ -27,6 +28,7 @@ const ALL_SECTIONS = [
   { id: 'summary',       label: 'Summary' },
   { id: 'income',        label: 'Income' },
   { id: 'money',         label: 'Money received' },
+  { id: 'transactions',  label: 'Transaction detail' },
   { id: 'guests',        label: 'Guests' },
   { id: 'operations',    label: 'Occupancy' },
   { id: 'expenses',      label: 'Expenses' },
@@ -38,7 +40,7 @@ const ALL_SECTIONS = [
 type SectionId = typeof ALL_SECTIONS[number]['id']
 
 interface PageProps {
-  searchParams: { from?: string; to?: string; period?: string; sections?: string }
+  searchParams: { from?: string; to?: string; period?: string; sections?: string; account?: string }
 }
 
 /**
@@ -77,7 +79,7 @@ export default async function PrintableReportPage({ searchParams }: PageProps) {
   const soft = <T,>(p: Promise<T>): Promise<T | null> => p.catch(() => null)
   const [
     hub, packages, dailyIncome, industry, guests, occupancy,
-    catBreakdown, vendors, pnl, salary, attendance, extras, topCharges, coffee, money,
+    catBreakdown, vendors, pnl, salary, attendance, extras, topCharges, coffee, money, txns,
   ] = await Promise.all([
     has('summary')                          ? soft(getHubTotals(period))                : null,
     has('income')                           ? soft(getPackageRevenue(period))           : null,
@@ -94,6 +96,7 @@ export default async function PrintableReportPage({ searchParams }: PageProps) {
     has('extras')                           ? soft(getTopChargeItems(period, 10))       : null,
     has('coffee')                           ? soft(getCoffeeShopOverview(period))       : null,
     has('money')                            ? soft(getIncomeByMethodRange(fromIso, toIso)) : null,
+    has('transactions')                     ? soft(getPaymentTransactions(fromIso, toIso))  : null,
   ])
 
   const days = Math.max(1, Math.round((period.to.getTime() - period.from.getTime()) / 86400_000) + 1)
@@ -316,6 +319,70 @@ export default async function PrintableReportPage({ searchParams }: PageProps) {
                 </p>
               </>
             )}
+          </section>
+        )}
+
+        {/* ── Transaction detail ────────────────────────────────────── */}
+        {has('transactions') && (
+          <section className="rpt-section">
+            <h2>Transaction detail</h2>
+            {!txns ? <Failed what="transaction" /> : (() => {
+              const rows = searchParams.account
+                ? txns.rows.filter((r) => (r.account ?? '') === searchParams.account)
+                : txns.rows
+              const shown = Math.round(rows.reduce((s, r) => s + r.amount, 0) * 100) / 100
+              return (
+                <>
+                  {searchParams.account && (
+                    <p className="rpt-note">Filtered to <strong>{searchParams.account}</strong> — this total
+                    should equal that account&apos;s statement credits for the period.</p>
+                  )}
+                  <table>
+                    <thead><tr>
+                      <th>Account / wallet / terminal</th><th className="num">Payments</th><th className="num">Total</th>
+                    </tr></thead>
+                    <tbody>
+                      {txns.byAccount.map((a) => (
+                        <tr key={a.account}>
+                          <td>{a.account}{a.account_ref ? ` · ${a.account_ref}` : ''}</td>
+                          <td className="num">{nf(a.count)}</td>
+                          <td className="num"><strong>{formatBDT(a.total)}</strong></td>
+                        </tr>
+                      ))}
+                      <tr className="total">
+                        <td>All accounts</td>
+                        <td className="num">{nf(txns.rows.length)}</td>
+                        <td className="num">{formatBDT(txns.total)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <table>
+                    <thead><tr>
+                      <th>When</th><th>Guest / customer</th><th>Doc</th><th>Type</th>
+                      <th>Method</th><th>Landed in</th><th>Reference</th><th className="num">Amount</th>
+                    </tr></thead>
+                    <tbody>
+                      {rows.map((r) => (
+                        <tr key={`${r.source}-${r.id}`}>
+                          <td style={{ whiteSpace: 'nowrap' }}>{formatDate(r.date)}{r.time ? ` ${r.time}` : ''}</td>
+                          <td>{r.party ?? '—'}</td>
+                          <td style={{ fontSize: '7.5pt' }}>{r.document ?? '—'}</td>
+                          <td>{SOURCE_LABEL[r.source]}</td>
+                          <td>{METHOD_LABEL[r.method]}{r.card_last4 ? ` ••${r.card_last4}` : ''}</td>
+                          <td>{r.account ?? '—'}</td>
+                          <td style={{ fontSize: '7.5pt' }}>{r.reference ?? '—'}</td>
+                          <td className="num">{formatBDT(r.amount)}</td>
+                        </tr>
+                      ))}
+                      <tr className="total">
+                        <td colSpan={7}>{nf(rows.length)} payment{rows.length === 1 ? '' : 's'}</td>
+                        <td className="num">{formatBDT(shown)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </>
+              )
+            })()}
           </section>
         )}
 

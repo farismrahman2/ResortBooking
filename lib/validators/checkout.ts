@@ -51,6 +51,11 @@ export const addPaymentSchema = z.object({
   method:    paymentMethodSchema,
   reference: z.string().trim().max(120).nullable().optional().or(z.literal('')),
   notes:     z.string().trim().max(500).nullable().optional().or(z.literal('')),
+  /** Which of the resort's accounts/wallets/terminals received it — the field
+   *  bank-statement reconciliation turns on. */
+  account_id: z.string().uuid().nullish().transform((v) => v || null),
+  /** Last four digits of the card, for dispute lookups. */
+  card_last4: z.string().trim().regex(/^\d{4}$/).nullish().or(z.literal('')).transform((v) => v || null),
 })
 export type AddPaymentInput = z.infer<typeof addPaymentSchema>
 
