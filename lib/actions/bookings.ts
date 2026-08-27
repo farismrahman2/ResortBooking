@@ -10,6 +10,8 @@ import { findDuplicateBookings } from '@/lib/queries/duplicate-bookings'
 import { ROOM_NUMBERS } from '@/lib/config/rooms'
 import { requirePermission, getCurrentUserContext } from '@/lib/auth/permissions'
 import { isMissingRelation } from '@/lib/supabase/errors'
+import { getAdvanceDefaultAccountId, listAccountsForMethod } from '@/lib/queries/payment-accounts'
+import { requiresAccount, missingAccountError } from '@/lib/payments/account-rules'
 import { findUnassignedRoomNumbersError } from '@/lib/validators/quote'
 import type { ActionResult, ActionData } from './types'
 import type { RoomType, PackageType, PackageSnapshot } from '@/lib/supabase/types'
@@ -197,12 +199,15 @@ export async function convertQuoteToBooking(
     // booking's ledger, so every later top-up appends to a real history
     // instead of overwriting one opaque number.
     if (Number(quote.advance_paid ?? 0) > 0) {
+      const advMethod = quote.advance_method ?? 'bkash'
       const { error: advErr } = await db.from('booking_advance_payments').insert({
         booking_id: booking.id,
         amount:     Number(quote.advance_paid),
-        method:     quote.advance_method ?? 'bkash',
+        method:     advMethod,
         paid_at:    new Date().toISOString(),
         notes:      `Advance taken on quote ${quote.quote_number}`,
+        // Bank transfer → EBL, bKash → the merchant wallet. Fixed per tender.
+        account_id: await getAdvanceDefaultAccountId(advMethod).catch(() => null),
       })
       // Ledger table absent (migration 003 not run) — the booking still holds
       // advance_paid, so nothing is lost.
@@ -358,6 +363,21 @@ export async function addAdvancePayment(
       ? new Date(input.paid_at.length === 16 ? `${input.paid_at}:00+06:00` : input.paid_at).toISOString()
       : new Date().toISOString()
 
+    // Advances land in a fixed place per tender — a bank transfer is always
+    // EBL, bKash is always the merchant wallet — so the destination is resolved
+    // here rather than asked for at the desk. An explicit choice still wins.
+    const accountId = input.account_id
+      ?? await getAdvanceDefaultAccountId(input.method).catch(() => null)
+
+    // Card is the one tender with no fixed advance destination — three POS
+    // machines — so it has to be named. Only enforced once terminals exist.
+    if (requiresAccount(input.method) && !accountId) {
+      const options = await listAccountsForMethod(input.method).catch(() => [])
+      if (options.length > 0) {
+        return { success: false, error: missingAccountError(input.method) }
+      }
+    }
+
     const ctx = await getCurrentUserContext()
     const { error } = await db.from('booking_advance_payments').insert({
       booking_id: bookingId,
@@ -366,7 +386,7 @@ export async function addAdvancePayment(
       paid_at:    paidAt,
       reference:  input.reference?.trim() || null,
       notes:      input.notes?.trim() || null,
-      account_id: input.account_id ?? null,
+      account_id: accountId,
       recorded_by: ctx?.user_id ?? null,
     })
     if (error) {

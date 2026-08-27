@@ -90,3 +90,38 @@ export async function togglePaymentAccountActive(id: string): Promise<ActionResu
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }
 }
+
+/**
+ * Mark where advances of this tender always land — bank transfer → EBL. One
+ * default per tender (a partial unique index enforces it), so setting a new
+ * one clears the old first rather than failing on the constraint.
+ */
+export async function setAdvanceDefaultAccount(id: string): Promise<ActionResult> {
+  await requirePermission('settings', 'write')
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = createClient() as any
+    const { data: cur } = await db.from('payment_accounts')
+      .select('method, is_advance_default').eq('id', id).maybeSingle()
+    if (!cur) return { success: false, error: 'Account not found' }
+
+    // Toggling the current default off just clears it — no tender is forced to
+    // have one; without it the agent is asked instead.
+    const turningOn = !cur.is_advance_default
+    const { error: clearErr } = await db.from('payment_accounts')
+      .update({ is_advance_default: false })
+      .eq('method', cur.method).eq('is_advance_default', true)
+    if (clearErr) {
+      return { success: false, error: isMissingRelation(clearErr) ? MIGRATION_HINT : clearErr.message }
+    }
+    if (turningOn) {
+      const { error } = await db.from('payment_accounts')
+        .update({ is_advance_default: true }).eq('id', id)
+      if (error) return { success: false, error: error.message }
+    }
+    revalidatePath('/settings/payment-accounts')
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}

@@ -14,6 +14,9 @@ import {
   ADVANCE_METHODS, ADVANCE_METHOD_LABEL,
   type AdvancePaymentRow, type AdvanceMethod,
 } from '@/lib/bookings/advance-methods'
+import {
+  requiresAccount, missingAccountError, ACCOUNT_LABEL, ACCOUNT_PLACEHOLDER,
+} from '@/lib/payments/account-rules'
 
 /** 'YYYY-MM-DDTHH:mm' in Dhaka time — what a datetime-local input expects. */
 function nowDhakaLocal(): string {
@@ -48,7 +51,10 @@ export function AdvancePaymentsPanel({
   advanceRequired: number
   disabled?:       boolean
   /** Where the money lands — banks, wallets, terminals. */
-  accounts?:       Array<{ id: string; display_name: string; method: string; bank_name: string | null }>
+  accounts?:       Array<{
+    id: string; display_name: string; method: string; bank_name: string | null
+    is_advance_default?: boolean
+  }>
 }) {
   const router = useRouter()
   const [pending, start] = useTransition()
@@ -59,16 +65,24 @@ export function AdvancePaymentsPanel({
   const [method, setMethod] = useState<AdvanceMethod>('bkash')
   const [paidAt, setPaidAt] = useState(nowDhakaLocal)
   const [reference, setReference] = useState('')
-  // Default the destination to the first account for the chosen tender.
   const matching = accounts.filter((a) => a.method === method)
   const [accountId, setAccountId] = useState<string>('')
-  const effectiveAccountId = accountId || matching[0]?.id || ''
+
+  // Advances land in a fixed place per tender — a bank transfer is always EBL —
+  // so where a default is flagged the destination is shown, not asked for.
+  const fixed = matching.find((a) => a.is_advance_default)
+    ?? (matching.length === 1 ? matching[0] : undefined)
+  // A card advance is the exception: three POS machines, so it must be chosen.
+  const mustChoose = requiresAccount(method) && !fixed && matching.length > 0
+  const effectiveAccountId = fixed?.id ?? accountId
+  const blocked = mustChoose && !effectiveAccountId
 
   const total = payments.reduce((s, p) => s + p.amount, 0)
   const due   = Math.max(0, advanceRequired - total)
 
   function submit() {
     if (amount <= 0) { setError('Enter the amount received'); return }
+    if (blocked) { setError(missingAccountError(method)); return }
     setError(null)
     start(async () => {
       const r = await safeCall(() => addAdvancePayment(bookingId, {
@@ -180,15 +194,27 @@ export function AdvancePaymentsPanel({
               placeholder="bKash trx / slip no."
             />
           </div>
-          {accounts.length > 0 && (
+          {accounts.length > 0 && (fixed ? (
+            <p className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600">
+              Lands in <strong className="text-gray-900">{fixed.display_name}</strong>
+              {fixed.bank_name ? ` · ${fixed.bank_name}` : ''} — fixed for{' '}
+              {ADVANCE_METHOD_LABEL[method]?.toLowerCase() ?? method} advances.
+            </p>
+          ) : (
             <div>
-              <label className="field-label">Landed in</label>
+              <label className={`field-label ${mustChoose ? 'text-forest-800' : ''}`}>
+                {ACCOUNT_LABEL[method] ?? 'Landed in'}
+                {mustChoose && <span className="ml-1 text-red-600">*</span>}
+              </label>
               <select
                 value={effectiveAccountId}
                 onChange={(e) => setAccountId(e.target.value)}
-                className="min-h-[42px] w-full rounded-lg border border-gray-300 bg-white px-2 text-sm"
+                className={`min-h-[42px] w-full rounded-lg border bg-white px-2 text-sm ${
+                  blocked ? 'border-red-400 ring-1 ring-red-200' : 'border-gray-300'}`}
               >
-                <option value="">— not specified —</option>
+                <option value="">
+                  {ACCOUNT_PLACEHOLDER[method] ?? '— not specified —'}
+                </option>
                 {(matching.length ? matching : accounts).map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.display_name}{a.bank_name ? ` · ${a.bank_name}` : ''}
@@ -196,14 +222,14 @@ export function AdvancePaymentsPanel({
                 ))}
               </select>
             </div>
-          )}
+          ))}
           <div className="flex gap-2">
             <Button type="button" variant="outline" size="md" className="flex-1"
               onClick={() => { setOpen(false); setError(null) }}>
               Cancel
             </Button>
             <Button type="button" variant="primary" size="md" className="flex-1"
-              loading={pending} onClick={submit}>
+              loading={pending} disabled={blocked} onClick={submit}>
               Log payment
             </Button>
           </div>

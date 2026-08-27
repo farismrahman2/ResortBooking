@@ -14,6 +14,8 @@ import { flagAlert } from '@/lib/auth/alerts'
 import { calcChargesTotal, calcPaymentsTotal } from '@/lib/checkout/totals'
 import { formatBDT } from '@/lib/formatters/currency'
 import { todayDhaka } from '@/lib/dates'
+import { requiresAccount, missingAccountError } from '@/lib/payments/account-rules'
+import { listAccountsForMethod } from '@/lib/queries/payment-accounts'
 import type { ActionResult, ActionData } from './types'
 
 async function logHistory(
@@ -58,6 +60,18 @@ export async function addPayment(
     if (!checkout) return { success: false, error: 'Checkout not found' }
     if (checkout.status !== 'draft') {
       return { success: false, error: `Cannot add payment — checkout is ${checkout.status}.` }
+    }
+
+    // Cards and bank transfers must name the terminal / bank they landed in;
+    // there are three POS machines and two bank accounts, and a statement
+    // covers exactly one. Enforced only once accounts exist to choose from —
+    // before the migration runs there is nothing to pick, and refusing every
+    // card payment would strand the front desk.
+    if (requiresAccount(parsed.method) && !parsed.account_id) {
+      const options = await listAccountsForMethod(parsed.method)
+      if (options.length > 0) {
+        return { success: false, error: missingAccountError(parsed.method) }
+      }
     }
 
     const { data, error } = await db
@@ -153,7 +167,30 @@ export async function finalizeCheckout(
     const { data: charges } = await db
       .from('checkout_charges').select('amount, quantity, unit_price').eq('checkout_id', checkoutId)
     const { data: payments } = await db
-      .from('checkout_payments').select('amount').eq('checkout_id', checkoutId)
+      .from('checkout_payments')
+      .select('amount, method, account_id')
+      .eq('checkout_id', checkoutId)
+
+    // Every card and bank-transfer line must name its terminal / bank before
+    // this checkout is closed. Catches payments recorded before this rule
+    // existed, and any that slipped past the form.
+    const unassigned = ((payments ?? []) as Array<{ method: string; account_id: string | null }>)
+      .filter((p) => requiresAccount(p.method) && !p.account_id)
+    if (unassigned.length > 0) {
+      const methods = [...new Set(unassigned.map((p) => p.method))]
+      const stillChoosable = await Promise.all(
+        methods.map(async (m) => ((await listAccountsForMethod(m)).length > 0 ? m : null)),
+      )
+      const blocking = stillChoosable.filter(Boolean) as string[]
+      if (blocking.length > 0) {
+        return {
+          success: false,
+          error: blocking.length === 1
+            ? missingAccountError(blocking[0])
+            : 'Each card and bank-transfer payment must name the POS machine or bank account it landed in. Remove and re-add the payments above with a destination selected.',
+        }
+      }
+    }
 
     const bookingTotal   = Number(booking.total ?? 0)
     const advance        = Number(booking.advance_paid ?? 0)
