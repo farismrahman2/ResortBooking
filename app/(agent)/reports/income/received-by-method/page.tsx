@@ -1,4 +1,5 @@
-import { FileDown } from 'lucide-react'
+import Link from 'next/link'
+import { FileDown, ListChecks } from 'lucide-react'
 import { requirePermission } from '@/lib/auth/permissions'
 import { resolvePeriod } from '@/lib/reports/page-params'
 import { toIsoDate } from '@/lib/reports/periods'
@@ -39,10 +40,16 @@ export default async function ReceivedByMethodReport({ searchParams }: PageProps
       subtitle="Advance instalments + checkout + coffee shop — the sheet accounts matches against statements"
       period={period} preset={preset} customFrom={customFrom} customTo={customTo} mode={mode}
       toolbar={
+        <>
+        <Link href={`/reports/income/transactions?from=${fromIso}&to=${toIso}`}
+          className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 text-xs font-medium text-gray-700">
+          <ListChecks size={14} /> Every transaction
+        </Link>
         <a href={printHref}
           className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg bg-forest-700 px-3 text-xs font-semibold text-white">
           <FileDown size={14} /> PDF
         </a>
+        </>
       }
     >
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">

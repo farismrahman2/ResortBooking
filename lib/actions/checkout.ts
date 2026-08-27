@@ -68,6 +68,8 @@ export async function addPayment(
         method:      parsed.method,
         reference:   parsed.reference || null,
         notes:       parsed.notes || null,
+        account_id:  parsed.account_id ?? null,
+        card_last4:  parsed.card_last4 ?? null,
         recorded_by: ctx?.user_id ?? null,
       })
       .select('id')

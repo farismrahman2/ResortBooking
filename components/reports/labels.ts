@@ -37,7 +37,8 @@ export const REPORTS: ReportMeta[] = [
   { id: 'income-by-package',      title: 'Revenue by package',  description: 'Room type / package performance',                href: '/reports/income/by-package',       section: 'income',        icon: Hotel,      phase: 1 },
   { id: 'income-by-day-of-week',  title: 'Day-of-week pattern', description: 'Weekday vs weekend revenue + occupancy',         href: '/reports/income/by-day-of-week',   section: 'income',        icon: Calendar,   phase: 1 },
   { id: 'income-by-payment-method', title: 'Income by payment method', description: 'Daily breakdown by cash / bKash / Nagad / Rocket / card / bank transfer', href: '/reports/income/by-payment-method', section: 'income', icon: Wallet, phase: 1 },
-  { id: 'received-by-method',       title: 'Money received by method', description: 'Advances (bKash) + checkout + coffee shop over any range — match against statements, PDF export', href: '/reports/income/received-by-method', section: 'income', icon: Banknote, phase: 1 },
+  { id: 'received-by-method',       title: 'Money received by method', description: 'Advances + checkout + coffee shop over any range — match against statements, PDF export', href: '/reports/income/received-by-method', section: 'income', icon: Banknote, phase: 1 },
+  { id: 'payment-transactions',     title: 'Payment transactions',     description: 'Every payment line by line — guest, document, method, destination account, slip reference', href: '/reports/income/transactions', section: 'income', icon: ListChecks, phase: 1 },
 
   // Expenses & P&L
   { id: 'expenses',               title: 'Expense overview',    description: 'Spend trends + category split',                  href: '/reports/expenses',                section: 'expenses',      icon: Receipt,    module: 'expenses', phase: 1 },

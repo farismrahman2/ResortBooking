@@ -39,10 +39,13 @@ interface BookingActionsProps {
   bookedRoomNumbers:  string[]   // room numbers taken by other bookings (same dates)
   /** Advance instalments — each with its own date, time and method. */
   advancePayments?:   AdvancePaymentRow[]
+  /** Destination accounts for the instalment form. */
+  paymentAccounts?:   Array<{ id: string; display_name: string; method: string; bank_name: string | null }>
 }
 
 export function BookingActions({
   booking, holidayDates, inventory, bookedRoomNumbers, advancePayments = [],
+  paymentAccounts = [],
 }: BookingActionsProps) {
   const router  = useRouter()
   const snap    = booking.package_snapshot
@@ -400,6 +403,7 @@ export function BookingActions({
           payments={advancePayments}
           advanceRequired={advanceRequired}
           disabled={booking.status === 'cancelled'}
+          accounts={paymentAccounts}
         />
       </div>
 

@@ -329,6 +329,8 @@ export async function addAdvancePayment(
     paid_at?:  string | null
     reference?: string | null
     notes?:    string | null
+    /** Which account/wallet received it — drives statement reconciliation. */
+    account_id?: string | null
   },
 ): Promise<ActionData<{ advance_paid: number }>> {
   await requirePermission('bookings', 'write')
@@ -364,6 +366,7 @@ export async function addAdvancePayment(
       paid_at:    paidAt,
       reference:  input.reference?.trim() || null,
       notes:      input.notes?.trim() || null,
+      account_id: input.account_id ?? null,
       recorded_by: ctx?.user_id ?? null,
     })
     if (error) {

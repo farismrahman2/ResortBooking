@@ -16,6 +16,7 @@ import { getSettings, getHolidayDateStrings, getRoomInventory } from '@/lib/quer
 import { WhatsAppLink } from '@/components/ui/WhatsAppLink'
 import { getBookedRoomNumbers } from '@/lib/queries/availability'
 import { listAdvancePayments } from '@/lib/queries/advance-payments'
+import { listPaymentAccounts } from '@/lib/queries/payment-accounts'
 import { getCheckoutByBooking, getChargesByCheckout } from '@/lib/queries/checkout'
 import { hasPermission } from '@/lib/auth/permissions'
 import { createClient } from '@/lib/supabase/server'
@@ -50,12 +51,13 @@ export default async function BookingDetailPage({ params }: PageProps) {
 
   // Room numbers already taken by OTHER bookings for the same date range,
   // plus the advance instalment ledger (empty until migration 003 runs).
-  const [bookedRoomNumbers, advancePayments] = booking
+  const [bookedRoomNumbers, advancePayments, paymentAccounts] = booking
     ? await Promise.all([
         getBookedRoomNumbers(booking.visit_date, booking.check_out_date, params.id),
         listAdvancePayments(params.id).catch(() => []),
+        listPaymentAccounts().catch(() => []),
       ])
-    : [[], []]
+    : [[], [], []]
 
   if (!booking) notFound()
 
@@ -372,7 +374,7 @@ export default async function BookingDetailPage({ params }: PageProps) {
               <CardHeader>
                 <CardTitle>Actions</CardTitle>
               </CardHeader>
-              <BookingActions booking={booking} holidayDates={holidayDates} inventory={inventory} bookedRoomNumbers={bookedRoomNumbers} advancePayments={advancePayments} />
+              <BookingActions booking={booking} holidayDates={holidayDates} inventory={inventory} bookedRoomNumbers={bookedRoomNumbers} advancePayments={advancePayments} paymentAccounts={paymentAccounts} />
             </Card>
           </div>
 

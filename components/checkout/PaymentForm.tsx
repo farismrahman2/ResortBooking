@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { useForm, Controller } from 'react-hook-form'
+import { useForm, Controller, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Plus, Trash2, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -24,34 +24,47 @@ import { safeCall } from '@/lib/actions/safe-call'
 interface Props {
   checkoutId: string
   payments:   CheckoutPaymentRow[]
+  /** The resort's accounts/wallets/terminals — where this money lands. */
+  accounts?:  Array<{ id: string; display_name: string; method: string; bank_name: string | null }>
   /** Suggested amount (= net due) to prefill the input */
   suggestedAmount?: number
   /** Disabled when checkout is finalized/voided */
   disabled?: boolean
 }
 
-export function PaymentForm({ checkoutId, payments, suggestedAmount, disabled }: Props) {
+export function PaymentForm({ checkoutId, payments, accounts = [], suggestedAmount, disabled }: Props) {
   const confirm = useConfirm()
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
 
-  const { register, handleSubmit, control, reset, formState: { errors } } = useForm<AddPaymentInput>({
+  const { register, handleSubmit, control, reset, setValue, formState: { errors } } = useForm<AddPaymentInput>({
     resolver: zodResolver(addPaymentSchema),
     defaultValues: {
       amount:    suggestedAmount && suggestedAmount > 0 ? suggestedAmount : 0,
       method:    'cash',
       reference: '',
       notes:     '',
+      account_id: null,
+      card_last4: null,
     },
   })
+
+  // Default the destination to the first account matching the chosen tender —
+  // one tap for the common case, still overridable when a second bank is used.
+  const chosenMethod = useWatch({ control, name: 'method' })
+  const matching = accounts.filter((a) => a.method === chosenMethod)
+  useEffect(() => {
+    setValue('account_id', matching[0]?.id ?? null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chosenMethod, accounts.length])
 
   function onSubmit(values: AddPaymentInput) {
     setError(null)
     startTransition(async () => {
       const r = await safeCall(() => addPayment(checkoutId, values))
       if (!r.success) { setError(r.error); return }
-      reset({ amount: 0, method: 'cash', reference: '', notes: '' })
+      reset({ amount: 0, method: 'cash', reference: '', notes: '', account_id: null, card_last4: null })
       router.refresh()
     })
   }
@@ -143,6 +156,27 @@ export function PaymentForm({ checkoutId, payments, suggestedAmount, disabled }:
             </div>
             <div className="sm:col-span-4">
               <Input label="Reference (optional)" placeholder="trxId / cheque #" {...register('reference')} />
+              {accounts.length > 0 && (
+                <div>
+                  <label className="field-label">Landed in</label>
+                  {/* Which account/terminal received it — what a bank statement
+                      is matched against. */}
+                  <select
+                    {...register('account_id')}
+                    className="min-h-[42px] w-full rounded-lg border border-gray-300 bg-white px-2 text-sm"
+                  >
+                    <option value="">— not specified —</option>
+                    {(matching.length ? matching : accounts).map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.display_name}{a.bank_name ? ` · ${a.bank_name}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {chosenMethod === 'card' && (
+                <Input label="Card last 4 (optional)" placeholder="1234" maxLength={4} {...register('card_last4')} />
+              )}
             </div>
             <div className="sm:col-span-2">
               <Button type="submit" variant="primary" size="md" loading={pending} className="w-full gap-1.5">

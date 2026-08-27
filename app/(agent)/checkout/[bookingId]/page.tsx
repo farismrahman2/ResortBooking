@@ -15,6 +15,7 @@ import { BookingChargesTab } from '@/components/checkout/BookingChargesTab'
 import { CHECKOUT_STATUS_BADGE, CHECKOUT_STATUS_LABELS } from '@/components/checkout/labels'
 import { getBookingDetailWithCheckout } from '@/lib/queries/checkout'
 import { getBookingById } from '@/lib/queries/bookings'
+import { listPaymentAccounts } from '@/lib/queries/payment-accounts'
 import { isMissingRelation } from '@/lib/supabase/errors'
 import { todayDhaka, addDaysIso } from '@/lib/dates'
 import { calcChargesTotal, calcPaymentsTotal, calcNetDue } from '@/lib/checkout/totals'
@@ -49,6 +50,8 @@ export default async function CheckoutDetailPage({ params }: PageProps) {
     checkAdmin(),
     getCurrentUserContext(),
   ])
+  // Destinations for the payment form — empty until migration 004 runs.
+  const paymentAccounts = await listPaymentAccounts().catch(() => [])
   await requirePermission('checkout', 'read')
 
   let bundle = bundleRes.ok ? bundleRes.bundle : null
@@ -242,6 +245,7 @@ export default async function CheckoutDetailPage({ params }: PageProps) {
                 <PaymentForm
                   checkoutId={checkout.id}
                   payments={payments}
+                  accounts={paymentAccounts}
                   suggestedAmount={netDue > 0 ? netDue : undefined}
                   disabled={isLocked}
                 />
