@@ -2,12 +2,14 @@ import { Topbar } from '@/components/layout/Topbar'
 import { AuditLogClient } from '@/components/settings/AuditLogClient'
 import { listAdminAlerts } from '@/lib/queries/admin-alerts'
 import { requirePermission } from '@/lib/auth/permissions'
+import { flagOverdueDues } from '@/lib/alerts/overdue-dues'
 import type { AdminAlertEvent } from '@/lib/supabase/types'
 
 export const dynamic = 'force-dynamic'
 
 const VALID_FILTERS = [
   'unread', 'all',
+  'due_overdue',
   'discount_applied', 'guest_reduced', 'checkout_voided',
   'refund_recorded', 'booking_cancelled', 'user_deactivated',
 ] as const
@@ -21,6 +23,12 @@ export default async function AuditLogPage({ searchParams }: PageProps) {
   const filter = (VALID_FILTERS as readonly string[]).includes(searchParams.filter ?? '')
     ? (searchParams.filter as 'unread' | 'all' | AdminAlertEvent)
     : 'unread'
+
+  // An overdue due is the one alert nobody raises by acting — it appears
+  // because time passed. Scan before listing so opening this page always shows
+  // the current position; the nightly cron covers the days nobody opens it.
+  // Idempotent and non-throwing, so a failure here costs nothing.
+  await flagOverdueDues()
 
   let alerts: Awaited<ReturnType<typeof listAdminAlerts>> = []
   let migrationError: string | null = null

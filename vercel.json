@@ -5,6 +5,7 @@
   "installCommand": "npm install",
   "regions": ["sin1"],
   "crons": [
-    { "path": "/api/cron/corporate-snapshot", "schedule": "0 19 * * *" }
+    { "path": "/api/cron/corporate-snapshot", "schedule": "0 19 * * *" },
+    { "path": "/api/cron/overdue-dues", "schedule": "30 2 * * *" }
   ]
 }

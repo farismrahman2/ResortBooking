@@ -629,6 +629,8 @@ export interface CheckoutRow {
 export type AdminAlertEvent =
   | 'discount_applied' | 'guest_reduced' | 'checkout_voided'
   | 'refund_recorded'  | 'booking_cancelled' | 'booking_no_show' | 'user_deactivated'
+  /** A departed guest's balance has gone unpaid past the alert threshold. */
+  | 'due_overdue'
 
 export interface AdminAlertRow {
   id: string

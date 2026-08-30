@@ -57,10 +57,15 @@ const BUCKETS: Array<{ label: string; from: number; to: number | null }> = [
  * on it and the two must agree. Cancelled and no-show bookings are excluded —
  * their balances are not collectable.
  */
-export async function getOutstandingDues(minDays = 6): Promise<DuesReport> {
+export async function getOutstandingDues(
+  minDays = 6,
+  /** Pass a service-role client when running outside a request (e.g. cron). */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  client?: any,
+): Promise<DuesReport> {
   const asOf = todayDhaka()
 
-  const { data, error } = await db()
+  const { data, error } = await (client ?? db())
     .from('bookings')
     .select(`
       id, booking_number, customer_name, customer_phone, package_type,
