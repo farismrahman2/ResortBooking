@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { bookingRevenue } from '@/lib/reports/booking-revenue'
 
 /**
  * BOOKING ANALYTICS — keyed by created_at (when the booking/quote was placed),
@@ -125,7 +126,7 @@ export async function getBookingAnalytics(
 
   let bookingsQ = supabase
     .from('bookings')
-    .select('id, created_at, visit_date, total, package_type, sales_employee_id, is_corporate, status')
+    .select('id, created_at, visit_date, total, advance_paid, package_type, sales_employee_id, is_corporate, status')
     .gte('created_at', fromUtc)
     .lt('created_at',  toUtc)
     .neq('status', 'cancelled')
@@ -148,9 +149,11 @@ export async function getBookingAnalytics(
     created_at:        string
     visit_date:        string | null
     total:             number | null
+    advance_paid:      number | null
     package_type:      string
     sales_employee_id: string | null
     is_corporate?:     boolean | null
+    status?:           string | null
   }>
   const quotes = (quotesRes.data ?? []) as Array<{ id: string; created_at: string }>
 
@@ -182,7 +185,8 @@ export async function getBookingAnalytics(
 
   for (const b of bookings) {
     const dhakaDate = toDhakaDate(b.created_at)
-    const rev       = Number(b.total ?? 0)
+    // A no-show contributes only its forfeited advance, never the full booking.
+    const rev       = bookingRevenue(b)
     revenueTotal   += rev
 
     const bucket = b.is_corporate ? corporateBucket : retailBucket

@@ -1,5 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
+import { calcChargesTotal } from '@/lib/checkout/totals'
 import type { RoomType } from '@/lib/supabase/types'
+import { bookingRevenue } from '@/lib/reports/booking-revenue'
 
 /**
  * ANALYTICS QUERIES
@@ -75,18 +77,38 @@ function isoDate(d: Date): string {
  * `discount_amount` + `payments[]`. Negative results clamp to 0 — refunds
  * surface separately as expenses, not as analytics outstanding.
  */
-export function settledOutstanding(row: any): { collected: number; outstanding: number } {  // eslint-disable-line @typescript-eslint/no-explicit-any
-  const total      = Number(row.total ?? 0)
-  const advance    = Number(row.advance_paid ?? 0)
-  const co         = Array.isArray(row.checkout) ? row.checkout[0] : row.checkout
-  const isFinal    = co?.status === 'finalized'
-  const coDiscount = isFinal ? Number(co.discount_amount ?? 0) : 0
-  const coPayments = isFinal
+export function settledOutstanding(row: any): { revenue: number; collected: number; outstanding: number } {  // eslint-disable-line @typescript-eslint/no-explicit-any
+  const advance = Number(row.advance_paid ?? 0)
+
+  // A no-show keeps only the forfeited advance. The balance is never chased,
+  // so showing it as "outstanding" invents a debt that nobody is owed — and
+  // counting the full booking as revenue invents income that never arrived.
+  // Same rule as get_booking_stats() and lib/reports/booking-revenue.ts.
+  // No charges either: the guest never arrived to consume anything.
+  if (row.status === 'no_show') {
+    return { revenue: advance, collected: advance, outstanding: 0 }
+  }
+
+  const co = Array.isArray(row.checkout) ? row.checkout[0] : row.checkout
+  // Payments, charges and discounts count from the moment they are recorded,
+  // not when the checkout is finalized. Gating on 'finalized' hid money the
+  // guest had already handed over on an open checkout and reported it as still
+  // owing. Voided is the one status to ignore — that checkout was undone.
+  const live = Boolean(co) && co.status !== 'voided'
+  const coDiscount = live ? Number(co.discount_amount ?? 0) : 0
+  const coPayments = live
     ? ((co.payments ?? []) as Array<{ amount: number }>).reduce((s, p) => s + Number(p.amount ?? 0), 0)
     : 0
+  // Extras (food, ancillaries) are billed and collected at checkout but live
+  // outside bookings.total. Leaving them out of revenue while counting the
+  // payments that settle them makes Collected exceed Total Revenue — the two
+  // sides must measure the same bill. Matches calcNetDue and the dues report.
+  const coCharges = live ? calcChargesTotal((co.charges ?? []) as any[]) : 0  // eslint-disable-line @typescript-eslint/no-explicit-any
+
+  const revenue     = bookingRevenue(row) + coCharges - coDiscount
   const collected   = advance + coPayments
-  const outstanding = Math.max(0, total - coDiscount - collected)
-  return { collected, outstanding }
+  const outstanding = Math.max(0, revenue - collected)
+  return { revenue, collected, outstanding }
 }
 
 /** Nested-select fragment used by the analytics queries below to pull the
@@ -94,6 +116,7 @@ export function settledOutstanding(row: any): { collected: number; outstanding: 
 export const BOOKING_CHECKOUT_SELECT = `
   checkout:checkouts (
     status, discount_amount,
+    charges:checkout_charges (amount, quantity, unit_price),
     payments:checkout_payments (amount)
   )
 `
@@ -104,7 +127,7 @@ export async function getTotalsSummary(from: string, to: string): Promise<Totals
   const supabase = createClient()
   const { data, error } = await supabase
     .from('bookings')
-    .select(`id, total, advance_paid, ${BOOKING_CHECKOUT_SELECT}`)
+    .select(`id, status, total, advance_paid, ${BOOKING_CHECKOUT_SELECT}`)
     .gte('visit_date', from)
     .lte('visit_date', to)
     .neq('status', 'cancelled')
@@ -117,8 +140,8 @@ export async function getTotalsSummary(from: string, to: string): Promise<Totals
   let collected = 0
   let outstanding = 0
   for (const r of rows as any[]) {  // eslint-disable-line @typescript-eslint/no-explicit-any
-    total_revenue += Number(r.total ?? 0)
     const s = settledOutstanding(r)
+    total_revenue += s.revenue
     collected   += s.collected
     outstanding += s.outstanding
   }
@@ -138,7 +161,7 @@ export async function getDailyRevenue(from: string, to: string): Promise<DailyRe
   const supabase = createClient()
   const { data, error } = await supabase
     .from('bookings')
-    .select(`visit_date, subtotal, discount, total, advance_paid, ${BOOKING_CHECKOUT_SELECT}`)
+    .select(`visit_date, status, subtotal, discount, total, advance_paid, ${BOOKING_CHECKOUT_SELECT}`)
     .gte('visit_date', from)
     .lte('visit_date', to)
     .neq('status', 'cancelled')
@@ -154,7 +177,7 @@ export async function getDailyRevenue(from: string, to: string): Promise<DailyRe
     cur.booking_count += 1
     cur.subtotal      += row.subtotal ?? 0
     cur.discount      += row.discount ?? 0
-    cur.total         += row.total ?? 0
+    cur.total         += s.revenue
     cur.collected     += s.collected
     cur.outstanding   += s.outstanding
     map.set(d, cur)
@@ -178,7 +201,7 @@ export async function getPackageTypeBreakdown(from: string, to: string): Promise
   const supabase = createClient()
   const { data, error } = await supabase
     .from('bookings')
-    .select(`package_type, total, advance_paid, ${BOOKING_CHECKOUT_SELECT}`)
+    .select(`package_type, status, total, advance_paid, ${BOOKING_CHECKOUT_SELECT}`)
     .gte('visit_date', from)
     .lte('visit_date', to)
     .neq('status', 'cancelled')
@@ -192,7 +215,7 @@ export async function getPackageTypeBreakdown(from: string, to: string): Promise
     const bucket = row.package_type === 'night' ? out.night : out.daylong
     const s = settledOutstanding(row)
     bucket.booking_count += 1
-    bucket.total         += row.total ?? 0
+    bucket.total         += s.revenue
     bucket.collected     += s.collected
     bucket.outstanding   += s.outstanding
   }
