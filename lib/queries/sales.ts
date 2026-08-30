@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { bookingRevenue } from '@/lib/reports/booking-revenue'
 import type { BookingStatus } from '@/lib/supabase/types'
 
 export interface SalesAttributionRow {
@@ -47,7 +48,7 @@ export async function getSalesAttribution(args: {
 
   const { data: bookings, error } = await db
     .from('bookings')
-    .select('id, status, total, sales_employee_id, visit_date')
+    .select('id, status, total, advance_paid, sales_employee_id, visit_date')
     .gte('visit_date', args.from)
     .lte('visit_date', args.to)
     .neq('status', 'draft')
@@ -74,8 +75,10 @@ export async function getSalesAttribution(args: {
 
   for (const b of (bookings ?? []) as any[]) {
     const status = b.status as BookingStatus
-    const total  = Number(b.total ?? 0)
-    const isRevenue = status === 'confirmed' || status === 'checked_out'
+    // A no-show still earned the rep the forfeited advance — crediting zero
+    // understates them just as counting the full booking overstated it.
+    const total  = bookingRevenue(b)
+    const isRevenue = status === 'confirmed' || status === 'checked_out' || status === 'no_show'
     const isCancelled = status === 'cancelled'
 
     if (isRevenue) totalRevenue += total

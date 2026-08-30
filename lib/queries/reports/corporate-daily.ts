@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { bookingRevenue, REVENUE_STATUS_LIST } from '@/lib/reports/booking-revenue'
 import { toDhakaDate, dhakaDateToUtcBounds } from '@/lib/queries/booking-analytics'
 
 /**
@@ -15,8 +16,10 @@ import { toDhakaDate, dhakaDateToUtcBounds } from '@/lib/queries/booking-analyti
  * reusing the helpers in lib/queries/booking-analytics.
  */
 
-// Statuses that count as realised revenue (mirrors getSalesAttribution).
-const REVENUE_STATUSES = new Set(['confirmed', 'checked_out'])
+// Statuses that count as realised revenue. A no-show belongs here: it earns
+// the forfeited advance, which bookingRevenue() values correctly. Excluding it
+// dropped that money from the corporate summary entirely.
+const REVENUE_STATUSES = new Set(REVENUE_STATUS_LIST)
 
 export interface CorporateCompanyRow {
   company:     string
@@ -155,12 +158,16 @@ export async function computeCorporateDailySummary(
 
   for (const b of bookings) {
     if (!REVENUE_STATUSES.has(b.status)) continue
-    const total = Number(b.total ?? 0)
+    const total = bookingRevenue(b)
+    // A no-show's unpaid balance is not a due — nobody chases it. Without this
+    // guard, admitting no-shows to REVENUE_STATUSES would have re-created the
+    // phantom-debt bug here, since `remaining` is just total - advance_paid.
+    const due = b.status === 'no_show' ? 0 : Number(b.remaining ?? 0)
     if (b.is_corporate) {
       corp.bookings += 1
       corp.revenue  += total
       collected   += Number(b.advance_paid ?? 0)
-      outstanding += Number(b.remaining ?? 0)
+      outstanding += due
       const company =
         (b.corporate_account_id ? accountName.get(b.corporate_account_id) : null) ||
         b.company_name || '— (unnamed)'
@@ -168,7 +175,7 @@ export async function computeCorporateDailySummary(
       row.bookings    += 1
       row.revenue     += total
       row.collected   += Number(b.advance_paid ?? 0)
-      row.outstanding += Number(b.remaining ?? 0)
+      row.outstanding += due
       byCompany.set(company, row)
     } else {
       retail.bookings += 1

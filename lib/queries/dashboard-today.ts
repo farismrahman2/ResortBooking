@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { bookingRevenue } from '@/lib/reports/booking-revenue'
 import { getTodayInDhaka } from '@/lib/coffee-shop/timezone'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -72,7 +73,7 @@ export async function getTodaySnapshot(): Promise<TodaySnapshot> {
     db().from('room_inventory').select('total_units'),
     db().from('settings').select('value').eq('key', 'total_rooms').maybeSingle(),
     // 7-day created-at trend
-    db().from('bookings').select('created_at, total, status')
+    db().from('bookings').select('created_at, total, advance_paid, status')
       .gte('created_at', new Date(Date.now() - 7 * 86400_000).toISOString())
       .not('status', 'in', '("cancelled")'),
   ])
@@ -110,7 +111,9 @@ export async function getTodaySnapshot(): Promise<TodaySnapshot> {
   for (const b of (trendRes.data ?? []) as any[]) {
     const key = getTodayInDhaka(new Date(b.created_at))
     const cur = buckets.get(key)
-    if (cur) { cur.count += 1; cur.revenue += Number(b.total ?? 0) }
+    // A no-show contributes only its forfeited advance — see
+    // lib/reports/booking-revenue.ts for the single definition.
+    if (cur) { cur.count += 1; cur.revenue += bookingRevenue(b) }
   }
 
   return {
