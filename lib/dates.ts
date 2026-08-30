@@ -28,6 +28,17 @@ export function addDaysIso(isoDate: string, days: number): string {
   return d.toISOString().slice(0, 10)
 }
 
+/**
+ * Whole days from one ISO date to another — negative when `toIso` is earlier.
+ * Anchored at UTC noon so no timezone or DST edge can round it to the wrong day.
+ */
+export function daysBetweenIso(fromIso: string, toIso: string): number {
+  return Math.round(
+    (new Date(`${toIso}T12:00:00Z`).getTime() - new Date(`${fromIso}T12:00:00Z`).getTime())
+    / 86400_000,
+  )
+}
+
 /** The first day of the month containing the given ISO date (default: today in Dhaka). */
 export function monthStartDhaka(isoDate: string = todayDhaka()): string {
   return `${isoDate.slice(0, 7)}-01`

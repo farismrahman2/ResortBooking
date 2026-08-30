@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
-import { calcChargesTotal } from '@/lib/checkout/totals'
-import { todayDhaka, addDaysIso } from '@/lib/dates'
+import { calcChargesTotal, calcNetDue } from '@/lib/checkout/totals'
+import { todayDhaka, addDaysIso, daysBetweenIso } from '@/lib/dates'
 import type {
   CheckoutRow,
   CheckoutWithFull,
@@ -207,10 +207,17 @@ export interface CheckoutListRow {
   remaining:      number
   booking_status: 'draft' | 'sent' | 'confirmed' | 'cancelled' | 'checked_out'
   checkout: CheckoutRow | null
+  /** What the guest still owes, whether or not a checkout was ever started. */
+  outstanding:  number
+  /** Days since the guest left. 0 = left today, negative = still here. */
+  days_overdue: number
 }
 
+/** How far back the Past due tab looks. */
+export const PAST_DUE_WINDOW_DAYS = 30
+
 export async function listCheckoutCandidates(opts: {
-  filter?: 'today' | 'drafts' | 'finalized' | 'all'
+  filter?: 'today' | 'drafts' | 'finalized' | 'past_due' | 'all'
   /** Cap visit_date to this ISO date (inclusive). Used to scope front_desk to a near-term window. */
   maxVisitDate?: string
   /** Floor visit_date at this ISO date (inclusive). Used to scope front_desk to a recent window. */
@@ -230,7 +237,14 @@ export async function listCheckoutCandidates(opts: {
   // gets a tighter window). Pull all confirmed/checked-out bookings whose stay
   // overlaps the resulting window. We over-fetch slightly and filter in JS —
   // list size is small (single resort).
-  const fromIso = opts.minVisitDate ?? thirtyDaysAgoIso
+  // Past due ages from the day the guest LEFT, so the fetch has to reach
+  // further back than 30 days on visit_date — a three-week stay that started
+  // 40 days ago checked out well inside the window. 60 days covers any
+  // realistic stay; the exact cut is applied on the departure date below.
+  const isPastDue = opts.filter === 'past_due'
+  const fromIso = isPastDue
+    ? addDaysIso(today, -(PAST_DUE_WINDOW_DAYS * 2))
+    : (opts.minVisitDate ?? thirtyDaysAgoIso)
   let query = db
     .from('bookings')
     .select(`
@@ -240,7 +254,8 @@ export async function listCheckoutCandidates(opts: {
     .in('status', ['confirmed', 'checked_out'])
     .gte('visit_date', fromIso)
     .order('visit_date', { ascending: false })
-    .limit(200)
+    // ~110 bookings a month, so a 60-day window needs well over the default.
+    .limit(isPastDue ? 500 : 200)
   if (opts.maxVisitDate) query = query.lte('visit_date', opts.maxVisitDate)
   const { data: bookings } = await query
 
@@ -288,11 +303,28 @@ export async function listCheckoutCandidates(opts: {
       const discountAmount = Number(c.discount_amount ?? 0)
       c.charges_total  = chargesTotal
       c.payments_total = paymentsTotal
-      c.net_due = Math.round(
-        (bookingTotal + chargesTotal - discountAmount - advance - paymentsTotal) * 100,
-      ) / 100
+      c.net_due = calcNetDue({
+        bookingTotal, chargesTotal, advance, paymentsTotal, discountAmount,
+      })
     }
+
+    // What is still owed, whether or not anyone started a checkout. A guest
+    // who left with no checkout at all owes the booking less the advance —
+    // and those are exactly the ones that get forgotten, so they must carry a
+    // figure rather than a dash. A voided checkout is treated as no checkout.
+    const outstanding = c && c.status !== 'voided'
+      ? c.net_due
+      : calcNetDue({
+          bookingTotal:  Number(b.total ?? 0),
+          chargesTotal:  0,
+          advance:       Number(b.advance_paid ?? 0),
+          paymentsTotal: 0,
+        })
+
+    const leftOn = (b.check_out_date ?? b.visit_date) as string
     return {
+      outstanding,
+      days_overdue: daysBetweenIso(leftOn, today),
       booking_id:     b.id,
       booking_number: b.booking_number,
       customer_name:  b.customer_name,
@@ -319,6 +351,16 @@ export async function listCheckoutCandidates(opts: {
       return rows.filter((r) => r.checkout?.status === 'draft')
     case 'finalized':
       return rows.filter((r) => r.checkout?.status === 'finalized')
+    case 'past_due':
+      // Guests who have LEFT and still owe. Today's departures are excluded —
+      // they are not late, they are the desk's current work, and they already
+      // have their own tab. Worst first: oldest, then largest.
+      return rows
+        .filter((r) =>
+          r.days_overdue >= 1 &&
+          r.days_overdue <= PAST_DUE_WINDOW_DAYS &&
+          r.outstanding > 0.5)          // a paisa of rounding is not a debt
+        .sort((a, b) => b.days_overdue - a.days_overdue || b.outstanding - a.outstanding)
     case 'all':
     default:
       return rows

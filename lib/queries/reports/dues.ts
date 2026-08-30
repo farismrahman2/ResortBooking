@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { calcChargesTotal, calcNetDue } from '@/lib/checkout/totals'
-import { todayDhaka } from '@/lib/dates'
+import { todayDhaka, daysBetweenIso } from '@/lib/dates'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = () => createClient() as any
@@ -44,11 +44,6 @@ const BUCKETS: Array<{ label: string; from: number; to: number | null }> = [
   { label: 'Over 60 days', from: 61, to: null },
 ]
 
-const daysBetween = (fromIso: string, toIso: string): number =>
-  Math.round(
-    (new Date(`${toIso}T12:00:00Z`).getTime() - new Date(`${fromIso}T12:00:00Z`).getTime()) / 86400_000,
-  )
-
 /**
  * Money the resort is still owed by guests who have already left.
  *
@@ -87,7 +82,7 @@ export async function getOutstandingDues(minDays = 6): Promise<DuesReport> {
   for (const b of ((data ?? []) as any[])) {
     // A daylong's own visit day is its checkout day.
     const dueSince = b.check_out_date ?? b.visit_date
-    const daysOverdue = daysBetween(dueSince, asOf)
+    const daysOverdue = daysBetweenIso(dueSince, asOf)
     if (daysOverdue < 1) continue    // still staying, or left today — not late
 
     const co = Array.isArray(b.checkout) ? b.checkout[0] : b.checkout
