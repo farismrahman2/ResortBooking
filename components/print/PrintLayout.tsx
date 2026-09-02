@@ -1,6 +1,8 @@
 import { formatBDT } from '@/lib/formatters/currency'
 import { formatDate, formatDateRange } from '@/lib/formatters/dates'
 import type { QuoteWithRooms, BookingWithRooms, SettingsMap, RoomType } from '@/lib/supabase/types'
+import { rowsToSegments, sortSegments, shortDayLabel } from '@/lib/bookings/group-itinerary'
+import { describeRoom } from '@/lib/bookings/itinerary-lines'
 
 interface PrintLayoutProps {
   quote?:   QuoteWithRooms
@@ -38,7 +40,7 @@ export function PrintLayout({ quote, booking, settings }: PrintLayoutProps) {
   const footerText    = settings['print_footer_text']   ?? settings['whatsapp_footer_text'] ?? ''
 
   const dateLine =
-    record.package_type === 'night' && record.check_out_date
+    (record.package_type === 'night' || record.package_type === 'group') && record.check_out_date
       ? formatDateRange(record.visit_date, record.check_out_date)
       : formatDate(record.visit_date)
 
@@ -82,7 +84,7 @@ export function PrintLayout({ quote, booking, settings }: PrintLayoutProps) {
         <InfoRow label="Package"       value={record.package_snapshot.name} />
         <InfoRow
           label="Type"
-          value={record.package_type === 'night' ? 'Overnight Stay' : 'Daylong'}
+          value={record.package_type === 'night' ? 'Overnight Stay' : record.package_type === 'group' ? 'Group Itinerary' : 'Daylong'}
         />
         <InfoRow label="Date / Stay"   value={dateLine} />
         <InfoRow
@@ -93,6 +95,46 @@ export function PrintLayout({ quote, booking, settings }: PrintLayoutProps) {
           <InfoRow label="Guests" value={guestParts.join(', ')} className="col-span-2" />
         )}
       </div>
+
+      {/* ── ITINERARY (group) ──────────────────────────────── */}
+      {record.package_type === 'group' && (record.days?.length ?? 0) > 0 && (
+        <div className="mb-6">
+          <SectionTitle>Itinerary</SectionTitle>
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-gray-300 bg-gray-100 text-left">
+                <Th>Date</Th>
+                <Th>Stay</Th>
+                <Th className="text-center">Guests</Th>
+                <Th>Rooms</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortSegments(rowsToSegments(record.days ?? [])).map((s) => {
+                const guests = s.adults + s.children_paid + s.children_free
+                const paid = s.rooms.filter((r) => r.unit_price > 0).map(describeRoom)
+                const comp = s.rooms.filter((r) => r.unit_price === 0).map(describeRoom)
+                return (
+                  <tr key={`${s.day_date}-${s.stay_kind}`} className="border-b border-gray-100 align-top">
+                    <Td className="whitespace-nowrap">{shortDayLabel(s.day_date)}</Td>
+                    <Td>{s.stay_kind === 'night' ? 'Overnight' : 'Day guests'}</Td>
+                    <Td className="text-center">
+                      {guests}
+                      {s.adults_comp > 0 && <span className="block text-xs text-gray-500">{s.adults_comp} not charged</span>}
+                      {s.drivers > 0 && <span className="block text-xs text-gray-500">{s.drivers} driver{s.drivers === 1 ? '' : 's'}</span>}
+                    </Td>
+                    <Td>
+                      {paid.join(', ') || (comp.length ? '' : '—')}
+                      {comp.length > 0 && <span className="block text-xs text-gray-600">Complimentary: {comp.join(', ')}</span>}
+                      {s.notes && <span className="block text-xs text-gray-500">{s.notes}</span>}
+                    </Td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* ── ROOMS TABLE ────────────────────────────────────── */}
       {rooms.length > 0 && (
@@ -140,7 +182,7 @@ export function PrintLayout({ quote, booking, settings }: PrintLayoutProps) {
             <tr className="border-b border-gray-300 bg-gray-100 text-left">
               <Th>Description</Th>
               <Th className="text-center">Qty</Th>
-              {record.package_type === 'night' && <Th className="text-center">Nights</Th>}
+              {record.package_type !== 'daylong' && <Th className="text-center">Nights</Th>}
               <Th className="text-right">Unit Price</Th>
               <Th className="text-right">Subtotal</Th>
             </tr>
@@ -150,7 +192,7 @@ export function PrintLayout({ quote, booking, settings }: PrintLayoutProps) {
               <tr key={idx} className="border-b border-gray-100">
                 <Td>{item.label}</Td>
                 <Td className="text-center">{item.qty}</Td>
-                {record.package_type === 'night' && (
+                {record.package_type !== 'daylong' && (
                   <Td className="text-center">{item.nights ?? '—'}</Td>
                 )}
                 <Td className="text-right font-mono">{formatBDT(item.unit_price)}</Td>

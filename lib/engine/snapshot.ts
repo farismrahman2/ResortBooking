@@ -5,7 +5,7 @@
  * Future edits to the packages table MUST NOT affect existing quotes/bookings.
  */
 
-import type { PackageRow, PackageRoomPriceRow, PackageSnapshot, RoomType } from '@/lib/supabase/types'
+import type { PackageRow, PackageRoomPriceRow, PackageSnapshot, PackageWithPrices, RoomType } from '@/lib/supabase/types'
 
 export function buildPackageSnapshot(
   pkg: PackageRow,
@@ -57,5 +57,30 @@ export function snapshotToRates(snapshot: PackageSnapshot) {
     driver_price:  snapshot.driver_price,
     extra_person:  snapshot.extra_person,
     extra_bed:     snapshot.extra_bed,
+  }
+}
+
+/**
+ * A frozen snapshot dressed as a live package, for UI that prices from
+ * `PackageWithPrices` (the room selector, the itinerary editor) when editing
+ * a booking after the fact. Prices come from the snapshot, never the live
+ * package — editing a booking must not silently re-price it.
+ */
+export function snapshotToPackageWithPrices(snap: PackageSnapshot | null | undefined): PackageWithPrices | null {
+  if (!snap) return null
+  const room_prices: PackageRoomPriceRow[] = Object.entries(snap.room_prices ?? {}).map(([room_type, price]) => ({
+    id: `${snap.package_id}:${room_type}`, package_id: snap.package_id,
+    room_type: room_type as RoomType, price: Number(price ?? 0),
+  }))
+  return {
+    ...(snap as unknown as PackageRow),
+    id: snap.package_id,
+    is_active: true, display_order: 0, all_year: true, valid_from: null, valid_to: null,
+    specific_dates: [], is_override: false, created_at: '', updated_at: '',
+    includes_breakfast: snap.includes_breakfast ?? false,
+    includes_lunch:     snap.includes_lunch ?? false,
+    includes_dinner:    snap.includes_dinner ?? false,
+    includes_snacks:    snap.includes_snacks ?? false,
+    room_prices,
   }
 }

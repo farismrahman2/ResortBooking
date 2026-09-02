@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { selectWithOptionalEmbed } from '@/lib/supabase/optional-embed'
 import { calcChargesTotal, calcNetDue } from '@/lib/checkout/totals'
 import { todayDhaka, addDaysIso, daysBetweenIso } from '@/lib/dates'
 import type {
@@ -53,11 +54,7 @@ export async function getBookingDetailWithCheckout(bookingId: string): Promise<{
   const supabase = createClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = supabase as any
-  const { data, error } = await db
-    .from('bookings')
-    .select(`
-      *,
-      booking_rooms(*),
+  const CHECKOUT_EMBED = `
       checkouts (
         *,
         charges:checkout_charges (
@@ -66,18 +63,24 @@ export async function getBookingDetailWithCheckout(bookingId: string): Promise<{
           charge_item:charge_items (id, name)
         ),
         payments:checkout_payments (*)
-      )
-    `)
-    .eq('id', bookingId)
-    .maybeSingle()
-  if (error) throw new Error(`getBookingDetailWithCheckout: ${error.message}`)
+      )`
+  const { data, error } = await selectWithOptionalEmbed<any>(  // eslint-disable-line @typescript-eslint/no-explicit-any
+    (select) => db.from('bookings').select(select).eq('id', bookingId).maybeSingle(),
+    `*, booking_rooms(*), booking_days(*, rooms:booking_day_rooms(*)), ${CHECKOUT_EMBED}`,
+    `*, booking_rooms(*), ${CHECKOUT_EMBED}`,
+  )
+  if (error) throw new Error(`getBookingDetailWithCheckout: ${(error as { message?: string }).message}`)
   if (!data) return null
 
   const { checkouts, ...bookingFields } = data as any  // eslint-disable-line @typescript-eslint/no-explicit-any
   // checkouts comes back as an array (1:N relationship on bookings → checkouts).
   // There's a UNIQUE constraint on booking_id so it's effectively 0–1 rows.
   const checkoutRaw: any = Array.isArray(checkouts) ? checkouts[0] ?? null : checkouts ?? null  // eslint-disable-line @typescript-eslint/no-explicit-any
-  const booking: BookingWithRooms = { ...bookingFields, rooms: bookingFields.booking_rooms ?? [] }
+  const booking: BookingWithRooms = {
+    ...bookingFields,
+    rooms: bookingFields.booking_rooms ?? [],
+    days:  bookingFields.package_type === 'group' ? (bookingFields.booking_days ?? []) : undefined,
+  }
 
   if (!checkoutRaw) {
     return { booking, checkout: null, charges: [], payments: [] }
@@ -201,7 +204,7 @@ export interface CheckoutListRow {
   customer_phone: string
   visit_date:     string
   check_out_date: string | null
-  package_type:   'daylong' | 'night'
+  package_type:   'daylong' | 'night' | 'group'
   total:          number
   advance_paid:   number
   remaining:      number

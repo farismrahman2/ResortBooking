@@ -1,4 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
+import { selectWithOptionalEmbed } from '@/lib/supabase/optional-embed'
+import { addDaysIso } from '@/lib/dates'
 import { bookingRevenue } from '@/lib/reports/booking-revenue'
 import { getTodayInDhaka } from '@/lib/coffee-shop/timezone'
 
@@ -29,8 +31,21 @@ export interface TodaySnapshot {
   bookingTrend:    { date: string; count: number; revenue: number }[]
 }
 
-function toRow(b: any): TodayRow {   // eslint-disable-line @typescript-eslint/no-explicit-any
-  const rooms = (b.booking_rooms ?? []).flatMap((r: any) => r.room_numbers ?? [])
+/**
+ * `groupDate` — for a group booking, which itinerary date to read rooms and
+ * headcount from: today for an arrival, last night for a departure. The
+ * group's header holds its peak day, which is the wrong number for either.
+ */
+function toRow(b: any, groupDate?: string): TodayRow {   // eslint-disable-line @typescript-eslint/no-explicit-any
+  let rooms  = (b.booking_rooms ?? []).flatMap((r: any) => r.room_numbers ?? [])   // eslint-disable-line @typescript-eslint/no-explicit-any
+  let guests = (b.adults ?? 0) + (b.children_paid ?? 0) + (b.children_free ?? 0)
+  if (b.package_type === 'group' && groupDate) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const segs = ((b.booking_days ?? []) as any[]).filter((d) => d.day_date === groupDate)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rooms  = segs.flatMap((d) => (d.booking_day_rooms ?? []).flatMap((r: any) => r.room_numbers ?? []))
+    guests = segs.reduce((n, d) => n + (d.adults ?? 0) + (d.children_paid ?? 0) + (d.children_free ?? 0), 0)
+  }
   return {
     id:             b.id,
     booking_number: b.booking_number,
@@ -39,7 +54,7 @@ function toRow(b: any): TodayRow {   // eslint-disable-line @typescript-eslint/n
     package_type:   b.package_type,
     status:         b.status,
     room_numbers:   rooms,
-    guests:         (b.adults ?? 0) + (b.children_paid ?? 0) + (b.children_free ?? 0),
+    guests,
     remaining:      Number(b.remaining ?? 0),
   }
 }
@@ -51,23 +66,27 @@ function toRow(b: any): TodayRow {   // eslint-disable-line @typescript-eslint/n
  */
 export async function getTodaySnapshot(): Promise<TodaySnapshot> {
   const today = getTodayInDhaka()
-  const SELECT = `
+  const BASE = `
     id, booking_number, customer_name, customer_phone, package_type, status,
     adults, children_paid, children_free, remaining, visit_date, check_out_date,
-    booking_rooms(room_numbers, qty)
-  `
+    booking_rooms(room_numbers, qty)`
+  const SELECT     = `${BASE}, booking_days(day_date, stay_kind, adults, children_paid, children_free, booking_day_rooms(room_numbers, qty))`
+  const SELECT_MIN = BASE
 
-  const [arrivalsRes, departuresRes, inHouseRes, invRes, settingRes, trendRes] = await Promise.all([
+  const [arrivalsRes, departuresRes, inHouseRes, invRes, settingRes, trendRes, groupTonightRes] = await Promise.all([
     // Arriving today
-    db().from('bookings').select(SELECT)
+    selectWithOptionalEmbed<any[]>((select) => db().from('bookings').select(select)  // eslint-disable-line @typescript-eslint/no-explicit-any
       .eq('visit_date', today)
-      .not('status', 'in', '("cancelled","no_show")'),
+      .not('status', 'in', '("cancelled","no_show")'), SELECT, SELECT_MIN),
     // Night stays checking out today
-    db().from('bookings').select(SELECT)
+    selectWithOptionalEmbed<any[]>((select) => db().from('bookings').select(select)  // eslint-disable-line @typescript-eslint/no-explicit-any
       .eq('check_out_date', today)
-      .not('status', 'in', '("cancelled","no_show")'),
-    // Staying over tonight: started on/before today, leaving after today
-    db().from('bookings').select('id, adults, children_paid, children_free, booking_rooms(qty)')
+      .not('status', 'in', '("cancelled","no_show")'), SELECT, SELECT_MIN),
+    // Staying over tonight: started on/before today, leaving after today.
+    // Groups are dropped in JS below and read from their itinerary instead —
+    // the header's peak headcount would overstate a quiet night. (Filtering
+    // on the enum value in SQL would error until the migration adds it.)
+    db().from('bookings').select('id, package_type, adults, children_paid, children_free, booking_rooms(qty)')
       .lte('visit_date', today).gt('check_out_date', today)
       .not('status', 'in', '("cancelled","no_show")'),
     db().from('room_inventory').select('total_units'),
@@ -76,20 +95,32 @@ export async function getTodaySnapshot(): Promise<TodaySnapshot> {
     db().from('bookings').select('created_at, total, advance_paid, status')
       .gte('created_at', new Date(Date.now() - 7 * 86400_000).toISOString())
       .not('status', 'in', '("cancelled")'),
+    // Group itinerary segments sleeping here tonight
+    db().from('booking_days')
+      .select('adults, children_paid, children_free, booking_day_rooms(qty), bookings!inner(status)')
+      .eq('day_date', today).eq('stay_kind', 'night'),
   ])
 
-  const arrivals   = ((arrivalsRes.data   ?? []) as any[]).map(toRow)
-  const departures = ((departuresRes.data ?? []) as any[]).map(toRow)
+  const yesterday  = addDaysIso(today, -1)
+  const arrivals   = ((arrivalsRes.data   ?? []) as any[]).map((b) => toRow(b, today))
+  const departures = ((departuresRes.data ?? []) as any[]).map((b) => toRow(b, yesterday))
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const inHouseRows = (inHouseRes.data ?? []) as any[]
+  const inHouseRows = ((inHouseRes.data ?? []) as any[]).filter((b) => b.package_type !== 'group')
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const groupTonight = ((groupTonightRes.data ?? []) as any[])
+    .filter((d) => d.bookings && d.bookings.status !== 'cancelled' && d.bookings.status !== 'no_show')
   const inHouse = inHouseRows.reduce(
     (s, b) => s + (b.adults ?? 0) + (b.children_paid ?? 0) + (b.children_free ?? 0), 0,
+  ) + groupTonight.reduce(
+    (s, d) => s + (d.adults ?? 0) + (d.children_paid ?? 0) + (d.children_free ?? 0), 0,
   )
 
   // Rooms physically occupied tonight = staying over + arriving night stays
   const stayoverRooms = inHouseRows.reduce(
     (s, b) => s + (b.booking_rooms ?? []).reduce((x: number, r: any) => x + (r.qty ?? 0), 0), 0,
+  ) + groupTonight.reduce(
+    (s, d) => s + (d.booking_day_rooms ?? []).reduce((x: number, r: any) => x + (r.qty ?? 0), 0), 0,
   )
   const arrivingNightRooms = arrivals
     .filter((a) => a.package_type === 'night')

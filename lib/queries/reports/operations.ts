@@ -1,4 +1,5 @@
 import { createServiceClient } from '@/lib/supabase/server'
+import { selectWithOptionalEmbed } from '@/lib/supabase/optional-embed'
 import { unstable_cache } from 'next/cache'
 import { toIsoDate } from '@/lib/reports/periods'
 import type { PeriodRange } from '@/lib/reports/types'
@@ -49,17 +50,31 @@ async function fallbackOccupancy(fromIso: string, toIso: string): Promise<Occupa
   const totalRooms = Number.isFinite(settingN) && settingN > 0 ? settingN : invN
 
   // Bookings that overlap the window. Excludes cancelled + no_show.
-  const { data: rows } = await sb.from('bookings')
-    .select('id, package_type, visit_date, check_out_date, status, booking_rooms(qty)')
-    .neq('status', 'cancelled')
-    .neq('status', 'no_show')
-    .lte('visit_date', toIso)
-    .or(`check_out_date.is.null,check_out_date.gte.${fromIso}`)
+  const { data: rows } = await selectWithOptionalEmbed<any[]>(  // eslint-disable-line @typescript-eslint/no-explicit-any
+    (select) => sb.from('bookings')
+      .select(select)
+      .neq('status', 'cancelled')
+      .neq('status', 'no_show')
+      .lte('visit_date', toIso)
+      .or(`check_out_date.is.null,check_out_date.gte.${fromIso}`),
+    'id, package_type, visit_date, check_out_date, status, booking_rooms(qty), booking_days(day_date, booking_day_rooms(qty))',
+    'id, package_type, visit_date, check_out_date, status, booking_rooms(qty)',
+  )
 
   // Map: YYYY-MM-DD → rooms_occupied
   const occupied = new Map<string, number>()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const b of (rows ?? []) as any[]) {
+    // Group itineraries: rooms sit on their own dates, both kinds counted —
+    // the same rule that counts a daylong booking's rooms on its day.
+    if (b.package_type === 'group') {
+      for (const d of (b.booking_days ?? []) as any[]) {
+        if (d.day_date < fromIso || d.day_date > toIso) continue
+        const q = (d.booking_day_rooms ?? []).reduce((s: number, r: { qty: number }) => s + Number(r.qty ?? 0), 0)
+        if (q > 0) occupied.set(d.day_date, (occupied.get(d.day_date) ?? 0) + q)
+      }
+      continue
+    }
     const qty = (b.booking_rooms ?? []).reduce((s: number, br: { qty: number }) => s + Number(br.qty ?? 0), 0)
     if (qty === 0) continue
     const start = b.visit_date as string

@@ -7,7 +7,11 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { Plus, Trash2 } from 'lucide-react'
 import { CreateQuoteSchema, type CreateQuoteInput } from '@/lib/validators/quote'
 import { createQuote, updateQuote } from '@/lib/actions/quotes'
-import { calculateDaylong, calculateNight, type CalculationResult, type RoomSelection } from '@/lib/engine/calculator'
+import { calculateDaylong, calculateNight, calculateGroup, type CalculationResult, type RoomSelection } from '@/lib/engine/calculator'
+import { GroupItineraryEditor } from '@/components/quotes/GroupItineraryEditor'
+import { deriveGroupHeader } from '@/lib/bookings/group-itinerary'
+import { itineraryLinesFor } from '@/lib/bookings/itinerary-lines'
+import { itineraryLines, type ItineraryLine } from '@/lib/formatters/whatsapp'
 import { getDayType } from '@/lib/formatters/dates'
 import { Input } from '@/components/ui/Input'
 import { NumberInput } from '@/components/ui/NumberInput'
@@ -108,6 +112,8 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
       advance_required:    0,
       advance_paid:        0,
       advance_method:      'bkash',
+      day_package_id:      null,
+      days:                [],
       extra_items:         [],
       sales_employee_id:   null,
       is_corporate:         false,
@@ -126,10 +132,25 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
 
   const selectedPackage = packages.find((p) => p.id === selectedPackageId) ?? null
 
+  // Group itineraries: nights priced from package_id, day guests from day_package_id.
+  const isGroup      = packageType === 'group'
+  const days         = (watchedValues.days ?? []) as CreateQuoteInput['days']
+  const dayPackageId = watchedValues.day_package_id ?? ''
+  const nightPackage = isGroup ? (packages.find((p) => p.id === selectedPackageId && p.type === 'night') ?? null) : null
+  const dayPackage   = isGroup ? (packages.find((p) => p.id === dayPackageId && p.type === 'daylong') ?? null) : null
+  // The package whose name and timings head the message.
+  const previewPackage = selectedPackage ?? dayPackage
+
   // When package changes, update package_type
-  function handlePackageChange(pkg: PackageWithPrices | null) {
+  function handlePackageChange(pkg: PackageWithPrices | null | 'group') {
     if (!pkg) {
       setValue('package_id', '')
+      return
+    }
+    if (pkg === 'group') {
+      setValue('package_id', '')
+      setValue('package_type', 'group')
+      setValue('rooms', [])
       return
     }
     setValue('package_id', pkg.id)
@@ -138,6 +159,22 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
     setValue('rooms', [])
   }
 
+  // A group's dates and headcount are derived from its itinerary. Keep the
+  // form's header fields in step so validation and duplicate checks see them.
+  useEffect(() => {
+    if (!isGroup) return
+    const h = deriveGroupHeader(days)
+    if (!h) return
+    setValue('visit_date', h.visit_date)
+    setValue('check_out_date', h.check_out_date ?? '')
+    setValue('adults', h.adults)
+    setValue('children_paid', h.children_paid)
+    setValue('children_free', h.children_free)
+    setValue('drivers', h.drivers)
+    setValue('extra_beds', h.extra_beds)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isGroup, JSON.stringify(days)])
+
   // Derive day type for badge display
   const dayType = visitDate
     ? getDayType(visitDate, holidayDates)
@@ -145,6 +182,30 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
 
   // Live recalculation
   const recalculate = useCallback(() => {
+    if (isGroup) {
+      if (days.length === 0) { setCalcResult(null); return }
+      const rates = (p: PackageWithPrices) => ({
+        weekday_adult: p.weekday_adult, friday_adult: p.friday_adult, holiday_adult: p.holiday_adult,
+        child_meal: p.child_meal, driver_price: p.driver_price, extra_person: p.extra_person, extra_bed: p.extra_bed,
+      })
+      try {
+        setCalcResult(calculateGroup({
+          segments:           days,
+          nightRates:         nightPackage ? rates(nightPackage) : null,
+          dayRates:           dayPackage ? rates(dayPackage) : null,
+          holidayDates,
+          discount:           watchedValues.discount,
+          discount_pct:       watchedValues.discount_pct ?? 0,
+          service_charge_pct: watchedValues.service_charge_pct ?? 0,
+          advance_required:   watchedValues.advance_required,
+          advance_paid:       watchedValues.advance_paid,
+          extra_items:        extraItems,
+        }))
+      } catch {
+        setCalcResult(null)   // a segment with no package to price it
+      }
+      return
+    }
     if (!selectedPackage || !visitDate) {
       setCalcResult(null)
       return
@@ -230,6 +291,10 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
     watchedValues.advance_paid,
     extraItems,
     holidayDates,
+    isGroup,
+    days,
+    nightPackage,
+    dayPackage,
   ])
 
   useEffect(() => {
@@ -318,7 +383,10 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
         ...r,
         room_numbers: r.room_numbers ?? [],
       }))
-      const payload = { ...data, extra_items: extraItems, rooms: allRooms }
+      const payload = {
+        ...data, extra_items: extraItems, rooms: isGroup ? [] : allRooms,
+        days: isGroup ? days : [], day_package_id: isGroup ? (dayPackageId || null) : null,
+      }
       if (isEditMode) {
         const result = await updateQuote(quoteId!, payload)
         if (result.success) {
@@ -480,7 +548,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
             render={() => (
               <PackageSelector
                 packages={packages}
-                value={selectedPackageId ?? ''}
+                value={isGroup ? 'group' : (selectedPackageId ?? '')}
                 onChange={handlePackageChange}
               />
             )}
@@ -490,6 +558,48 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
           )}
         </FormSection>
 
+        {/* SECTION: Group itinerary */}
+        {isGroup && (
+          <FormSection title="Itinerary">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Select
+                label="Night package (overnight rooms)"
+                value={selectedPackageId ?? ''}
+                onChange={(e) => setValue('package_id', e.target.value, { shouldDirty: true })}
+                hint="Prices the rooms, extra persons and beds on overnight days"
+              >
+                <option value="">— none (day guests only) —</option>
+                {packages.filter((p) => p.type === 'night').map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}{p.is_override ? ' ★' : ''}</option>
+                ))}
+              </Select>
+              <Select
+                label="Daylong package (day guests)"
+                value={dayPackageId}
+                onChange={(e) => setValue('day_package_id', e.target.value || null, { shouldDirty: true })}
+                hint="Prices day guests per head at that day's rate"
+              >
+                <option value="">— none (overnight only) —</option>
+                {packages.filter((p) => p.type === 'daylong').map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}{p.is_override ? ' ★' : ''}</option>
+                ))}
+              </Select>
+            </div>
+            {(errors.package_id || errors.day_package_id) && (
+              <p className="text-xs text-red-600">{errors.package_id?.message ?? errors.day_package_id?.message}</p>
+            )}
+            <GroupItineraryEditor
+              value={days}
+              onChange={(next) => setValue('days', next.map((d) => ({ ...d, notes: d.notes ?? null })), { shouldDirty: true })}
+              rooms={rooms}
+              nightPackage={nightPackage}
+              dayPackage={dayPackage}
+              error={firstErrorMessage(errors.days)}
+            />
+          </FormSection>
+        )}
+
+        {!isGroup && (<>
         {/* SECTION: Date */}
         <FormSection title="Date">
           <div className="space-y-3">
@@ -752,6 +862,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
             <p className="mt-1 text-xs text-red-600">{errors.adults.message}</p>
           )}
         </FormSection>
+        </>)}
 
         {/* SECTION: Pricing Adjustments */}
         <FormSection title="Pricing Adjustments">
@@ -961,7 +1072,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
             variant="primary"
             size="lg"
             loading={submitting}
-            disabled={submitting || (packageType === 'night' && currentRooms.length === 0)}
+            disabled={submitting || (packageType === 'night' && currentRooms.length === 0) || (isGroup && days.length === 0)}
             className={isEditMode ? 'flex-1 text-base' : 'w-full text-base'}
           >
             {isEditMode ? 'Save Changes' : 'Generate Quote'}
@@ -978,48 +1089,49 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
           </div>
 
           {/* Package info card */}
-          {selectedPackage && (selectedPackage.meals || selectedPackage.activities || selectedPackage.experience) && (
+          {previewPackage && (previewPackage.meals || previewPackage.activities || previewPackage.experience) && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-2">
               <p className="text-xs font-semibold text-amber-800 uppercase tracking-wide">
                 Package Inclusions
               </p>
-              {selectedPackage.meals && (
+              {previewPackage.meals && (
                 <div>
                   <p className="text-xs font-medium text-amber-700">Meals</p>
-                  <p className="text-xs text-amber-900 whitespace-pre-wrap">{selectedPackage.meals}</p>
+                  <p className="text-xs text-amber-900 whitespace-pre-wrap">{previewPackage.meals}</p>
                 </div>
               )}
-              {selectedPackage.activities && (
+              {previewPackage.activities && (
                 <div>
                   <p className="text-xs font-medium text-amber-700">Activities</p>
-                  <p className="text-xs text-amber-900 whitespace-pre-wrap">{selectedPackage.activities}</p>
+                  <p className="text-xs text-amber-900 whitespace-pre-wrap">{previewPackage.activities}</p>
                 </div>
               )}
-              {selectedPackage.experience && (
+              {previewPackage.experience && (
                 <div>
                   <p className="text-xs font-medium text-amber-700">Experience</p>
-                  <p className="text-xs text-amber-900 whitespace-pre-wrap">{selectedPackage.experience}</p>
+                  <p className="text-xs text-amber-900 whitespace-pre-wrap">{previewPackage.experience}</p>
                 </div>
               )}
             </div>
           )}
 
           {/* WhatsApp output preview */}
-          {calcResult && selectedPackage && (
+          {calcResult && previewPackage && (
             <WhatsAppPreview
-              packageName={selectedPackage.name}
+              packageName={isGroup && nightPackage && dayPackage ? `${nightPackage.name} + ${dayPackage.name}` : previewPackage.name}
               customerName={watchedValues.customer_name || '—'}
               customerPhone={watchedValues.customer_phone || '—'}
               packageType={packageType}
               visitDate={visitDate}
               checkOutDate={checkOutDate ?? null}
-              checkIn={selectedPackage.check_in}
-              checkOut={selectedPackage.check_out}
+              checkIn={previewPackage.check_in}
+              checkOut={previewPackage.check_out}
               rooms={allRoomsWithComp}
+              itinerary={isGroup ? itineraryLinesFor(days) : undefined}
               calcResult={calcResult}
               discountPct={watchedValues.discount_pct ?? 0}
-              mealsText={selectedPackage.meals}
-              notesText={selectedPackage.notes}
+              mealsText={previewPackage.meals}
+              notesText={previewPackage.notes}
               settings={settings}
               roomAvailableAfterNoon={roomAvailableAfterNoon}
             />
@@ -1029,6 +1141,18 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
     </form>
     </>
   )
+}
+
+/** react-hook-form nests itinerary errors under days[i].rooms[j]…; surface the first one. */
+function firstErrorMessage(err: unknown): string | null {
+  if (!err || typeof err !== 'object') return null
+  const e = err as { message?: unknown } & Record<string, unknown>
+  if (typeof e.message === 'string') return e.message
+  for (const v of Object.values(e)) {
+    const m = firstErrorMessage(v)
+    if (m) return m
+  }
+  return null
 }
 
 function FormSection({ title, children }: { title: string; children: React.ReactNode }) {
@@ -1075,12 +1199,14 @@ interface WhatsAppPreviewProps {
   packageName: string
   customerName: string
   customerPhone: string
-  packageType: 'daylong' | 'night'
+  packageType: 'daylong' | 'night' | 'group'
   visitDate: string
   checkOutDate: string | null
   checkIn: string
   checkOut: string
   rooms: RS[]
+  /** Group quotes: replaces the rooms block with a day-by-day one. */
+  itinerary?: ItineraryLine[]
   calcResult: CalculationResult
   /** Percentage behind the discount, shown next to it in the message. */
   discountPct?: number
@@ -1100,6 +1226,7 @@ function WhatsAppPreview({
   checkIn,
   checkOut,
   rooms,
+  itinerary,
   calcResult,
   discountPct,
   mealsText,
@@ -1113,7 +1240,7 @@ function WhatsAppPreview({
 
   const SEP = '━━━━━━━━━━━━━━━━━━'
   const dateLine =
-    packageType === 'night' && checkOutDate
+    (packageType === 'night' || packageType === 'group') && checkOutDate
       ? formatDateRange(visitDate, checkOutDate)
       : formatDate(visitDate)
 
@@ -1158,10 +1285,14 @@ function WhatsAppPreview({
     `📅 *Date:* ${dateLine}`,
     `🕐 *Check-in:* ${checkIn}  |  *Check-out:* ${checkOut}`,
     SEP,
-    '🏨 *ROOMS*',
-    roomLines || (compRoomsPreview.length > 0 ? '  (no paid rooms)' : '  (no rooms selected)'),
-    ...(compRoomsPreview.length > 0 ? [``, `🎁 *COMPLIMENTARY ROOMS*`, compRoomLines] : []),
-    ...(roomAvailableAfterNoon ? ['⚠️ *Note:* Room will be available after 12:00 PM (previous guest checking out)'] : []),
+    ...(itinerary && itinerary.length > 0
+      ? ['🗓️ *ITINERARY*', ...itineraryLines(itinerary)]
+      : [
+          '🏨 *ROOMS*',
+          roomLines || (compRoomsPreview.length > 0 ? '  (no paid rooms)' : '  (no rooms selected)'),
+          ...(compRoomsPreview.length > 0 ? [``, `🎁 *COMPLIMENTARY ROOMS*`, compRoomLines] : []),
+          ...(roomAvailableAfterNoon ? ['⚠️ *Note:* Room will be available after 12:00 PM (previous guest checking out)'] : []),
+        ]),
     SEP,
     '💰 *PRICING BREAKDOWN*',
     pricingLines,

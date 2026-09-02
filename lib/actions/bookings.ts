@@ -3,9 +3,14 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { generateBookingNumber, isUniqueViolation } from '@/lib/utils'
-import { calculateDaylong, calculateNight } from '@/lib/engine/calculator'
+import { calculateDaylong, calculateNight, calculateGroup } from '@/lib/engine/calculator'
 import { getHolidayDateStrings } from '@/lib/queries/settings'
-import { checkAvailabilityConflict, getBookedRoomNumbers } from '@/lib/queries/availability'
+import {
+  checkAvailabilityConflict, getBookedRoomNumbers,
+  checkGroupAvailabilityConflict, findGroupRoomNumberConflicts,
+} from '@/lib/queries/availability'
+import { rowsToSegments, deriveGroupHeader, type GroupSegment } from '@/lib/bookings/group-itinerary'
+import { insertGroupDays, replaceGroupDays } from '@/lib/bookings/group-days-db'
 import { findDuplicateBookings } from '@/lib/queries/duplicate-bookings'
 import { ROOM_NUMBERS } from '@/lib/config/rooms'
 import { requirePermission, getCurrentUserContext } from '@/lib/auth/permissions'
@@ -75,6 +80,31 @@ export async function convertQuoteToBooking(
       .from('quote_rooms')
       .select('*')
       .eq('quote_id', quoteId)
+
+    // A group quote's rooms are its itinerary — checked date by date. The
+    // range-based checks below then run over an empty room list and pass.
+    let groupDays: GroupSegment[] = []
+    if (quote.package_type === 'group') {
+      const { data: qd } = await db.from('quote_days').select('*, rooms:quote_day_rooms(*)').eq('quote_id', quoteId)
+      groupDays = rowsToSegments(qd ?? [])
+      if (groupDays.length === 0) {
+        return { success: false, error: 'This group quote has no itinerary yet — edit it and add the days first.' }
+      }
+      const cap = await checkGroupAvailabilityConflict(groupDays, { excludeQuoteId: quoteId })
+      if (cap) return { success: false, error: `Cannot convert: ${cap}` }
+      const clashes = await findGroupRoomNumberConflicts(groupDays)
+      if (clashes.length > 0) {
+        const unique = Array.from(new Set(clashes.map((c) => c.room)))
+        return {
+          success: false,
+          error:
+            `Room number${unique.length > 1 ? 's' : ''} already booked by another booking on ` +
+            `${Array.from(new Set(clashes.map((c) => c.date))).join(', ')}: ${unique.join(', ')}. ` +
+            `Edit the quote to pick different rooms, or cancel the conflicting booking first.`,
+          conflict: { rooms: unique },
+        }
+      }
+    }
 
     // Re-check capacity and physical room numbers at conversion time. The
     // initial availability check ran when the quote was created — but other
@@ -164,6 +194,7 @@ export async function convertQuoteToBooking(
         company_name:         (quote as any).company_name ?? null,
         corporate_account_id: (quote as any).corporate_account_id ?? null,
         package_snapshot: quote.package_snapshot,
+        day_package_snapshot: quote.day_package_snapshot ?? null,
         line_items:       quote.line_items,
         extra_items:      quote.extra_items ?? [],
       })
@@ -192,6 +223,16 @@ export async function convertQuoteToBooking(
       if (roomsErr) {
         await db.from('bookings').delete().eq('id', booking.id)
         return { success: false, error: `Could not copy rooms to the booking: ${roomsErr.message}` }
+      }
+    }
+
+    // Copy the itinerary. Like the rooms above, a group booking without its
+    // days is invisible to every availability check — undo rather than continue.
+    if (quote.package_type === 'group') {
+      const dayErr = await insertGroupDays(db, 'booking', booking.id, groupDays)
+      if (dayErr) {
+        await db.from('bookings').delete().eq('id', booking.id)
+        return { success: false, error: `Could not copy the itinerary to the booking: ${dayErr}` }
       }
     }
 
@@ -634,6 +675,9 @@ export async function updateBooking(
     visit_date:       string
     check_out_date:   string | null
     package_snapshot: PackageSnapshot
+    /** Group bookings only: the whole itinerary, replacing what is stored. */
+    days?:                 GroupSegment[]
+    day_package_snapshot?: PackageSnapshot | null
   },
 ): Promise<ActionResult> {
   await requirePermission('bookings', 'write')
@@ -642,6 +686,12 @@ export async function updateBooking(
     const holidayDates = await getHolidayDateStrings()
 
     const { rooms, extra_items, package_type, visit_date, check_out_date, package_snapshot, ...guestData } = input
+    const groupDays: GroupSegment[] = package_type === 'group' ? (input.days ?? []) : []
+    // A group's dates and headcount follow its itinerary.
+    const header = package_type === 'group' ? deriveGroupHeader(groupDays) : null
+    if (package_type === 'group' && !header) {
+      return { success: false, error: 'A group booking needs at least one day in its itinerary' }
+    }
 
     const unassignedErr = findUnassignedRoomNumbersError(rooms.filter((r) => r.qty > 0))
     if (unassignedErr) return { success: false, error: unassignedErr }
@@ -661,7 +711,30 @@ export async function updateBooking(
 
     // Recalculate totals using the frozen snapshot
     let calc
-    if (package_type === 'daylong') {
+    if (package_type === 'group') {
+      const hasNight = groupDays.some((d) => d.stay_kind === 'night')
+      const hasDay   = groupDays.some((d) => d.stay_kind === 'daylong')
+      const daySnap  = input.day_package_snapshot ?? (hasNight ? null : package_snapshot)
+      if (hasDay && !daySnap) return { success: false, error: 'This booking has no daylong package to price its day guests' }
+      const cap = await checkGroupAvailabilityConflict(groupDays, { excludeBookingId: bookingId })
+      if (cap) return { success: false, error: `Availability conflict: ${cap}` }
+      const clashes = await findGroupRoomNumberConflicts(groupDays, bookingId)
+      if (clashes.length > 0) {
+        return { success: false, error: `Room ${Array.from(new Set(clashes.map((c) => c.room))).join(', ')} is already booked by another booking on ${Array.from(new Set(clashes.map((c) => c.date))).join(', ')}` }
+      }
+      calc = calculateGroup({
+        segments:           groupDays,
+        nightRates:         hasNight ? package_snapshot : null,
+        dayRates:           daySnap,
+        holidayDates,
+        discount:           input.discount,
+        discount_pct:       input.discount_pct,
+        service_charge_pct: input.service_charge_pct,
+        advance_required:   input.advance_required,
+        advance_paid:       input.advance_paid,
+        extra_items,
+      })
+    } else if (package_type === 'daylong') {
       calc = calculateDaylong({
         date:               new Date(visit_date + 'T00:00:00'),
         packageRates:       package_snapshot,
@@ -734,6 +807,11 @@ export async function updateBooking(
       }
     }
 
+    if (package_type === 'group') {
+      const dayErr = await replaceGroupDays(supabase as any, 'booking', bookingId, groupDays)  // eslint-disable-line @typescript-eslint/no-explicit-any
+      if (dayErr) return { success: false, error: dayErr }
+    }
+
     // Update the booking header AFTER the rooms landed, so a failure above
     // leaves the whole booking untouched rather than new totals on old rooms.
     const { error: bookingErr } = await supabase
@@ -747,11 +825,14 @@ export async function updateBooking(
         service_charge_pct:  input.service_charge_pct,
         advance_paid:        calc.advance_paid,
         advance_required:    calc.advance_required,
-        adults:              input.adults,
-        children_paid:       input.children_paid,
-        children_free:       input.children_free,
-        drivers:             input.drivers,
-        extra_beds:          input.extra_beds,
+        adults:              header?.adults        ?? input.adults,
+        children_paid:       header?.children_paid ?? input.children_paid,
+        children_free:       header?.children_free ?? input.children_free,
+        drivers:             header?.drivers       ?? input.drivers,
+        extra_beds:          header?.extra_beds    ?? input.extra_beds,
+        // A group's span moves with its itinerary; other types keep theirs
+        // (dates change through confirmDateChange, which re-checks rooms).
+        ...(header ? { visit_date: header.visit_date, check_out_date: header.check_out_date } : {}),
         subtotal:            calc.subtotal,
         line_items:          calc.line_items,
         extra_items,
@@ -802,6 +883,7 @@ export async function confirmDateChange(
 
     if (bErr || !booking) return { success: false, error: 'Booking not found' }
     if (booking.status !== 'confirmed') return { success: false, error: 'Only confirmed bookings can have dates changed' }
+    if (booking.package_type === 'group') return { success: false, error: "A group booking's dates come from its itinerary — edit the itinerary instead." }
 
     // Fetch rooms
     const { data: rooms } = await db
@@ -970,6 +1052,7 @@ export async function swapRoomAssignment(
 
     if (bErr || !booking) return { success: false, error: 'Booking not found' }
     if (booking.status !== 'confirmed') return { success: false, error: 'Only confirmed bookings can have rooms swapped' }
+    if (booking.package_type === 'group') return { success: false, error: "A group booking's rooms live in its itinerary — edit the itinerary instead." }
 
     // Fetch rooms
     const { data: rooms } = await db

@@ -24,13 +24,27 @@ function to12Hour(time: string): string {
 }
 
 
+export interface ItineraryLine {
+  dateLabel:  string           // "Sat 4 Oct"
+  kind:       'night' | 'daylong'
+  guests:     number
+  adultsComp: number
+  drivers:    number
+  rooms:      string[]         // "Super Premium 101", "Deluxe 202, 205"
+  compRooms:  string[]
+  note?:      string | null
+}
+
 export interface WhatsAppParams {
   type:                'quotation' | 'booking_confirmation'
   referenceNumber:     string        // Quote or booking number
   packageName:         string
   customerName:        string
   customerPhone:       string
-  packageType:         'daylong' | 'night'
+  packageType:         'daylong' | 'night' | 'group'
+  /** Group bookings: the per-day itinerary. Replaces the ROOMS and GUESTS
+   *  sections with a day-by-day one. */
+  itinerary?:          ItineraryLine[]
   visitDate:           string        // ISO date
   checkOutDate:        string | null
   checkIn:             string        // HH:MM
@@ -77,7 +91,7 @@ export function formatWhatsApp(p: WhatsAppParams): string {
 
   // Date line
   let dateLine: string
-  if (p.packageType === 'night' && p.checkOutDate) {
+  if ((p.packageType === 'night' || p.packageType === 'group') && p.checkOutDate) {
     dateLine = formatDateRange(p.visitDate, p.checkOutDate)
   } else {
     dateLine = formatDate(p.visitDate)
@@ -139,14 +153,18 @@ export function formatWhatsApp(p: WhatsAppParams): string {
     `📅 *Date:* ${dateLine}`,
     `🕐 *Check-in:* ${to12Hour(p.checkIn)}  |  *Check-out:* ${to12Hour(p.checkOut)}`,
     SEP,
-    `🏨 *ROOMS*`,
-    roomLines || (compRooms.length > 0 ? '  (no paid rooms)' : '  (no rooms selected)'),
-    ...(compRooms.length > 0 ? [``, `🎁 *COMPLIMENTARY ROOMS*`, compRoomLines] : []),
-    ...(p.roomAvailableAfterNoon ? [`⚠️ *Note:* Room will be available after 12:00 PM (previous guest checking out)`] : []),
-    SEP,
-    `👥 *GUESTS*`,
-    guestParts.join('  |  ') || 'N/A',
-    SEP,
+    ...(p.itinerary && p.itinerary.length > 0
+      ? [`🗓️ *ITINERARY*`, ...itineraryLines(p.itinerary), SEP]
+      : [
+          `🏨 *ROOMS*`,
+          roomLines || (compRooms.length > 0 ? '  (no paid rooms)' : '  (no rooms selected)'),
+          ...(compRooms.length > 0 ? [``, `🎁 *COMPLIMENTARY ROOMS*`, compRoomLines] : []),
+          ...(p.roomAvailableAfterNoon ? [`⚠️ *Note:* Room will be available after 12:00 PM (previous guest checking out)`] : []),
+          SEP,
+          `👥 *GUESTS*`,
+          guestParts.join('  |  ') || 'N/A',
+          SEP,
+        ]),
     `💰 *PRICING BREAKDOWN*`,
     pricingLines,
     `─────────────────────`,
@@ -195,4 +213,23 @@ export function formatWhatsApp(p: WhatsAppParams): string {
   lines.push(SEP)
 
   return lines.join('\n')
+}
+
+/** One line per segment, grouped visually by date. */
+export function itineraryLines(lines: ItineraryLine[]): string[] {
+  const out: string[] = []
+  let lastDate = ''
+  for (const l of lines) {
+    const head = l.dateLabel === lastDate ? '   ' : `📅 *${l.dateLabel}*`
+    if (l.dateLabel !== lastDate) out.push(head)
+    lastDate = l.dateLabel
+    const who = l.kind === 'night' ? '🛏 Overnight' : '☀️ Day guests'
+    const comp = l.adultsComp > 0 ? ` (${l.adultsComp} continuing, not charged)` : ''
+    const drv  = l.drivers > 0 ? ` · ${l.drivers} driver${l.drivers === 1 ? '' : 's'}` : ''
+    out.push(`  ${who}: ${l.guests} guest${l.guests === 1 ? '' : 's'}${comp}${drv}`)
+    if (l.rooms.length)     out.push(`    Rooms: ${l.rooms.join(', ')}`)
+    if (l.compRooms.length) out.push(`    🎁 Complimentary: ${l.compRooms.join(', ')}`)
+    if (l.note)             out.push(`    ${l.note}`)
+  }
+  return out
 }

@@ -68,7 +68,7 @@ export function BookingTable({ bookings }: BookingTableProps) {
       key: 'dates', header: 'Dates',
       render: (b) => (
         <span className="whitespace-nowrap text-gray-700">
-          {b.package_type === 'night' && b.check_out_date ? (
+          {(b.package_type === 'night' || b.package_type === 'group') && b.check_out_date ? (
             <>
               {formatDate(b.visit_date)}
               <span className="text-gray-400"> → </span>

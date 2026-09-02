@@ -4,6 +4,8 @@ import { useState, useMemo } from 'react'
 import { Copy, Check, Eye, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { formatWhatsApp } from '@/lib/formatters/whatsapp'
+import { rowsToSegments } from '@/lib/bookings/group-itinerary'
+import { itineraryLinesFor } from '@/lib/bookings/itinerary-lines'
 import type { BookingWithRooms, SettingsMap, RoomType } from '@/lib/supabase/types'
 import type { WhatsAppParams } from '@/lib/formatters/whatsapp'
 
@@ -46,6 +48,7 @@ export function BookingWhatsAppOutput({ booking, settings, salesRepName, roomAva
       customerName:        booking.customer_name,
       customerPhone:       booking.customer_phone,
       packageType:         booking.package_type,
+      itinerary:           booking.package_type === 'group' ? itineraryLinesFor(rowsToSegments(booking.days ?? [])) : undefined,
       visitDate:           booking.visit_date,
       checkOutDate:        booking.check_out_date,
       checkIn:             snap.check_in,

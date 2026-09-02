@@ -33,7 +33,7 @@ function buildPrompt(reviews: QaReviewWithBooking[], rangeLabel: string): string
 
   const rows = completed.map((r) => {
     const stay = r.booking ? r.booking.visit_date : ''
-    const pkg = r.booking ? (r.booking.package_type === 'night' ? 'Overnight' : 'Daylong') : ''
+    const pkg = r.booking ? (r.booking.package_type === 'night' ? 'Overnight' : r.booking.package_type === 'group' ? 'Group' : 'Daylong') : ''
     return `| ${r.created_at.slice(0, 10)} | ${cell(r.customer_name)} | ${r.customer_phone} | ${stay} | ${pkg} | ${r.room_service_rating ?? ''} | ${r.food_rating ?? ''} | ${r.overall_rating ?? ''} | ${r.would_return ?? ''} | ${r.other_issue ? 'YES' : 'no'} | ${cell(r.room_service_comment)} | ${cell(r.food_comment)} | ${cell(r.other_comment)} |`
   })
 

@@ -1,4 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
+import { selectWithOptionalEmbed } from '@/lib/supabase/optional-embed'
+import { rowsToSegments, expandGroupForOps } from '@/lib/bookings/group-itinerary'
+import type { StayKind } from '@/lib/supabase/types'
 import { getMealsForBookingOnDate } from '@/lib/engine/meals'
 import type { MealAllocation } from '@/lib/engine/meals'
 import { ROOM_NUMBERS } from '@/lib/config/rooms'
@@ -26,6 +29,8 @@ export interface DailyReportRow {
   meals:          MealAllocation
   is_checkin:     boolean   // check-in today
   is_checkout:    boolean   // check-out today
+  /** Set when this row is one segment of a group itinerary. */
+  group_segment?: StayKind
 }
 
 /**
@@ -39,19 +44,65 @@ export async function getDailyReport(date: string): Promise<DailyReportRow[]> {
   // through checkout morning (inclusive). With only the upper bound this
   // fetched every booking ever; past the 1000-row response cap, in-house
   // bookings silently fell OFF the daily report.
-  const { data: bookings, error } = await supabase
-    .from('bookings')
-    .select('*, booking_rooms(*)')
-    .neq('status', 'cancelled')
-    .lte('visit_date', date)
-    .or(`check_out_date.gte.${date},and(check_out_date.is.null,visit_date.eq.${date})`)
-    .order('visit_date', { ascending: true })
+  const { data: bookings, error } = await selectWithOptionalEmbed<any[]>(  // eslint-disable-line @typescript-eslint/no-explicit-any
+    (select) => (supabase as any)   // eslint-disable-line @typescript-eslint/no-explicit-any
+      .from('bookings')
+      .select(select)
+      .neq('status', 'cancelled')
+      .lte('visit_date', date)
+      .or(`check_out_date.gte.${date},and(check_out_date.is.null,visit_date.eq.${date})`)
+      .order('visit_date', { ascending: true }),
+    '*, booking_rooms(*), booking_days(*, booking_day_rooms(*))',
+    '*, booking_rooms(*)',
+  )
 
-  if (error) throw new Error(`getDailyReport: ${error.message}`)
+  if (error) throw new Error(`getDailyReport: ${(error as { message?: string }).message}`)
 
   const rows: DailyReportRow[] = []
 
   for (const booking of bookings ?? []) {
+    // A group is its itinerary: one row per segment that touches this date,
+    // shaped exactly like the daylong / night booking it stands in for, so
+    // meals, room occupancy and the free-rooms maths need no special case.
+    if (booking.package_type === 'group') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const segs = rowsToSegments(((booking as any).booking_days ?? []).map((d: any) => ({ ...d, rooms: d.booking_day_rooms ?? [] })))
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const nightSnap = (booking.package_snapshot ?? {}) as any
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const daySnap   = ((booking as any).day_package_snapshot ?? nightSnap) as any
+      for (const v of expandGroupForOps(segs, nightSnap, daySnap)) {
+        const covers = v.package_type === 'daylong'
+          ? v.visit_date === date
+          : v.visit_date <= date && date <= (v.check_out_date as string)
+        if (!covers) continue
+        rows.push({
+          booking_number: booking.booking_number,
+          customer_name:  booking.customer_name,
+          customer_phone: booking.customer_phone,
+          package_type:   v.package_type,
+          visit_date:     v.visit_date,
+          check_out_date: v.check_out_date,
+          nights:         v.package_type === 'night' ? 1 : null,
+          adults:         v.adults,
+          children_paid:  v.children_paid,
+          children_free:  v.children_free,
+          drivers:        v.drivers,
+          rooms:          v.rooms.map((r) => ({ room_type: r.room_type as RoomType, qty: r.qty, room_numbers: r.room_numbers ?? [] })),
+          meals:          getMealsForBookingOnDate({
+            package_type: v.package_type, visit_date: v.visit_date, check_out_date: v.check_out_date,
+            adults: v.adults, children_paid: v.children_paid, children_free: v.children_free,
+            includes_breakfast: v.includes_breakfast, includes_lunch: v.includes_lunch,
+            includes_dinner: v.includes_dinner, includes_snacks: v.includes_snacks,
+          }, date),
+          is_checkin:  v.visit_date === date,
+          is_checkout: v.check_out_date === date,
+          group_segment: v.stay_kind,
+        })
+      }
+      continue
+    }
+
     // Determine if the booking covers this date in any meaningful way:
     // - daylong:   visit_date === date
     // - night:     date in [visit_date, check_out_date]  (inclusive — breakfast on check-out morning)

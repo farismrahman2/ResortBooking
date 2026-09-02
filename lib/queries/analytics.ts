@@ -31,6 +31,8 @@ export interface PackageTypeStats {
 export interface PackageTypeBreakdown {
   daylong: PackageTypeStats
   night:   PackageTypeStats
+  /** Multi-day itineraries under one bill. */
+  group:   PackageTypeStats
 }
 
 export interface RoomTypeUtilizationRow {
@@ -209,10 +211,10 @@ export async function getPackageTypeBreakdown(from: string, to: string): Promise
   if (error) throw new Error(`[analytics.getPackageTypeBreakdown] ${error.message}`)
 
   const empty = (): PackageTypeStats => ({ booking_count: 0, total: 0, collected: 0, outstanding: 0 })
-  const out: PackageTypeBreakdown = { daylong: empty(), night: empty() }
+  const out: PackageTypeBreakdown = { daylong: empty(), night: empty(), group: empty() }
 
   for (const row of (data ?? []) as any[]) {  // eslint-disable-line @typescript-eslint/no-explicit-any
-    const bucket = row.package_type === 'night' ? out.night : out.daylong
+    const bucket = row.package_type === 'night' ? out.night : row.package_type === 'group' ? out.group : out.daylong
     const s = settledOutstanding(row)
     bucket.booking_count += 1
     bucket.total         += s.revenue
@@ -238,6 +240,13 @@ export async function getRoomTypeUtilization(from: string, to: string): Promise<
     .lte('bookings.visit_date', to)
     .neq('bookings.status', 'cancelled')
 
+  // Group itineraries: each segment is one room-night (or room-day).
+  const { data: dayRows } = await db
+    .from('booking_day_rooms')
+    .select('room_type, qty, unit_price, booking_days!inner(day_date, bookings!inner(status))')
+    .gte('booking_days.day_date', from)
+    .lte('booking_days.day_date', to)
+
   // Inventory for denominator
   const { data: inv } = await db
     .from('room_inventory')
@@ -262,6 +271,19 @@ export async function getRoomTypeUtilization(from: string, to: string): Promise<
     cur.total_qty_booked  += qty
     cur.total_room_nights += qty * nights
     if (price > 0) cur.paid_revenue += qty * price * nights
+    else cur.comp_count += qty
+    agg.set(row.room_type, cur)
+  }
+
+  for (const row of (dayRows ?? []) as any[]) {
+    const b = row.booking_days?.bookings
+    if (!b || b.status === 'cancelled' || b.status === 'no_show') continue
+    const qty   = row.qty ?? 0
+    const price = row.unit_price ?? 0
+    const cur = agg.get(row.room_type) ?? { total_qty_booked: 0, total_room_nights: 0, paid_revenue: 0, comp_count: 0 }
+    cur.total_qty_booked  += qty
+    cur.total_room_nights += qty
+    if (price > 0) cur.paid_revenue += qty * price
     else cur.comp_count += qty
     agg.set(row.room_type, cur)
   }

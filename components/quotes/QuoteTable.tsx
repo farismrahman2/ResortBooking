@@ -51,9 +51,11 @@ export function QuoteTable({ quotes }: QuoteTableProps) {
         <span className={
           q.package_type === 'night'
             ? 'inline-flex rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700'
-            : 'inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700'
+            : q.package_type === 'group'
+              ? 'inline-flex rounded-full bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700'
+              : 'inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700'
         }>
-          {q.package_type === 'night' ? 'Overnight' : 'Daylong'}
+          {q.package_type === 'night' ? 'Overnight' : q.package_type === 'group' ? 'Group' : 'Daylong'}
         </span>
       ),
       hideLabel: true,

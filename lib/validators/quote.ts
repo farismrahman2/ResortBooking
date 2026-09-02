@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { ROOM_NUMBERS } from '@/lib/config/rooms'
+import { deriveGroupHeader, roomNumbersOnDate, distinctDates } from '@/lib/bookings/group-itinerary'
 import type { RoomType } from '@/lib/supabase/types'
 
 export const ExtraItemSchema = z.object({
@@ -15,6 +16,30 @@ const RoomSelectionSchema = z.object({
   unit_price:   z.number().int().min(0),
   room_numbers: z.array(z.string()).default([]),
 })
+
+// ── Group itinerary ─────────────────────────────────────────────────────────
+// One segment per (date, kind). See lib/bookings/group-itinerary.ts.
+const GroupSegmentRoomSchema = z.object({
+  room_type:    z.string().min(1),
+  display_name: z.string().optional(),
+  qty:          z.number().int().min(1, 'Quantity must be at least 1'),
+  unit_price:   z.number().int().min(0),
+  room_numbers: z.array(z.string()).default([]),
+})
+
+export const GroupSegmentSchema = z.object({
+  day_date:      z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Pick a date'),
+  stay_kind:     z.enum(['night', 'daylong']),
+  adults:        z.number().int().min(0).default(0),
+  adults_comp:   z.number().int().min(0).default(0),
+  children_paid: z.number().int().min(0).default(0),
+  children_free: z.number().int().min(0).default(0),
+  drivers:       z.number().int().min(0).default(0),
+  extra_beds:    z.number().int().min(0).default(0),
+  rooms:         z.array(GroupSegmentRoomSchema).default([]),
+  notes:         z.string().trim().max(300).nullish().transform((v) => v || null),
+})
+export type GroupSegmentInput = z.infer<typeof GroupSegmentSchema>
 
 /** Returns a message for the first room row whose picked room_numbers don't
  *  match its qty, or null if every row is fine. Room types with no fixed
@@ -39,16 +64,22 @@ const BaseQuoteSchema = z.object({
   customer_phone: z.string().min(1, 'Phone number is required'),
   customer_notes: z.string().optional(),
 
-  // Package
-  package_id:   z.string().uuid('Please select a valid package'),
-  package_type: z.enum(['daylong', 'night']),
+  // Package. A group prices its nights from package_id and its day guests
+  // from day_package_id; either may be absent when the itinerary has no
+  // segment of that kind (enforced in the group refinements below).
+  package_id:   z.string().uuid('Please select a valid package').or(z.literal('')),
+  package_type: z.enum(['daylong', 'night', 'group']),
+  day_package_id: z.string().uuid().nullish().transform((v) => v || null),
+
+  // Group itinerary — empty for daylong / night quotes.
+  days: z.array(GroupSegmentSchema).default([]),
 
   // Dates
   visit_date:     z.string().min(1, 'Date is required'),    // ISO date
   check_out_date: z.string().nullish().transform(v => v || null),
 
   // Guests
-  adults:        z.number().int().min(1, 'At least 1 adult required'),
+  adults:        z.number().int().min(0),
   children_paid: z.number().int().min(0).default(0),
   children_free: z.number().int().min(0).default(0),
   drivers:       z.number().int().min(0).default(0),
@@ -86,9 +117,34 @@ export const CreateQuoteSchema = BaseQuoteSchema
   // date invisibly — the converted booking then blocked room availability for
   // a range the guest never stays, and the checkout screen filed the guest
   // under the phantom check-out day instead of the visit day.
-  .transform((data) => (
-    data.package_type === 'daylong' ? { ...data, check_out_date: null } : data
-  ))
+  .transform((data) => {
+    if (data.package_type === 'daylong') return { ...data, check_out_date: null }
+    // A group's dates and headcount are DERIVED from its itinerary — the form
+    // sends whatever it had, and the itinerary wins, so the two can't drift.
+    if (data.package_type === 'group') {
+      const h = deriveGroupHeader(data.days)
+      if (!h) return data
+      return {
+        ...data,
+        visit_date:     h.visit_date,
+        check_out_date: h.check_out_date,
+        adults:         h.adults,
+        children_paid:  h.children_paid,
+        children_free:  h.children_free,
+        drivers:        h.drivers,
+        extra_beds:     h.extra_beds,
+      }
+    }
+    return data
+  })
+  .refine(
+    (data) => data.package_type === 'group' || data.adults >= 1,
+    { message: 'At least 1 adult required', path: ['adults'] },
+  )
+  .refine(
+    (data) => data.package_type === 'group' || data.package_id.length > 0,
+    { message: 'Please select a valid package', path: ['package_id'] },
+  )
   .refine(
     (data) => {
       if (data.package_type === 'night') {
@@ -130,6 +186,62 @@ export const CreateQuoteSchema = BaseQuoteSchema
           message: 'Company name is required for a corporate booking',
         })
       }
+    }
+    if (data.package_type === 'group') {
+      if (data.days.length === 0) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['days'], message: 'Add at least one day to the itinerary' })
+        return
+      }
+      const seen = new Set<string>()
+      const hasDay   = data.days.some((d) => d.stay_kind === 'daylong')
+      const hasNight = data.days.some((d) => d.stay_kind === 'night')
+      if (hasNight && !data.package_id) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['package_id'], message: 'Pick a night package to price the overnight stays' })
+      }
+      if (hasDay && !data.day_package_id) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['day_package_id'], message: 'Pick a daylong package to price the day guests' })
+      }
+      data.days.forEach((d, i) => {
+        const key = `${d.day_date}:${d.stay_kind}`
+        if (seen.has(key)) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['days', i, 'day_date'], message: `Two ${d.stay_kind} entries on ${d.day_date} — merge them` })
+        }
+        seen.add(key)
+        if (d.adults + d.children_paid + d.children_free < 1) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['days', i, 'adults'], message: `${d.day_date}: at least one guest` })
+        }
+        if (d.adults_comp > d.adults) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['days', i, 'adults_comp'], message: `${d.day_date}: complimentary adults can't exceed adults` })
+        }
+        if (d.stay_kind === 'night' && d.rooms.length === 0) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['days', i, 'rooms'], message: `${d.day_date}: an overnight entry needs at least one room` })
+        }
+        if (d.stay_kind === 'night' && d.rooms.some((r) => r.room_type === 'tree_house')) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['days', i, 'rooms'], message: 'Tree House is available for day use only' })
+        }
+        d.rooms.forEach((r, ri) => {
+          const fixed = ROOM_NUMBERS[r.room_type as RoomType] ?? []
+          if (fixed.length === 0) return
+          if (r.room_numbers.length !== r.qty) {
+            const name = r.display_name ?? r.room_type.replace(/_/g, ' ')
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom, path: ['days', i, 'rooms', ri, 'room_numbers'],
+              message: `${d.day_date}: pick ${r.qty} room number${r.qty > 1 ? 's' : ''} for ${name} (picked ${r.room_numbers.length}).`,
+            })
+          }
+        })
+      })
+      // The same physical room can't be slept in AND lent to day guests on
+      // one date — or listed twice in any way. Across dates is fine: that is
+      // how Room 101 stays booked for three nights.
+      for (const date of distinctDates(data.days)) {
+        const nums = roomNumbersOnDate(data.days, date)
+        const dupes = nums.filter((n, i) => nums.indexOf(n) !== i)
+        if (dupes.length) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['days'], message: `Room ${[...new Set(dupes)].join(', ')} is used twice on ${date}` })
+        }
+      }
+      return
     }
     // Every selected room type with fixed room numbers must have exactly qty
     // specific room numbers picked. Prevents "ghost" rooms where the booking

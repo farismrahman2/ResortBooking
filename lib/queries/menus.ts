@@ -1,4 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
+import { selectWithOptionalEmbed } from '@/lib/supabase/optional-embed'
+import { opsUnitsForMeals } from '@/lib/bookings/group-ops'
 import { getMealsForBookingOnDate } from '@/lib/engine/meals'
 import { dishSearchMatches } from '@/lib/menus/transliterate'
 import type {
@@ -198,14 +200,21 @@ export async function getDayMealHeadcounts(date: string): Promise<DayMealHeadcou
   // 1000-row response cap, whole bookings silently vanished from the counts.
   // A booking feeds meals from visit_date through check_out_date INCLUSIVE
   // (checkout-morning breakfast), or just visit_date for daylong.
-  const { data, error } = await dbc()
-    .from('bookings')
-    .select('package_type, visit_date, check_out_date, status, adults, children_paid, children_free, drivers, package_snapshot')
-    .neq('status', 'cancelled')
-    .neq('status', 'no_show')
-    .lte('visit_date', date)
-    .or(`check_out_date.gte.${date},and(check_out_date.is.null,visit_date.eq.${date})`)
-  if (error) throw new Error(`getDayMealHeadcounts: ${error.message}`)
+  const { data, error } = await selectWithOptionalEmbed<any[]>(  // eslint-disable-line @typescript-eslint/no-explicit-any
+    (select) => dbc()
+      .from('bookings')
+      .select(select)
+      .neq('status', 'cancelled')
+      .neq('status', 'no_show')
+      .lte('visit_date', date)
+      .or(`check_out_date.gte.${date},and(check_out_date.is.null,visit_date.eq.${date})`),
+    'package_type, visit_date, check_out_date, status, adults, children_paid, children_free, drivers, package_snapshot, day_package_snapshot, booking_days(day_date, stay_kind, adults, children_paid, children_free, drivers)',
+    'package_type, visit_date, check_out_date, status, adults, children_paid, children_free, drivers, package_snapshot',
+  )
+  if (error) throw new Error(`getDayMealHeadcounts: ${(error as { message?: string }).message}`)
+
+  // Group itineraries feed per segment — see lib/bookings/group-ops.ts.
+  const units = opsUnitsForMeals((data ?? []) as any[])  // eslint-disable-line @typescript-eslint/no-explicit-any
 
   const empty = (): DayMealCount => ({ adults: 0, children: 0, drivers: 0, total: 0, bookings: 0 })
   const acc: Record<string, DayMealCount> = {
@@ -225,33 +234,19 @@ export async function getDayMealHeadcounts(date: string): Promise<DayMealHeadcou
     c.bookings += 1
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  for (const booking of (data ?? []) as any[]) {
+  for (const booking of units) {
     const counts = {
       adults:   Number(booking.adults ?? 0),
       children: Number(booking.children_paid ?? 0) + Number(booking.children_free ?? 0),
       drivers:  Number(booking.drivers ?? 0),
     }
 
-    // Welcome drinks — arrivals of the day, regardless of package type
-    if (booking.visit_date === date) add('welcome_drinks', counts)
+    // Welcome drinks — arrivals of the day, regardless of package type. For
+    // a group that is anyone starting a segment today who wasn't already in
+    // a room here last night (opsUnitsForMeals marks continuations).
+    if (booking.visit_date === date && !booking.is_continuation) add('welcome_drinks', counts)
 
-    const snap = booking.package_snapshot ?? {}
-    const meals = getMealsForBookingOnDate(
-      {
-        package_type:       booking.package_type,
-        visit_date:         booking.visit_date,
-        check_out_date:     booking.check_out_date,
-        adults:             booking.adults ?? 0,
-        children_paid:      booking.children_paid ?? 0,
-        children_free:      booking.children_free ?? 0,
-        includes_breakfast: snap.includes_breakfast,
-        includes_lunch:     snap.includes_lunch,
-        includes_dinner:    snap.includes_dinner,
-        includes_snacks:    snap.includes_snacks,
-      },
-      date,
-    )
+    const meals = getMealsForBookingOnDate(booking, date)
 
     if (meals.breakfast > 0) add('breakfast', counts)
     if (meals.lunch     > 0) add('lunch', counts)

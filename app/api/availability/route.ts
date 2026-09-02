@@ -111,5 +111,27 @@ async function getOccupiedForDate(
     }
   }
 
+  // Group itineraries — rooms on exactly this date, from bookings and from
+  // confirmed-but-unconverted quotes. Same status guards as above.
+  const sb = supabase as any  // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [{ data: dayRooms }, { data: quoteDayRooms }] = await Promise.all([
+    sb.from('booking_day_rooms')
+      .select('room_type, qty, booking_days!inner(day_date, bookings!inner(status))')
+      .eq('booking_days.day_date', date),
+    sb.from('quote_day_rooms')
+      .select('room_type, qty, quote_days!inner(day_date, quotes!inner(status, converted_to_booking_id))')
+      .eq('quote_days.day_date', date),
+  ])
+  for (const row of (dayRooms ?? []) as any[]) {
+    const b = row.booking_days?.bookings
+    if (!b || b.status === 'cancelled' || b.status === 'no_show') continue
+    occupied.push({ room_type: row.room_type as RoomType, qty_booked: row.qty })
+  }
+  for (const row of (quoteDayRooms ?? []) as any[]) {
+    const q = row.quote_days?.quotes
+    if (!q || q.status !== 'confirmed' || q.converted_to_booking_id) continue
+    occupied.push({ room_type: row.room_type as RoomType, qty_booked: row.qty })
+  }
+
   return occupied
 }

@@ -68,7 +68,22 @@ export default async function EditQuotePage({ params }: PageProps) {
     customer_name:      quote.customer_name,
     customer_phone:     quote.customer_phone,
     customer_notes:     quote.customer_notes ?? '',
-    package_id:         quote.package_snapshot.package_id,
+    // A day-only group's primary snapshot IS its day package.
+    package_id:         quote.package_type === 'group' && quote.package_snapshot.type === 'daylong'
+                          ? '' : quote.package_snapshot.package_id,
+    day_package_id:     quote.package_type === 'group'
+                          ? (quote.day_package_snapshot?.package_id
+                             ?? (quote.package_snapshot.type === 'daylong' ? quote.package_snapshot.package_id : null))
+                          : null,
+    days:               (quote.days ?? []).map((d) => ({
+                          day_date: d.day_date, stay_kind: d.stay_kind,
+                          adults: d.adults, adults_comp: d.adults_comp ?? 0,
+                          children_paid: d.children_paid, children_free: d.children_free,
+                          drivers: d.drivers, extra_beds: d.extra_beds ?? 0, notes: d.notes ?? null,
+                          rooms: (d.rooms ?? []).map((r) => ({
+                            room_type: r.room_type, qty: r.qty, unit_price: r.unit_price, room_numbers: r.room_numbers ?? [],
+                          })),
+                        })),
     package_type:       quote.package_type,
     visit_date:         quote.visit_date,
     check_out_date:     quote.check_out_date ?? '',

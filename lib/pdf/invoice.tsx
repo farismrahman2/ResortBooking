@@ -194,9 +194,11 @@ export function Invoice({
   const invoiceNo = checkout.id.slice(0, 8).toUpperCase()
   const issuedOn  = fmtDate(checkout.finalized_at ?? checkout.updated_at)
   const booking   = checkout.booking
-  const checkInOut = booking.check_out_date
-    ? `${fmtDate(booking.visit_date)} → ${fmtDate(booking.check_out_date)}  (${booking.nights ?? 0} night${booking.nights === 1 ? '' : 's'})`
-    : `${fmtDate(booking.visit_date)} (Daylong)`
+  const checkInOut = booking.package_type === 'group' && booking.check_out_date
+    ? `${fmtDate(booking.visit_date)} → ${fmtDate(booking.check_out_date)}  (group itinerary)`
+    : booking.check_out_date
+      ? `${fmtDate(booking.visit_date)} → ${fmtDate(booking.check_out_date)}  (${booking.nights ?? 0} night${booking.nights === 1 ? '' : 's'})`
+      : `${fmtDate(booking.visit_date)} (Daylong)`
 
   const bookingTotal     = Number(booking.total ?? 0)
   // Compute the booking-level subtotal/discount from line_items rather than

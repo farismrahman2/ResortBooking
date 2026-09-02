@@ -3,11 +3,14 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { CreateQuoteSchema, type CreateQuoteInput } from '@/lib/validators/quote'
-import { calculateDaylong, calculateNight } from '@/lib/engine/calculator'
+import { calculateDaylong, calculateNight, calculateGroup } from '@/lib/engine/calculator'
 import { buildPackageSnapshot } from '@/lib/engine/snapshot'
 import { generateQuoteNumber, isUniqueViolation } from '@/lib/utils'
 import { getHolidayDateStrings } from '@/lib/queries/settings'
-import { checkAvailabilityConflict } from '@/lib/queries/availability'
+import { checkAvailabilityConflict, checkGroupAvailabilityConflict } from '@/lib/queries/availability'
+import { replaceGroupDays, insertGroupDays } from '@/lib/bookings/group-days-db'
+import type { GroupSegment } from '@/lib/bookings/group-itinerary'
+import type { PackageSnapshot } from '@/lib/supabase/types'
 import { findDuplicateBookings } from '@/lib/queries/duplicate-bookings'
 import { requirePermission } from '@/lib/auth/permissions'
 import type { ActionResult, ActionData } from './types'
@@ -46,21 +49,10 @@ export async function createQuote(
       }
     }
 
-    // Fetch package + room prices for snapshot
-    const { data: pkg } = await supabase
-      .from('packages')
-      .select('*')
-      .eq('id', validated.package_id)
-      .single()
-
-    if (!pkg) return { success: false, error: 'Package not found' }
-
-    const { data: roomPrices } = await supabase
-      .from('package_room_prices')
-      .select('*')
-      .eq('package_id', validated.package_id)
-
-    const snapshot = buildPackageSnapshot(pkg, roomPrices ?? [])
+    // Fetch package + room prices for snapshot (two packages for a group)
+    const loaded = await loadSnapshots(supabase, validated)
+    if ('error' in loaded) return { success: false, error: loaded.error }
+    const { snapshot, daySnapshot, hasNight } = loaded
     const holidayDates = await getHolidayDateStrings()
 
     // Build room selections from validated input
@@ -82,6 +74,19 @@ export async function createQuote(
         children_paid:      validated.children_paid,
         children_free:      validated.children_free,
         drivers:            validated.drivers,
+        holidayDates,
+        discount:           validated.discount,
+        discount_pct:       validated.discount_pct ?? 0,
+        service_charge_pct: validated.service_charge_pct ?? 0,
+        advance_required:   validated.advance_required,
+        advance_paid:       validated.advance_paid,
+        extra_items:        validated.extra_items ?? [],
+      })
+    } else if (validated.package_type === 'group') {
+      calcResult = calculateGroup({
+        segments:           validated.days as GroupSegment[],
+        nightRates:         hasNight ? snapshot : null,
+        dayRates:           daySnapshot,
         holidayDates,
         discount:           validated.discount,
         discount_pct:       validated.discount_pct ?? 0,
@@ -112,11 +117,13 @@ export async function createQuote(
     }
 
     // Availability pre-check — block if any requested room is over capacity
-    const conflict = await checkAvailabilityConflict(
-      validated.visit_date,
-      validated.check_out_date ?? null,
-      validated.rooms.map((r) => ({ room_type: r.room_type, qty: r.qty })),
-    )
+    const conflict = validated.package_type === 'group'
+      ? await checkGroupAvailabilityConflict(validated.days as GroupSegment[])
+      : await checkAvailabilityConflict(
+          validated.visit_date,
+          validated.check_out_date ?? null,
+          validated.rooms.map((r) => ({ room_type: r.room_type, qty: r.qty })),
+        )
     if (conflict) return { success: false, error: `Availability conflict: ${conflict}` }
 
     // Generate the quote number and insert. MAX+1 can collide when two agents
@@ -154,6 +161,7 @@ export async function createQuote(
         company_name:         validated.is_corporate ? (validated.company_name?.trim() ?? null) : null,
         corporate_account_id: validated.is_corporate ? (validated.corporate_account_id ?? null) : null,
         package_snapshot: snapshot,
+        day_package_snapshot: daySnapshot,
         line_items:       calcResult.line_items,
         extra_items:      validated.extra_items ?? [],
       })
@@ -181,6 +189,16 @@ export async function createQuote(
       if (roomsErr) {
         await supabase.from('quotes').delete().eq('id', quote.id)
         return { success: false, error: `Could not save the quote's rooms: ${roomsErr.message}` }
+      }
+    }
+
+    // Itinerary — a group quote without its days is invisible to every
+    // availability check, so undo the header rather than continue.
+    if (validated.package_type === 'group') {
+      const dayErr = await insertGroupDays(supabase as any, 'quote', quote.id, validated.days as GroupSegment[])  // eslint-disable-line @typescript-eslint/no-explicit-any
+      if (dayErr) {
+        await supabase.from('quotes').delete().eq('id', quote.id)
+        return { success: false, error: dayErr }
       }
     }
 
@@ -232,22 +250,18 @@ export async function updateQuote(
       }
     }
 
-    // Fetch package + room prices
-    const { data: pkg } = await supabase
-      .from('packages')
-      .select('*')
-      .eq('id', validated.package_id)
-      .single()
-
-    if (!pkg) return { success: false, error: 'Package not found' }
-
-    const { data: roomPrices } = await supabase
-      .from('package_room_prices')
-      .select('*')
-      .eq('package_id', validated.package_id)
-
-    const snapshot = buildPackageSnapshot(pkg, roomPrices ?? [])
+    // Fetch package + room prices for snapshot (two packages for a group)
+    const loaded = await loadSnapshots(supabase, validated)
+    if ('error' in loaded) return { success: false, error: loaded.error }
+    const { snapshot, daySnapshot, hasNight } = loaded
     const holidayDates = await getHolidayDateStrings()
+
+    // Editing a quote never re-checked capacity; a group's itinerary is
+    // checked here because it is the only place its per-date rooms are known.
+    if (validated.package_type === 'group') {
+      const conflict = await checkGroupAvailabilityConflict(validated.days as GroupSegment[], { excludeQuoteId: id })
+      if (conflict) return { success: false, error: `Availability conflict: ${conflict}` }
+    }
 
     const rooms = validated.rooms.map((r) => ({
       room_type:    r.room_type,
@@ -266,6 +280,19 @@ export async function updateQuote(
         children_paid:      validated.children_paid,
         children_free:      validated.children_free,
         drivers:            validated.drivers,
+        holidayDates,
+        discount:           validated.discount,
+        discount_pct:       validated.discount_pct ?? 0,
+        service_charge_pct: validated.service_charge_pct ?? 0,
+        advance_required:   validated.advance_required,
+        advance_paid:       validated.advance_paid,
+        extra_items:        validated.extra_items ?? [],
+      })
+    } else if (validated.package_type === 'group') {
+      calcResult = calculateGroup({
+        segments:           validated.days as GroupSegment[],
+        nightRates:         hasNight ? snapshot : null,
+        dayRates:           daySnapshot,
         holidayDates,
         discount:           validated.discount,
         discount_pct:       validated.discount_pct ?? 0,
@@ -322,6 +349,7 @@ export async function updateQuote(
         company_name:         validated.is_corporate ? (validated.company_name?.trim() ?? null) : null,
         corporate_account_id: validated.is_corporate ? (validated.corporate_account_id ?? null) : null,
         package_snapshot: snapshot,
+        day_package_snapshot: daySnapshot,
         line_items:       calcResult.line_items,
         extra_items:      validated.extra_items ?? [],
       })
@@ -353,6 +381,14 @@ export async function updateQuote(
         }
         return { success: false, error: `Could not save rooms — the quote's rooms were left unchanged: ${insErr.message}` }
       }
+    }
+
+    if (validated.package_type === 'group') {
+      const dayErr = await replaceGroupDays(supabase as any, 'quote', id, validated.days as GroupSegment[])  // eslint-disable-line @typescript-eslint/no-explicit-any
+      if (dayErr) return { success: false, error: dayErr }
+    } else {
+      // Switching a group quote back to an ordinary package drops its itinerary.
+      await (supabase as any).from('quote_days').delete().eq('quote_id', id)  // eslint-disable-line @typescript-eslint/no-explicit-any
     }
 
     await supabase.from('history_log').insert({
@@ -473,4 +509,50 @@ export async function deleteQuote(id: string): Promise<ActionResult> {
   } catch (err) {
     return { success: false, error: String(err) }
   }
+}
+
+
+// ─── Snapshots ────────────────────────────────────────────────────────────────
+
+/**
+ * Freeze the package(s) a quote prices from. An ordinary quote has one; a
+ * group prices its nights from `package_id` and its day guests from
+ * `day_package_id`. A group with no nights may name only a day package, in
+ * which case that is the primary snapshot too.
+ */
+async function loadSnapshots(
+  supabase: any,   // eslint-disable-line @typescript-eslint/no-explicit-any
+  v: { package_id: string; package_type: string; day_package_id?: string | null; days: Array<{ stay_kind: string }> },
+): Promise<
+  | { snapshot: PackageSnapshot; daySnapshot: PackageSnapshot | null; hasNight: boolean; hasDay: boolean }
+  | { error: string }
+> {
+  const isGroup  = v.package_type === 'group'
+  const hasNight = isGroup ? v.days.some((d) => d.stay_kind === 'night')   : v.package_type === 'night'
+  const hasDay   = isGroup ? v.days.some((d) => d.stay_kind === 'daylong') : v.package_type === 'daylong'
+
+  const load = async (id: string): Promise<PackageSnapshot | null> => {
+    const { data: pkg } = await supabase.from('packages').select('*').eq('id', id).single()
+    if (!pkg) return null
+    const { data: prices } = await supabase.from('package_room_prices').select('*').eq('package_id', id)
+    return buildPackageSnapshot(pkg, prices ?? [])
+  }
+
+  const primaryId = v.package_id || v.day_package_id
+  if (!primaryId) return { error: 'Package not found' }
+  const snapshot = await load(primaryId)
+  if (!snapshot) return { error: 'Package not found' }
+
+  let daySnapshot: PackageSnapshot | null = null
+  if (isGroup && hasDay) {
+    if (v.day_package_id && v.day_package_id !== primaryId) {
+      daySnapshot = await load(v.day_package_id)
+      if (!daySnapshot) return { error: 'Daylong package not found' }
+    } else if (!hasNight) {
+      daySnapshot = snapshot   // day-only group: the primary IS the day package
+    } else {
+      return { error: 'Pick a daylong package to price the day guests' }
+    }
+  }
+  return { snapshot, daySnapshot, hasNight, hasDay }
 }

@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { sanitizeSearch } from '@/lib/utils'
-import type { BookingWithRooms, BookingStatus } from '@/lib/supabase/types'
+import type { BookingWithRooms, BookingStatus, GroupDayWithRooms } from '@/lib/supabase/types'
 
 export interface BookingFilters {
   status?:    BookingStatus
@@ -81,7 +81,23 @@ export async function getBookingById(id: string): Promise<BookingWithRooms | nul
     .select('*')
     .eq('booking_id', id)
 
+  // A group's rooms and guests live in its itinerary, not in booking_rooms.
+  if ((booking as { package_type?: string }).package_type === 'group') {
+    const { data: days } = await (supabase as any)  // eslint-disable-line @typescript-eslint/no-explicit-any
+      .from('booking_days')
+      .select('*, rooms:booking_day_rooms(*)')
+      .eq('booking_id', id)
+    return { ...booking, rooms: rooms ?? [], days: sortDays((days ?? []) as GroupDayWithRooms[]) }
+  }
+
   return { ...booking, rooms: rooms ?? [] }
+}
+
+/** Itinerary rows → sorted days-with-rooms. Night before day on the same date. */
+function sortDays<T extends { day_date: string; stay_kind: string }>(days: T[]): T[] {
+  return [...days].sort((a, b) =>
+    a.day_date.localeCompare(b.day_date)
+    || (a.stay_kind === b.stay_kind ? 0 : a.stay_kind === 'night' ? -1 : 1))
 }
 
 /** Get upcoming confirmed bookings */

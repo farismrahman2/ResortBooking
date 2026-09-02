@@ -6,6 +6,7 @@ import { StatusBadge } from '@/components/ui/Badge'
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
 import { BookingActions } from '@/components/bookings/BookingActions'
 import { BookingWhatsAppOutput } from '@/components/bookings/BookingWhatsAppOutput'
+import { ItineraryCard } from '@/components/bookings/ItineraryCard'
 import { BookingChargesTab } from '@/components/checkout/BookingChargesTab'
 import { GuestFeedbackPanel } from '@/components/qa/GuestFeedbackPanel'
 import { SalesRepEditor } from '@/components/bookings/SalesRepEditor'
@@ -110,7 +111,7 @@ export default async function BookingDetailPage({ params }: PageProps) {
   const snap = booking.package_snapshot
 
   const dateLine =
-    booking.package_type === 'night' && booking.check_out_date
+    (booking.package_type === 'night' || booking.package_type === 'group') && booking.check_out_date
       ? formatDateRange(booking.visit_date, booking.check_out_date)
       : formatDate(booking.visit_date)
 
@@ -175,7 +176,7 @@ export default async function BookingDetailPage({ params }: PageProps) {
                           : 'inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700'
                       }
                     >
-                      {booking.package_type === 'night' ? 'Overnight' : 'Daylong'}
+                      {booking.package_type === 'night' ? 'Overnight' : booking.package_type === 'group' ? 'Group itinerary' : 'Daylong'}
                     </span>
                   </dd>
                 </div>
@@ -207,6 +208,9 @@ export default async function BookingDetailPage({ params }: PageProps) {
               </dl>
             </Card>
 
+            {booking.package_type === 'group' ? (
+              <ItineraryCard days={booking.days} />
+            ) : (<>
             {/* 2. Guests */}
             <Card>
               <CardHeader>
@@ -292,6 +296,7 @@ export default async function BookingDetailPage({ params }: PageProps) {
                 )}
               </div>
             </Card>
+            </>)}
 
             {/* 4. Pricing */}
             <Card>

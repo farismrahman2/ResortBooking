@@ -26,6 +26,7 @@ interface Props {
 
 const DAYLONG_COLOR = '#f59e0b'  // amber
 const NIGHT_COLOR   = '#6366f1'  // indigo
+const GROUP_COLOR   = '#7c3aed'
 const TOTAL_COLOR   = '#047857'  // forest
 const COLLECT_COLOR = '#10b981'  // emerald
 const OUTSTAND_COLOR = '#ef4444' // red
@@ -46,6 +47,7 @@ export function AnalyticsClient({ from, to, summary, daily, packages, rooms }: P
   const packageData = [
     { name: 'Daylong', value: packages.daylong.total, count: packages.daylong.booking_count },
     { name: 'Night',   value: packages.night.total,   count: packages.night.booking_count },
+    { name: 'Group',   value: packages.group?.total ?? 0, count: packages.group?.booking_count ?? 0 },
   ].filter((p) => p.value > 0)
 
   // Short date labels for x-axis
@@ -132,7 +134,7 @@ export function AnalyticsClient({ from, to, summary, daily, packages, rooms }: P
                         label={(e) => `${e.name}: ${e.count}`}
                       >
                         {packageData.map((entry) => (
-                          <Cell key={entry.name} fill={entry.name === 'Daylong' ? DAYLONG_COLOR : NIGHT_COLOR} />
+                          <Cell key={entry.name} fill={entry.name === 'Daylong' ? DAYLONG_COLOR : entry.name === 'Group' ? GROUP_COLOR : NIGHT_COLOR} />
                         ))}
                       </Pie>
                       <Tooltip formatter={(v: number) => formatBDT(v)} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
@@ -155,6 +157,9 @@ export function AnalyticsClient({ from, to, summary, daily, packages, rooms }: P
                   <tbody className="divide-y divide-gray-100">
                     <PackageRow color={DAYLONG_COLOR} label="Daylong" stats={packages.daylong} />
                     <PackageRow color={NIGHT_COLOR}   label="Night"   stats={packages.night} />
+                    {(packages.group?.booking_count ?? 0) > 0 && (
+                      <PackageRow color={GROUP_COLOR} label="Group" stats={packages.group} />
+                    )}
                   </tbody>
                 </table>
               </div>

@@ -71,7 +71,8 @@ function buildDefaultValues(pkg?: PackageWithPrices): PackageFormInput {
 
   return {
     name: pkg.name,
-    type: pkg.type,
+    // Packages are daylong or night; 'group' is a quote/booking shape, not a package.
+    type: pkg.type === 'night' ? 'night' : 'daylong',
     is_active: pkg.is_active,
     display_order: pkg.display_order,
     all_year: pkg.all_year,

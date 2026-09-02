@@ -13,6 +13,7 @@
  */
 
 import type { LineItem, ExtraItem } from '@/lib/supabase/types'
+import { sortSegments, shortDayLabel, type GroupSegment, type GroupSegmentRoom } from '@/lib/bookings/group-itinerary'
 
 // ─── Input / Output Types ─────────────────────────────────────────────────────
 
@@ -406,4 +407,165 @@ export function recalculate(
     return calculateDaylong(inputs as DaylongInputs)
   }
   return calculateNight(inputs as NightInputs)
+}
+
+// ─── Group itineraries ────────────────────────────────────────────────────────
+
+export interface GroupInputs {
+  segments:            GroupSegment[]
+  /** Prices night segments. Required if the itinerary has any. */
+  nightRates:          PackageRates | null
+  /** Prices day-guest segments. Required if the itinerary has any. */
+  dayRates:            PackageRates | null
+  holidayDates:        string[]
+  discount:            number
+  discount_pct?:       number
+  service_charge_pct?: number
+  advance_required:    number
+  advance_paid:        number
+  extra_items?:        ExtraItem[]
+}
+
+const RATE_LABEL: Record<AdultRateUsed, string> = {
+  friday: 'Friday rate', holiday: 'Holiday rate', weekday: 'Weekday rate',
+}
+
+/**
+ * Calculate pricing for a GROUP booking — a per-day itinerary under one bill.
+ *
+ * Each segment is priced exactly as the ordinary booking of its kind would be
+ * for that one date, and the lines are summed:
+ *
+ *   night segment   = calculateNight for a single night — rooms, extra persons
+ *                     beyond two per room THAT night, children, drivers, beds
+ *   daylong segment = calculateDaylong for that date — day-use rooms, adults at
+ *                     that weekday's rate, children, drivers
+ *
+ * so a one-segment itinerary produces the same total as the plain calculator
+ * (the tests hold it to that). Every line is prefixed with its date, because
+ * the bill for a three-day group is unreadable otherwise.
+ *
+ * `adults_comp` are present but not charged per head: the 28 who paid last
+ * night's package and stay on for the day are counted for the kitchen and the
+ * reports, and skipped by the per-person rate — the alternative was recording
+ * 4 guests for a day that will feed 32.
+ */
+export function calculateGroup(inputs: GroupInputs): CalculationResult {
+  const { nightRates, dayRates, holidayDates, discount, advance_required, advance_paid } = inputs
+  const segments = sortSegments(inputs.segments)
+  const lineItems: LineItem[] = []
+  let rateUsed: AdultRateUsed | null = null
+
+  const roomName = (r: GroupSegmentRoom) => r.display_name ?? r.room_type.replace(/_/g, ' ')
+
+  for (const seg of segments) {
+    const prefix   = `${shortDayLabel(seg.day_date)} · `
+    const billable = Math.max(0, seg.adults - seg.adults_comp)
+
+    if (seg.stay_kind === 'night') {
+      // Pricing a night without night rates would silently produce a bill
+      // with no room charges. Refuse instead.
+      if (!nightRates) throw new Error(`No night package selected to price ${seg.day_date}`)
+
+      for (const room of seg.rooms) {
+        if (room.qty <= 0 || room.unit_price === 0) continue   // complimentary — never billed
+        lineItems.push({
+          label: `${prefix}${roomName(room)} × ${room.qty}`, qty: room.qty,
+          unit_price: room.unit_price, nights: 1, subtotal: room.qty * room.unit_price, kind: 'room',
+        })
+      }
+      const totalRoomQty = seg.rooms.reduce((n, r) => n + r.qty, 0)
+      const basePersons  = 2 * totalRoomQty
+      const extraPersons = Math.max(0, billable - basePersons)
+      if (extraPersons > 0 && nightRates.extra_person > 0) {
+        lineItems.push({
+          label: `${prefix}Extra persons (beyond ${basePersons} included)`, qty: extraPersons,
+          unit_price: nightRates.extra_person, nights: 1,
+          subtotal: extraPersons * nightRates.extra_person, kind: 'extra_person',
+        })
+      }
+      if (seg.children_paid > 0 && nightRates.child_meal > 0) {
+        lineItems.push({
+          label: `${prefix}Children meal (4–9 yrs)`, qty: seg.children_paid,
+          unit_price: nightRates.child_meal, nights: 1,
+          subtotal: seg.children_paid * nightRates.child_meal, kind: 'child_meal',
+        })
+      }
+      if (seg.drivers > 0 && nightRates.driver_price > 0) {
+        lineItems.push({
+          label: `${prefix}Drivers`, qty: seg.drivers, unit_price: nightRates.driver_price,
+          nights: 1, subtotal: seg.drivers * nightRates.driver_price, kind: 'driver',
+        })
+      }
+      if (seg.extra_beds > 0 && nightRates.extra_bed > 0) {
+        lineItems.push({
+          label: `${prefix}Extra beds`, qty: seg.extra_beds, unit_price: nightRates.extra_bed,
+          nights: 1, subtotal: seg.extra_beds * nightRates.extra_bed, kind: 'extra',
+        })
+      }
+    } else {
+      if (!dayRates) throw new Error(`No daylong package selected to price the day guests on ${seg.day_date}`)
+
+      for (const room of seg.rooms) {
+        if (room.qty <= 0 || room.unit_price === 0) continue
+        lineItems.push({
+          label: `${prefix}${roomName(room)} × ${room.qty} (day use)`, qty: room.qty,
+          unit_price: room.unit_price, nights: null, subtotal: room.qty * room.unit_price, kind: 'room',
+        })
+      }
+      const date = new Date(`${seg.day_date}T00:00:00`)
+      const { rate, used } = resolveAdultRate(date, dayRates, holidayDates)
+      if (rateUsed === null) rateUsed = used
+      if (billable > 0 && rate > 0) {
+        lineItems.push({
+          label: `${prefix}Day guests (${RATE_LABEL[used]})`, qty: billable, unit_price: rate,
+          nights: null, subtotal: billable * rate, kind: 'adult',
+        })
+      }
+      if (seg.children_paid > 0 && dayRates.child_meal > 0) {
+        lineItems.push({
+          label: `${prefix}Children meal (4–9 yrs)`, qty: seg.children_paid,
+          unit_price: dayRates.child_meal, nights: null,
+          subtotal: seg.children_paid * dayRates.child_meal, kind: 'child_meal',
+        })
+      }
+      if (seg.drivers > 0 && dayRates.driver_price > 0) {
+        lineItems.push({
+          label: `${prefix}Drivers`, qty: seg.drivers, unit_price: dayRates.driver_price,
+          nights: null, subtotal: seg.drivers * dayRates.driver_price, kind: 'driver',
+        })
+      }
+    }
+  }
+
+  for (const item of inputs.extra_items ?? []) {
+    if (item.qty > 0 && item.label) {
+      lineItems.push({
+        label: item.label, qty: item.qty, unit_price: item.unit_price,
+        nights: null, subtotal: item.qty * item.unit_price, kind: 'extra',
+      })
+    }
+  }
+
+  // Service charge, then percentage discount — the same order as the other
+  // two calculators, so a group and a plain booking agree to the taka.
+  const pct = inputs.service_charge_pct ?? 0
+  if (pct > 0) {
+    const base = lineItems.reduce((s, i) => s + i.subtotal, 0)
+    const charge = Math.round(base * pct / 100)
+    if (charge > 0) {
+      lineItems.push({
+        label: `Service Charge (${pct}%)`, qty: 1, unit_price: charge,
+        nights: null, subtotal: charge, kind: 'service_charge',
+      })
+    }
+  }
+  const baseForPct = lineItems.reduce((s, i) => s + i.subtotal, 0)
+  const pctAmount  = Math.round(baseForPct * (inputs.discount_pct ?? 0) / 100)
+
+  const nightCount = new Set(segments.filter((s) => s.stay_kind === 'night').map((s) => s.day_date)).size
+  return computeFinancials(
+    lineItems, discount + pctAmount, advance_required, advance_paid,
+    nightCount, rateUsed ?? 'weekday',
+  )
 }

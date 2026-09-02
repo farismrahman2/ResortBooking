@@ -5,8 +5,9 @@ import type { PackageWithPrices } from '@/lib/supabase/types'
 
 interface PackageSelectorProps {
   packages: PackageWithPrices[]
+  /** A package id, '' for none, or 'group' for a multi-day itinerary. */
   value: string
-  onChange: (pkg: PackageWithPrices | null) => void
+  onChange: (pkg: PackageWithPrices | null | 'group') => void
 }
 
 export function PackageSelector({ packages, value, onChange }: PackageSelectorProps) {
@@ -14,11 +15,16 @@ export function PackageSelector({ packages, value, onChange }: PackageSelectorPr
   const night   = packages.filter((p) => p.type === 'night')
 
   const selectedPkg = packages.find((p) => p.id === value) ?? null
+  const isGroup = value === 'group'
 
   function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const id = e.target.value
     if (!id) {
       onChange(null)
+      return
+    }
+    if (id === 'group') {
+      onChange('group')
       return
     }
     const pkg = packages.find((p) => p.id === id) ?? null
@@ -60,8 +66,20 @@ export function PackageSelector({ packages, value, onChange }: PackageSelectorPr
               ))}
             </optgroup>
           )}
+
+          <optgroup label="Groups">
+            <option value="group">Group / multi-day itinerary — one booking, one bill</option>
+          </optgroup>
         </select>
       </div>
+
+      {isGroup && (
+        <div className="rounded-lg border border-violet-200 bg-violet-50 p-3 text-xs text-violet-900">
+          <span className="font-semibold">Group itinerary.</span> Rooms and guests are set day by day
+          below — different rooms each night, day guests who leave in the evening, rooms lent for free.
+          Pick a night package for the overnight rates and a daylong package for the day guests.
+        </div>
+      )}
 
       {selectedPkg && (
         <div className="rounded-lg border border-forest-200 bg-forest-50 p-3 space-y-2">

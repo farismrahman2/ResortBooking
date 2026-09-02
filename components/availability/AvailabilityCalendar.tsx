@@ -27,7 +27,7 @@ function buildCsvReport(date: string, rows: DailyReportRow[]): string {
 
   for (const row of rows) {
     const allRoomNums = row.rooms.flatMap((r) => r.room_numbers).join(' / ') || '(not assigned)'
-    const type  = row.package_type === 'daylong' ? 'Daylong' : `Night (${row.nights ?? '?'}N)`
+    const type  = (row.package_type === 'daylong' ? 'Daylong' : `Night (${row.nights ?? '?'}N)`) + (row.group_segment ? ' · group' : '')
     const checkin  = row.is_checkin  ? `Check-in`  : ''
     const checkout = row.is_checkout ? `Check-out` : ''
     const flag = [checkin, checkout].filter(Boolean).join('+') || 'Staying'

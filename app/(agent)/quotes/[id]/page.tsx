@@ -5,6 +5,7 @@ import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
 import { PricingBreakdown } from '@/components/quotes/PricingBreakdown'
 import { QuoteActions } from '@/components/quotes/QuoteActions'
 import { WhatsAppOutput } from '@/components/quotes/WhatsAppOutput'
+import { ItineraryCard } from '@/components/bookings/ItineraryCard'
 import { getEffectiveQuoteForDisplay } from '@/lib/queries/quotes'
 import { getSettings } from '@/lib/queries/settings'
 import { createClient } from '@/lib/supabase/server'
@@ -59,7 +60,7 @@ export default async function QuoteDetailPage({ params }: PageProps) {
   const snap = quote.package_snapshot
 
   const dateLine =
-    quote.package_type === 'night' && quote.check_out_date
+    (quote.package_type === 'night' || quote.package_type === 'group') && quote.check_out_date
       ? formatDateRange(quote.visit_date, quote.check_out_date)
       : formatDate(quote.visit_date)
 
@@ -124,7 +125,9 @@ export default async function QuoteDetailPage({ params }: PageProps) {
                 </div>
                 <div>
                   <dt className="text-xs font-medium text-gray-500">Type</dt>
-                  <dd className="mt-0.5 capitalize text-gray-900">{quote.package_type}</dd>
+                  <dd className="mt-0.5 capitalize text-gray-900">
+                    {quote.package_type === 'group' ? 'Group itinerary' : quote.package_type}
+                  </dd>
                 </div>
                 <div>
                   <dt className="text-xs font-medium text-gray-500">Date(s)</dt>
@@ -151,6 +154,9 @@ export default async function QuoteDetailPage({ params }: PageProps) {
               </dl>
             </Card>
 
+            {quote.package_type === 'group' ? (
+              <ItineraryCard days={quote.days} />
+            ) : (<>
             {/* Guests */}
             <Card>
               <CardHeader>
@@ -217,6 +223,7 @@ export default async function QuoteDetailPage({ params }: PageProps) {
                 )}
               </div>
             </Card>
+            </>)}
           </div>
 
           {/* RIGHT column */}

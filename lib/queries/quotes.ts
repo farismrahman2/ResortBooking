@@ -5,6 +5,7 @@ import type {
   QuoteWithRooms,
   BookingWithRooms,
   BookingStatus,
+  GroupDayWithRooms,
 } from '@/lib/supabase/types'
 import { getBookingById } from '@/lib/queries/bookings'
 import { sanitizeSearch } from '@/lib/utils'
@@ -79,7 +80,23 @@ export async function getQuoteById(id: string): Promise<QuoteWithRooms | null> {
     .select('*')
     .eq('quote_id', id)
 
+  // A group's rooms and guests live in its itinerary, not in quote_rooms.
+  if ((quote as { package_type?: string }).package_type === 'group') {
+    const { data: days } = await (supabase as any)  // eslint-disable-line @typescript-eslint/no-explicit-any
+      .from('quote_days')
+      .select('*, rooms:quote_day_rooms(*)')
+      .eq('quote_id', id)
+    return { ...quote, rooms: rooms ?? [], days: sortDays((days ?? []) as GroupDayWithRooms[]) }
+  }
+
   return { ...quote, rooms: rooms ?? [] }
+}
+
+/** Itinerary rows → sorted days-with-rooms. Night before day on the same date. */
+function sortDays<T extends { day_date: string; stay_kind: string }>(days: T[]): T[] {
+  return [...days].sort((a, b) =>
+    a.day_date.localeCompare(b.day_date)
+    || (a.stay_kind === b.stay_kind ? 0 : a.stay_kind === 'night' ? -1 : 1))
 }
 
 /**
@@ -143,6 +160,8 @@ function overlayBookingOntoQuote(
     line_items:         booking.line_items,
     extra_items:        booking.extra_items,
     rooms,
+    days:                 booking.days,
+    day_package_snapshot: booking.day_package_snapshot ?? null,
   }
 }
 

@@ -1,4 +1,6 @@
 import { cache } from 'react'
+import { selectWithOptionalEmbed } from '@/lib/supabase/optional-embed'
+import { opsUnitsForMeals } from '@/lib/bookings/group-ops'
 import { createClient } from '@/lib/supabase/server'
 import { listKitchenVendors, getUnitLabels } from './kitchen'
 import { getMealsForBookingOnDate } from '@/lib/engine/meals'
@@ -467,16 +469,24 @@ export async function getCoversInRange(from: string, to: string): Promise<{
   total: number
   byDate: Record<string, number>
 }> {
-  const { data, error } = await db()
-    .from('bookings')
-    .select('package_type, visit_date, check_out_date, adults, children_paid, children_free, drivers, package_snapshot')
-    .neq('status', 'cancelled')
-    .neq('status', 'no_show')
-    // Overlap, not "everything up to `to`": a booking that checked out before
-    // the window started contributes nothing and should not be fetched.
-    .lte('visit_date', to)
-    .or(`check_out_date.gte.${from},check_out_date.is.null`)
+  const { data, error } = await selectWithOptionalEmbed<any[]>(  // eslint-disable-line @typescript-eslint/no-explicit-any
+    (select) => db()
+      .from('bookings')
+      .select(select)
+      .neq('status', 'cancelled')
+      .neq('status', 'no_show')
+      // Overlap, not "everything up to `to`": a booking that checked out before
+      // the window started contributes nothing and should not be fetched.
+      .lte('visit_date', to)
+      .or(`check_out_date.gte.${from},check_out_date.is.null`),
+    'package_type, visit_date, check_out_date, adults, children_paid, children_free, drivers, package_snapshot, day_package_snapshot, booking_days(day_date, stay_kind, adults, children_paid, children_free, drivers)',
+    'package_type, visit_date, check_out_date, adults, children_paid, children_free, drivers, package_snapshot',
+  )
   if (error) return { total: 0, byDate: {} }
+
+  // Group itineraries are counted per segment, not from the group's header
+  // (which holds the peak day and would feed 34 people on a 2-person night).
+  const units = opsUnitsForMeals((data ?? []) as any[])  // eslint-disable-line @typescript-eslint/no-explicit-any
 
   const days: string[] = []
   for (const d = new Date(`${from}T00:00:00Z`); d <= new Date(`${to}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1)) {
@@ -486,21 +496,8 @@ export async function getCoversInRange(from: string, to: string): Promise<{
   const byDate: Record<string, number> = {}
   for (const day of days) {
     let breakfast = 0, lunch = 0, dinner = 0
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const b of ((data ?? []) as any[])) {
-      const snap = b.package_snapshot ?? {}
-      const meals = getMealsForBookingOnDate({
-        package_type:       b.package_type,
-        visit_date:         b.visit_date,
-        check_out_date:     b.check_out_date,
-        adults:             b.adults ?? 0,
-        children_paid:      b.children_paid ?? 0,
-        children_free:      b.children_free ?? 0,
-        includes_breakfast: snap.includes_breakfast,
-        includes_lunch:     snap.includes_lunch,
-        includes_dinner:    snap.includes_dinner,
-        includes_snacks:    snap.includes_snacks,
-      }, day)
+    for (const b of units) {
+      const meals = getMealsForBookingOnDate(b, day)
       // Drivers ride along with whichever meals their booking participates in.
       const drivers = Number(b.drivers ?? 0)
       if (meals.breakfast > 0) breakfast += meals.breakfast + drivers

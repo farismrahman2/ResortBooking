@@ -1,6 +1,11 @@
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
-export type PackageType = 'daylong' | 'night'
+/** 'group' = a multi-day itinerary under one booking and one bill — its
+ *  rooms and guests live in booking_days / booking_day_rooms, not in the
+ *  single date range + room set the other two types use. */
+export type PackageType = 'daylong' | 'night' | 'group'
+/** One segment of a group itinerary: rooms slept in that night, or day-use guests. */
+export type StayKind = 'night' | 'daylong'
 export type BookingStatus = 'draft' | 'sent' | 'confirmed' | 'cancelled' | 'checked_out' | 'no_show'
 export type HistoryEvent = 'created' | 'edited' | 'status_changed' | 'converted_to_booking'
 export type RoomType =
@@ -121,6 +126,9 @@ export interface QuoteRow {
   /** Optional FK to crm_accounts when the company already exists in CRM. */
   corporate_account_id: string | null
   package_snapshot: PackageSnapshot
+  /** Group quotes price day segments from a second package; night segments
+   *  use package_snapshot. Null for ordinary quotes. */
+  day_package_snapshot?: PackageSnapshot | null
   line_items: LineItem[]
   extra_items: ExtraItem[]
   created_at: string
@@ -172,6 +180,8 @@ export interface BookingRow {
   /** Optional FK to crm_accounts when the company already exists in CRM. */
   corporate_account_id: string | null
   package_snapshot: PackageSnapshot
+  /** See QuoteRow.day_package_snapshot. */
+  day_package_snapshot?: PackageSnapshot | null
   line_items: LineItem[]
   extra_items: ExtraItem[]
   source_module?: 'manual' | 'crm_handoff' | 'ota' | 'walk_in' | 'phone' | 'other'
@@ -187,6 +197,35 @@ export interface BookingRoomRow {
   qty: number
   unit_price: number
   room_numbers: string[]   // specific room numbers assigned (e.g. ['103', '104'])
+}
+
+/** A room line inside one itinerary segment. unit_price 0 = complimentary. */
+export interface GroupDayRoomRow {
+  id: string
+  room_type: RoomType
+  qty: number
+  unit_price: number
+  room_numbers: string[]
+}
+
+/** One (date, kind) segment of a group itinerary — see lib/bookings/group-itinerary.ts. */
+export interface GroupDayRow {
+  id: string
+  day_date: string
+  stay_kind: StayKind
+  adults: number
+  /** Present but not charged per head. */
+  adults_comp: number
+  children_paid: number
+  children_free: number
+  drivers: number
+  extra_beds: number
+  notes: string | null
+  sort_order: number
+}
+
+export interface GroupDayWithRooms extends GroupDayRow {
+  rooms: GroupDayRoomRow[]
 }
 
 export interface HistoryLogRow {
@@ -770,11 +809,15 @@ export interface PackageWithPrices extends PackageRow {
 /** Quote with its rooms (joined) */
 export interface QuoteWithRooms extends QuoteRow {
   rooms: QuoteRoomRow[]
+  /** Populated for package_type 'group'; absent otherwise. */
+  days?: GroupDayWithRooms[]
 }
 
 /** Booking with its rooms (joined) */
 export interface BookingWithRooms extends BookingRow {
   rooms: BookingRoomRow[]
+  /** Populated for package_type 'group'; absent otherwise. */
+  days?: GroupDayWithRooms[]
 }
 
 /** Settings map for easy access */

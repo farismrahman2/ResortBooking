@@ -12,7 +12,10 @@ import { NumberInput } from '@/components/ui/NumberInput'
 import { ChangeDatesModal } from '@/components/bookings/ChangeDatesModal'
 import { SwapRoomsModal } from '@/components/bookings/SwapRoomsModal'
 import { formatBDT } from '@/lib/formatters/currency'
-import { calculateDaylong, calculateNight } from '@/lib/engine/calculator'
+import { calculateDaylong, calculateNight, calculateGroup } from '@/lib/engine/calculator'
+import { snapshotToPackageWithPrices } from '@/lib/engine/snapshot'
+import { rowsToSegments, type GroupSegment } from '@/lib/bookings/group-itinerary'
+import { GroupItineraryEditor } from '@/components/quotes/GroupItineraryEditor'
 import { updateAdvancePaid, cancelBooking, updateBooking } from '@/lib/actions/bookings'
 import { AdvancePaymentsPanel } from '@/components/bookings/AdvancePaymentsPanel'
 import type { AdvancePaymentRow } from '@/lib/bookings/advance-methods'
@@ -49,6 +52,12 @@ export function BookingActions({
 }: BookingActionsProps) {
   const router  = useRouter()
   const snap    = booking.package_snapshot
+  const isGroup = booking.package_type === 'group'
+  // Group bookings edit their itinerary rather than a room set + headcount.
+  const [days, setDays] = useState<GroupSegment[]>(() => rowsToSegments(booking.days ?? []))
+  const daySnap       = booking.day_package_snapshot ?? null
+  const nightPackage  = useMemo(() => (isGroup && snap.type !== 'daylong' ? snapshotToPackageWithPrices(snap) : null), [isGroup, snap])
+  const dayPackage    = useMemo(() => snapshotToPackageWithPrices(daySnap ?? (snap.type === 'daylong' ? snap : null)), [daySnap, snap])
 
   // ── Payment state ─────────────────────────────────────────────────────────
   const [advancePaid,     setAdvancePaid]     = useState(booking.advance_paid)
@@ -180,6 +189,21 @@ export function BookingActions({
       unit_price:   r.unit_price,
     }))
     try {
+      if (isGroup) {
+        const hasNight = days.some((d) => d.stay_kind === 'night')
+        return calculateGroup({
+          segments:           days,
+          nightRates:         hasNight ? snap : null,
+          dayRates:           daySnap ?? (hasNight ? null : snap),
+          holidayDates,
+          discount,
+          discount_pct:       discountPct,
+          service_charge_pct: serviceChargePct,
+          advance_required:   advanceRequired,
+          advance_paid:       advancePaid,
+          extra_items:        extraItems,
+        })
+      }
       if (booking.package_type === 'daylong') {
         return calculateDaylong({
           date:               new Date(booking.visit_date + 'T00:00:00'),
@@ -220,7 +244,7 @@ export function BookingActions({
     } catch {
       return null
     }
-  }, [roomQtys, adults, childrenPaid, childrenFree, drivers, extraBeds, discount, discountPct, serviceChargePct, advancePaid, advanceRequired, extraItems, booking, snap, holidayDates])
+  }, [roomQtys, adults, childrenPaid, childrenFree, drivers, extraBeds, discount, discountPct, serviceChargePct, advancePaid, advanceRequired, extraItems, booking, snap, holidayDates, isGroup, days, daySnap])
 
   // ── Cancel state ──────────────────────────────────────────────────────────
   const [cancelOpen,    setCancelOpen]    = useState(false)
@@ -247,6 +271,9 @@ export function BookingActions({
   async function handleSaveEdit() {
     if (booking.package_type === 'night' && Object.keys(roomQtys).length === 0) {
       setEditError('At least one room is required for night stays'); return
+    }
+    if (isGroup && days.length === 0) {
+      setEditError('A group booking needs at least one day in its itinerary'); return
     }
     setEditLoading(true); setEditError(null)
     try {
@@ -291,6 +318,8 @@ export function BookingActions({
         visit_date:         booking.visit_date,
         check_out_date:     booking.check_out_date,
         package_snapshot:   snap,
+        days:                 isGroup ? days : undefined,
+        day_package_snapshot: isGroup ? daySnap : undefined,
       })
       if (!result.success) { setEditError(result.error ?? 'Save failed') }
       else { setEditOpen(false); router.refresh() }
@@ -320,7 +349,7 @@ export function BookingActions({
       </div>
 
       {/* ── Change Dates ─────────────────────────────────────── */}
-      {booking.status === 'confirmed' && (
+      {booking.status === 'confirmed' && !isGroup && (
         <div className="space-y-2">
           <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Schedule</h4>
           <Button variant="outline" size="sm" onClick={() => setChangeDatesOpen(true)} className="w-full gap-1.5">
@@ -331,7 +360,7 @@ export function BookingActions({
       )}
 
       {/* ── Swap Rooms ───────────────────────────────────────── */}
-      {booking.status === 'confirmed' && booking.rooms.length > 0 && (
+      {booking.status === 'confirmed' && !isGroup && booking.rooms.length > 0 && (
         <div className="space-y-2">
           <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Room Assignment</h4>
           <Button variant="outline" size="sm" onClick={() => setSwapRoomsOpen(true)} className="w-full gap-1.5">
@@ -444,6 +473,18 @@ export function BookingActions({
             </div>
           </div>
 
+          {isGroup && (
+            <div>
+              <h5 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-3">Itinerary</h5>
+              <GroupItineraryEditor
+                value={days} onChange={setDays} rooms={inventory}
+                nightPackage={nightPackage} dayPackage={dayPackage}
+                excludeBookingId={booking.id}
+              />
+            </div>
+          )}
+
+          {!isGroup && (<>
           {/* Rooms + Room Number Picker */}
           <div>
             <h5 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-3">Rooms</h5>
@@ -647,10 +688,13 @@ export function BookingActions({
             )
           })()}
 
+          </>)}
+
           {/* Guests */}
           <div>
-            <h5 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-3">Guests & Pricing</h5>
+            <h5 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-3">{isGroup ? 'Pricing' : 'Guests & Pricing'}</h5>
             <div className="grid grid-cols-3 gap-3">
+              {!isGroup && (<>
               <NumberInput label="Adults"           value={adults}       onChange={setAdults}       min={1} />
               <NumberInput label="Children (paid)"  value={childrenPaid} onChange={setChildrenPaid} min={0} />
               <NumberInput label="Children (free)"  value={childrenFree} onChange={setChildrenFree} min={0} />
@@ -658,6 +702,7 @@ export function BookingActions({
               {booking.package_type === 'night' && (
                 <NumberInput label="Extra Beds"     value={extraBeds}    onChange={setExtraBeds}    min={0} />
               )}
+              </>)}
               <NumberInput label="Flat Discount (৳)"    value={discount}          onChange={setDiscount}          min={0} prefix="৳" />
               <NumberInput label="Discount %"          value={discountPct}       onChange={setDiscountPct}       min={0} suffix="%" />
               <NumberInput label="Service Charge (%)"  value={serviceChargePct}  onChange={setServiceChargePct}  min={0} suffix="%" />

@@ -1,4 +1,5 @@
 import { createServiceClient } from '@/lib/supabase/server'
+import { isMissingRelation } from '@/lib/supabase/errors'
 import { toIsoDate } from '@/lib/reports/periods'
 import { getComparisonRange } from '@/lib/reports/periods'
 import type { PeriodRange } from '@/lib/reports/types'
@@ -43,20 +44,35 @@ const emptyTotals = (): GuestTotals => ({
  * Guest numbers by ARRIVAL date — how many people the resort served, counted
  * on the day each booking starts. Cancelled and no-show bookings are excluded:
  * neither put a guest on the grounds. Booked counts, not checkout-adjusted.
+ *
+ * Group itineraries are the exception to "by arrival date": their daily rows
+ * show who was on site each day, and the totals count the group once at its
+ * busiest day. See the comment where they are folded in.
  */
 export async function getGuestReport(period: PeriodRange): Promise<GuestReport> {
   const fromIso = toIsoDate(period.from)
   const toIso   = toIsoDate(period.to)
 
-  const { data, error } = await db()
-    .from('bookings')
-    .select('visit_date, package_type, adults, children_paid, children_free, drivers')
-    .gte('visit_date', fromIso)
-    .lte('visit_date', toIso)
-    .not('status', 'in', '(cancelled,no_show)')
-    .limit(10_000)
+  const [{ data, error }, { data: segRows, error: segError }] = await Promise.all([
+    db()
+      .from('bookings')
+      .select('visit_date, package_type, adults, children_paid, children_free, drivers')
+      .gte('visit_date', fromIso)
+      .lte('visit_date', toIso)
+      .not('status', 'in', '(cancelled,no_show)')
+      .limit(10_000),
+    db()
+      .from('booking_days')
+      .select('day_date, stay_kind, adults, children_paid, children_free, drivers, bookings!inner(id, status, visit_date)')
+      .gte('day_date', fromIso)
+      .lte('day_date', toIso)
+      .limit(10_000),
+  ])
   // Throw — a failed query must error the page, not render zero guests.
   if (error) throw new Error(`[reports.guests] ${error.message}`)
+  // The itinerary table is absent until its migration runs; that is "no
+  // groups", not a broken report.
+  if (segError && !isMissingRelation(segError)) throw new Error(`[reports.guests] ${segError.message}`)
 
   const totals = emptyTotals()
   const byDay = new Map<string, GuestDayRow>()
@@ -70,6 +86,9 @@ export async function getGuestReport(period: PeriodRange): Promise<GuestReport> 
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const b of ((data ?? []) as any[])) {
+    // Groups are read from their itinerary below — the header holds the
+    // peak day, which is the wrong number for any one date.
+    if (b.package_type === 'group') continue
     const adults   = Number(b.adults ?? 0)
     const cPaid    = Number(b.children_paid ?? 0)
     const cFree    = Number(b.children_free ?? 0)
@@ -97,6 +116,52 @@ export async function getGuestReport(period: PeriodRange): Promise<GuestReport> 
     row.children += cPaid + cFree
     row.drivers  += drivers
     row.guests   += guests
+  }
+
+  // Group itineraries. Each day's row shows who was on site THAT day, which
+  // is how a group describes itself ("34 present on the 5th"). The period
+  // totals count each group once, at its busiest day inside the range — a
+  // sum across days would count the same person once per day they stayed.
+  type Peak = { adults: number; cPaid: number; cFree: number; drivers: number; guests: number }
+  const groups = new Map<string, { hasNight: boolean; byDate: Map<string, Peak> }>()
+  const seenOnDate = new Set<string>()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const s of ((segRows ?? []) as any[])) {
+    const b = s.bookings
+    if (!b || b.status === 'cancelled' || b.status === 'no_show') continue
+    const adults  = Number(s.adults ?? 0)
+    const cPaid   = Number(s.children_paid ?? 0)
+    const cFree   = Number(s.children_free ?? 0)
+    const drivers = Number(s.drivers ?? 0)
+    const guests  = adults + cPaid + cFree
+
+    const row = byDay.get(s.day_date)
+    if (row) {
+      const key = `${b.id}:${s.day_date}`
+      if (!seenOnDate.has(key)) { seenOnDate.add(key); row.bookings += 1 }
+      row.adults   += adults
+      row.children += cPaid + cFree
+      row.drivers  += drivers
+      row.guests   += guests
+    }
+
+    const g = groups.get(b.id) ?? { hasNight: false, byDate: new Map<string, Peak>() }
+    if (s.stay_kind === 'night') g.hasNight = true
+    const d = g.byDate.get(s.day_date) ?? { adults: 0, cPaid: 0, cFree: 0, drivers: 0, guests: 0 }
+    d.adults += adults; d.cPaid += cPaid; d.cFree += cFree; d.drivers += drivers; d.guests += guests
+    g.byDate.set(s.day_date, d)
+    groups.set(b.id, g)
+  }
+  for (const g of groups.values()) {
+    const peak = [...g.byDate.values()].reduce((best, d) => (d.guests > best.guests ? d : best))
+    totals.bookings      += 1
+    totals.adults        += peak.adults
+    totals.children_paid += peak.cPaid
+    totals.children_free += peak.cFree
+    totals.drivers       += peak.drivers
+    totals.guests        += peak.guests
+    if (g.hasNight) { totals.night_bookings += 1;   totals.night_guests   += peak.guests }
+    else            { totals.daylong_bookings += 1; totals.daylong_guests += peak.guests }
   }
 
   return { totals, daily: [...byDay.values()] }
