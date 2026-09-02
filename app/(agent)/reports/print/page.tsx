@@ -6,6 +6,7 @@ import { getPackageRevenue, getDailyIncome, getIndustryKpis } from '@/lib/querie
 import { getIncomeByMethodRange, METHOD_LABEL, PAYMENT_METHODS } from '@/lib/queries/reports/income-by-method'
 import { getPaymentTransactions, SOURCE_LABEL } from '@/lib/queries/reports/payment-transactions'
 import { getOutstandingDues } from '@/lib/queries/reports/dues'
+import { getCashCheckoutReport } from '@/lib/queries/reports/cash-checkout'
 import { getGuestReport } from '@/lib/queries/reports/guests'
 import { getOccupancyByDay } from '@/lib/queries/reports/operations'
 import { getCategoryBreakdownReports, getTopVendors } from '@/lib/queries/reports/expenses'
@@ -31,6 +32,7 @@ const ALL_SECTIONS = [
   { id: 'money',         label: 'Money received' },
   { id: 'transactions',  label: 'Transaction detail' },
   { id: 'dues',          label: 'Outstanding dues' },
+  { id: 'cash',          label: 'Cash checkout' },
   { id: 'guests',        label: 'Guests' },
   { id: 'operations',    label: 'Occupancy' },
   { id: 'expenses',      label: 'Expenses' },
@@ -90,6 +92,7 @@ export default async function PrintableReportPage({ searchParams }: PageProps) {
   const [
     hub, packages, dailyIncome, industry, guests, occupancy,
     catBreakdown, vendors, pnl, salary, attendance, extras, topCharges, coffee, money, txns, dues,
+    cash,
   ] = await Promise.all([
     has('summary')                          ? soft(getHubTotals(period))                : null,
     has('income')                           ? soft(getPackageRevenue(period))           : null,
@@ -110,6 +113,7 @@ export default async function PrintableReportPage({ searchParams }: PageProps) {
     // Dues are a snapshot as of today — a debt is late relative to now, not to
     // the report's range — so this one section ignores from/to by design.
     has('dues')                             ? soft(getOutstandingDues(duesMinDays))      : null,
+    has('cash')                             ? soft(getCashCheckoutReport(fromIso, toIso)) : null,
   ])
 
   const days = Math.max(1, Math.round((period.to.getTime() - period.from.getTime()) / 86400_000) + 1)
@@ -463,6 +467,40 @@ export default async function PrintableReportPage({ searchParams }: PageProps) {
                     <tr className="total">
                       <td colSpan={7}>{nf(dues.rows.length)} booking{dues.rows.length === 1 ? '' : 's'} to chase</td>
                       <td className="num">{formatBDT(dues.totalOverdue)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </>
+            )}
+          </section>
+        )}
+
+        {/* ── Cash checkout ─────────────────────────────────────────── */}
+        {has('cash') && (
+          <section className="rpt-section">
+            <h2>Cash checkout</h2>
+            {!cash ? <Failed what="cash checkout" /> : (
+              <>
+                <p className="rpt-note">
+                  Cash taken at checkout only — no advances, cards, transfers or coffee-shop
+                  tender. This total is what should have been counted in the drawer.
+                </p>
+                <table className="dense">
+                  <thead><tr>
+                    <th>Date</th><th>Booking</th><th>Guest</th><th className="num">Cash</th>
+                  </tr></thead>
+                  <tbody>
+                    {cash.rows.map((r) => (
+                      <tr key={r.id}>
+                        <td className="nowrap">{formatDateShort(r.date)}</td>
+                        <td>{r.booking_number}</td>
+                        <td>{r.customer_name}</td>
+                        <td className="num nowrap"><strong>{formatBDT(r.amount)}</strong></td>
+                      </tr>
+                    ))}
+                    <tr className="total">
+                      <td colSpan={3}>{nf(cash.rows.length)} payment{cash.rows.length === 1 ? '' : 's'}</td>
+                      <td className="num">{formatBDT(cash.total)}</td>
                     </tr>
                   </tbody>
                 </table>
