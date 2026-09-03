@@ -130,7 +130,7 @@ describe('rowsToSegments', () => {
       { day_date: '2026-10-04', stay_kind: 'night', adults: 30, children_paid: 0, children_free: 0, drivers: 2, rooms: [] },
     ])
     expect(segs[0].day_date).toBe('2026-10-04')
-    expect(segs[1].rooms[0]).toEqual({ room_type: 'deluxe', qty: 2, unit_price: 0, room_numbers: [] })
+    expect(segs[1].rooms[0]).toEqual({ room_type: 'deluxe', qty: 2, unit_price: 0, room_numbers: [], evening_rooms: [] })
     expect(segs[1].children_paid).toBe(0)
   })
 })
