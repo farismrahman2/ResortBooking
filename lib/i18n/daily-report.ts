@@ -45,6 +45,8 @@ interface Dict {
   // totals row
   total:           string
   adults_label:    string
+  no_room_daylong: string   // "Day Long without room" — daylong guests not holding any room
+  bookings_short:  string   // "bookings" / "বুকিং"
   download:        string
   print_hint:      string
   // weekdays (Sun=0..Sat=6)
@@ -78,6 +80,8 @@ export const DICT: Record<Lang, Dict> = {
     noon_note:      'Bold rooms are available only after 12:00 PM (the previous guest checks out at noon).',
     total:          'Total',
     adults_label:   'Adults',
+    no_room_daylong: 'Day Long without room',
+    bookings_short: 'bookings',
     download:       'Download Room Allocation',
     print_hint:     'Use your browser print dialog to save as PDF.',
     weekdays: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
@@ -108,6 +112,8 @@ export const DICT: Record<Lang, Dict> = {
     noon_note:      'বোল্ড রুমগুলো শুধু দুপুর ১২টার পর পাওয়া যাবে (আগের গেস্ট দুপুরে চেকআউট করবেন)।',
     total:          'মোট',
     adults_label:   'প্রাপ্তবয়স্ক',
+    no_room_daylong: 'রুম ছাড়া ডে লং',
+    bookings_short: 'বুকিং',
     download:       'রুম বন্টন ডাউনলোড',
     print_hint:     'PDF হিসেবে সংরক্ষণ করতে ব্রাউজার প্রিন্ট ডায়ালগ ব্যবহার করুন।',
     weekdays: ['রবিবার', 'সোমবার', 'মঙ্গলবার', 'বুধবার', 'বৃহস্পতিবার', 'শুক্রবার', 'শনিবার'],

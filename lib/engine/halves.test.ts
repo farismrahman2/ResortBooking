@@ -83,6 +83,15 @@ describe('availabilityByHalves', () => {
     const [d] = availabilityByHalves([{ room_type: 'deluxe', total_units: 4 }], occ)
     expect(d).toMatchObject({ booked_day: 2, available_day: 2, booked_night: 4, available_night: 0 })
   })
+
+  it('"all day" counts a room as booked when either half is taken', () => {
+    const dayOcc = occupancyOnDate({ package_type: 'daylong', visit_date: '2026-10-10', check_out_date: null,
+      rooms: [{ room_type: 'deluxe', qty: 1, room_numbers: ['301'] }] }, '2026-10-10')
+    const [d] = availabilityByHalves([{ room_type: 'deluxe', total_units: 4 }], dayOcc)
+    // Day guest holds 301 until 6 PM: only 3 rooms are free for the whole day,
+    // but all 4 are free for the night.
+    expect(d).toMatchObject({ booked_day: 1, booked_night: 0, booked_any: 1, available_both: 3, available_night: 4 })
+  })
 })
 
 describe('roomNumberBuckets', () => {

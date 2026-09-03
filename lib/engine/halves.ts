@@ -188,8 +188,12 @@ export interface HalfAvailability {
   room_type:      string
   booked_day:     number
   booked_night:   number
+  /** Rooms taken in EITHER half — what "fully booked" means at the desk. */
+  booked_any:     number
   available_day:  number
   available_night: number
+  /** Rooms free the whole day — the honest headline number. */
+  available_both: number
 }
 
 export function availabilityByHalves(
@@ -201,12 +205,15 @@ export function availabilityByHalves(
     const t = totals.get(inv.room_type)
     const bd = t?.day ?? 0
     const bn = t?.night ?? 0
+    const ba = Math.min(inv.total_units, t?.either ?? 0)
     return {
       room_type:       inv.room_type,
       booked_day:      bd,
       booked_night:    bn,
+      booked_any:      ba,
       available_day:   Math.max(0, inv.total_units - bd),
       available_night: Math.max(0, inv.total_units - bn),
+      available_both:  Math.max(0, inv.total_units - ba),
     }
   })
 }

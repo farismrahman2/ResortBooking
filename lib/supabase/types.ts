@@ -813,6 +813,11 @@ export interface AvailabilityResult {
   available_day?: number
   booked_night?: number
   available_night?: number
+  /** Free the whole day (the headline), and the extra rooms that free up
+   *  only after the evening handover / only until it. */
+  available_both?: number
+  available_after_evening?: number
+  available_until_evening?: number
   daylong_only: boolean
 }
 

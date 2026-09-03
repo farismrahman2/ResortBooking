@@ -11,7 +11,7 @@ function bookingFixture(overrides: Partial<BookingRow>): BookingRow {
     drivers: 0, extra_beds: 0,
     subtotal: 0, discount: 0, discount_pct: 0, service_charge_pct: 0,
     total: 0, advance_required: 0, advance_paid: 0, due_advance: 0, remaining: 0,
-    status: 'confirmed', sales_employee_id: null,
+    status: 'confirmed', sales_employee_id: null, is_corporate: false, company_name: null, corporate_account_id: null,
     package_snapshot: {} as any, line_items: [], extra_items: [],
     created_at: '', updated_at: '',
     ...overrides,

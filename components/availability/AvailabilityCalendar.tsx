@@ -10,6 +10,8 @@ import type { DailyReportRow } from '@/lib/queries/daily-report'
 
 interface AvailabilityCalendarProps {
   inventory: RoomInventoryRow[]
+  /** "6:00 PM" — the evening handover time, for the grid's footnotes. */
+  handoverLabel?: string
 }
 
 type PackageFilter = 'all' | 'daylong' | 'night'
@@ -85,9 +87,10 @@ interface DayGuests {
   daylong_bookings: number; daylong_guests: number
   night_bookings: number; night_guests: number
   arriving: number
+  daylong_no_room_bookings?: number; daylong_no_room_guests?: number
 }
 
-export function AvailabilityCalendar({ inventory }: AvailabilityCalendarProps) {
+export function AvailabilityCalendar({ inventory, handoverLabel = '6:00 PM' }: AvailabilityCalendarProps) {
   const today = new Date().toISOString().split('T')[0]
   const [selectedDate,  setSelectedDate]  = useState(today)
   const [packageType,   setPackageType]   = useState<PackageFilter>('all')
@@ -181,7 +184,10 @@ export function AvailabilityCalendar({ inventory }: AvailabilityCalendarProps) {
     }
   }
 
-  const totalAvailable = result?.reduce((sum, r) => sum + r.available, 0) ?? 0
+  const totalAvailable    = result?.reduce((sum, r) => sum + r.available, 0) ?? 0
+  const totalAfterEvening = packageType === 'all'
+    ? (result?.reduce((sum, r) => sum + (r.available_after_evening ?? 0), 0) ?? 0)
+    : 0
 
   const formattedDate = selectedDate
     ? new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-GB', {
@@ -224,6 +230,14 @@ export function AvailabilityCalendar({ inventory }: AvailabilityCalendarProps) {
                 {guests.bookings === 0 && 'no bookings on this date'}
                 {guests.arriving > 0 && ` · ${guests.arriving} arriving that day`}
               </p>
+              {/* Day visits with no room don't show on the room grid at all,
+                  yet they are why a Friday can be "full" with rooms free. */}
+              {(guests.daylong_no_room_guests ?? 0) > 0 && (
+                <p className="mt-1 text-xs font-medium text-amber-800">
+                  {guests.daylong_no_room_guests!.toLocaleString('en-IN')} daylong guest{guests.daylong_no_room_guests === 1 ? '' : 's'} without a room
+                  {' '}({guests.daylong_no_room_bookings} booking{guests.daylong_no_room_bookings === 1 ? '' : 's'})
+                </p>
+              )}
             </>
           )}
         </div>
@@ -322,10 +336,14 @@ export function AvailabilityCalendar({ inventory }: AvailabilityCalendarProps) {
               <p className="text-sm text-gray-500">
                 {totalAvailable} room unit{totalAvailable !== 1 ? 's' : ''} available
                 {packageType !== 'all' && ` · ${packageType} packages`}
+                {packageType === 'all' && ' all day'}
+                {totalAfterEvening > 0 && (
+                  <span className="text-orange-700"> · {totalAfterEvening} more after {handoverLabel}</span>
+                )}
               </p>
             </div>
           </div>
-          <AvailabilityGrid rooms={result} />
+          <AvailabilityGrid rooms={result} handoverLabel={handoverLabel} />
         </div>
       )}
     </div>

@@ -179,19 +179,28 @@ function toResults(
     .filter((r) => !(packageType === 'night' && r.daylong_only))
     .map((r) => {
       const h = halves.get(r.room_type)!
-      // "All" reads the night half — the stricter of the two, and what a
-      // reservation desk means by "is the room free"; both halves are carried.
-      const useDay = packageType === 'daylong'
+      // "All" counts a room as booked if ANYTHING holds it that day — a day
+      // visit, a night guest, or a night guest arriving in the evening. The
+      // rooms that free up after the handover (or are free only until it)
+      // are carried separately, for the footnote. The Daylong / Night filters
+      // read their own half.
+      const [booked, available] =
+        packageType === 'daylong' ? [h.booked_day, h.available_day]
+        : packageType === 'night' ? [h.booked_night, h.available_night]
+        : [h.booked_any, h.available_both]
       return {
         room_type:       r.room_type,
         display_name:    r.display_name,
         total_units:     r.total_units,
-        booked:          useDay ? h.booked_day : h.booked_night,
-        available:       useDay ? h.available_day : h.available_night,
+        booked,
+        available,
         booked_day:      h.booked_day,
         available_day:   h.available_day,
         booked_night:    h.booked_night,
         available_night: h.available_night,
+        available_both:  h.available_both,
+        available_after_evening: Math.max(0, h.available_night - h.available_both),
+        available_until_evening: Math.max(0, h.available_day - h.available_both),
         daylong_only:    r.daylong_only,
       }
     })
@@ -356,6 +365,11 @@ export interface DayGuestCounts {
   night_bookings:   number
   night_guests:     number
   arriving:         number  // bookings whose visit_date IS this date
+  /** Day visits with no room at all — they still use the grounds and the
+   *  kitchen, and on a busy day they are why the place is "full" while the
+   *  room grid says otherwise. */
+  daylong_no_room_bookings: number
+  daylong_no_room_guests:   number
 }
 
 /**
@@ -369,12 +383,12 @@ export async function getGuestsOnDate(date: string): Promise<DayGuestCounts> {
   const sb = createClient() as any
   const [{ data, error }, { data: segs }] = await Promise.all([
     sb.from('bookings')
-      .select('package_type, visit_date, check_out_date, status, adults, children_paid, children_free, drivers')
+      .select('package_type, visit_date, check_out_date, status, adults, children_paid, children_free, drivers, booking_rooms(qty)')
       .not('status', 'in', '(cancelled,no_show)')
       .lte('visit_date', date)
       .or(`check_out_date.gt.${date},and(check_out_date.is.null,visit_date.eq.${date})`),
     sb.from('booking_days')
-      .select('stay_kind, adults, children_paid, children_free, drivers, bookings!inner(id, visit_date, status)')
+      .select('stay_kind, adults, children_paid, children_free, drivers, booking_day_rooms(qty), bookings!inner(id, visit_date, status)')
       .eq('day_date', date),
   ])
   if (error) throw new Error(`getGuestsOnDate: ${error.message}`)
@@ -382,7 +396,7 @@ export async function getGuestsOnDate(date: string): Promise<DayGuestCounts> {
   const out: DayGuestCounts = {
     bookings: 0, adults: 0, children: 0, drivers: 0, guests: 0,
     daylong_bookings: 0, daylong_guests: 0, night_bookings: 0, night_guests: 0,
-    arriving: 0,
+    arriving: 0, daylong_no_room_bookings: 0, daylong_no_room_guests: 0,
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const b of ((data ?? []) as any[])) {
@@ -400,7 +414,12 @@ export async function getGuestsOnDate(date: string): Promise<DayGuestCounts> {
     out.children += children
     out.drivers  += Number(b.drivers ?? 0)
     out.guests   += adults + children
-    if (b.package_type === 'daylong') { out.daylong_bookings += 1; out.daylong_guests += adults + children }
+    if (b.package_type === 'daylong') {
+      out.daylong_bookings += 1; out.daylong_guests += adults + children
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const roomQty = ((b.booking_rooms ?? []) as any[]).reduce((n, r) => n + Number(r.qty ?? 0), 0)
+      if (roomQty === 0) { out.daylong_no_room_bookings += 1; out.daylong_no_room_guests += adults + children }
+    }
     else                              { out.night_bookings += 1;   out.night_guests += adults + children }
     if (b.visit_date === date) out.arriving += 1
   }
@@ -419,7 +438,12 @@ export async function getGuestsOnDate(date: string): Promise<DayGuestCounts> {
     out.children += children
     out.drivers  += Number(s.drivers ?? 0)
     out.guests   += adults + children
-    if (s.stay_kind === 'daylong') out.daylong_guests += adults + children
+    if (s.stay_kind === 'daylong') {
+      out.daylong_guests += adults + children
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const roomQty = ((s.booking_day_rooms ?? []) as any[]).reduce((n, r) => n + Number(r.qty ?? 0), 0)
+      if (roomQty === 0) { out.daylong_no_room_bookings += 1; out.daylong_no_room_guests += adults + children }
+    }
     else                           out.night_guests   += adults + children
     if (!groupIds.has(b.id)) {
       groupIds.add(b.id)

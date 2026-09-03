@@ -4,9 +4,11 @@ import type { AvailabilityResult } from '@/lib/supabase/types'
 
 interface AvailabilityGridProps {
   rooms: AvailabilityResult[]
+  /** "6:00 PM" — the evening handover time, for the footnotes. */
+  handoverLabel?: string
 }
 
-export function AvailabilityGrid({ rooms }: AvailabilityGridProps) {
+export function AvailabilityGrid({ rooms, handoverLabel = '6:00 PM' }: AvailabilityGridProps) {
   const summary = getAvailabilitySummary(rooms)
 
   return (
@@ -64,10 +66,16 @@ export function AvailabilityGrid({ rooms }: AvailabilityGridProps) {
               {room.booked > 0 && (
                 <p className="mt-0.5 text-xs text-gray-500">{room.booked} booked</p>
               )}
-              {room.available_day !== undefined && room.available_night !== undefined
-                && room.available_day !== room.available_night && (
+              {/* A room with day guests counts as booked above. It is still
+                  sellable for the night — say so underneath, not in the number. */}
+              {(room.available_after_evening ?? 0) > 0 && (
+                <p className="mt-0.5 text-xs text-orange-700">
+                  After {handoverLabel}: {room.available_after_evening} available
+                </p>
+              )}
+              {(room.available_until_evening ?? 0) > 0 && (
                 <p className="mt-0.5 text-xs text-sky-700">
-                  Day {room.available_day} · Night {room.available_night} free
+                  Until {handoverLabel}: {room.available_until_evening} available
                 </p>
               )}
             </div>

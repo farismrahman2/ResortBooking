@@ -9,8 +9,8 @@ const WEEKS_VISIBLE = 5
 interface DaySummary {
   date:           string  // YYYY-MM-DD
   totalUnits:     number
-  totalAvailable: number            // night half — what "is the room free" means at the desk
-  totalAvailableDay: number         // day half — differs when rooms are handed over in the evening
+  totalAvailable: number            // free the WHOLE day — the honest headline
+  totalAfterEvening: number         // extra rooms that free up after the evening handover
   rooms:          AvailabilityResult[]   // for the per-cell hover tooltip
 }
 
@@ -112,16 +112,16 @@ export function MonthCalendar({ selectedDate, onDateClick, inventory }: MonthCal
             date:           iso,
             totalUnits:     totalInventory,
             totalAvailable: totalInventory,
-            totalAvailableDay: totalInventory,
+            totalAfterEvening: 0,
             rooms:          defaultRooms(),
           })
         }
         for (const d of data.dates ?? []) {
           const rooms = (d.rooms as AvailabilityResult[]).filter((r) => !r.daylong_only)
           const totalUnits     = rooms.reduce((s, r) => s + r.total_units, 0)
-          const totalAvailable = rooms.reduce((s, r) => s + (r.available_night ?? r.available), 0)
-          const totalAvailableDay = rooms.reduce((s, r) => s + (r.available_day ?? r.available), 0)
-          map.set(d.date, { date: d.date, rooms, totalUnits, totalAvailable, totalAvailableDay })
+          const totalAvailable    = rooms.reduce((s, r) => s + (r.available_both ?? r.available), 0)
+          const totalAfterEvening = rooms.reduce((s, r) => s + (r.available_after_evening ?? 0), 0)
+          map.set(d.date, { date: d.date, rooms, totalUnits, totalAvailable, totalAfterEvening })
         }
         setDays(map)
       } catch (err) {
@@ -226,9 +226,9 @@ export function MonthCalendar({ selectedDate, onDateClick, inventory }: MonthCal
                       <span className="opacity-70">/{summary.totalUnits}</span>
                     </>
                   )}
-                  {summary.totalAvailableDay !== summary.totalAvailable && (
+                  {summary.totalAfterEvening > 0 && (
                     <span className="block text-[9px] font-medium opacity-80 sm:text-[10px]">
-                      day {summary.totalAvailableDay}
+                      +{summary.totalAfterEvening} after 6 PM
                     </span>
                   )}
                 </div>
@@ -247,10 +247,10 @@ export function MonthCalendar({ selectedDate, onDateClick, inventory }: MonthCal
                     <div key={r.room_type} className="flex items-center justify-between gap-3 py-0.5">
                       <span className="truncate text-white/80">{r.display_name}</span>
                       <span className="font-mono tabular-nums">
-                        <span className={r.available === 0 ? 'text-red-300' : 'text-white'}>{r.available}</span>
+                        <span className={(r.available_both ?? r.available) === 0 ? 'text-red-300' : 'text-white'}>{r.available_both ?? r.available}</span>
                         <span className="text-white/50">/{r.total_units}</span>
-                        {r.available_day !== undefined && r.available_day !== r.available && (
-                          <span className="text-white/60"> · day {r.available_day}</span>
+                        {(r.available_after_evening ?? 0) > 0 && (
+                          <span className="text-white/60"> · +{r.available_after_evening} pm</span>
                         )}
                       </span>
                     </div>

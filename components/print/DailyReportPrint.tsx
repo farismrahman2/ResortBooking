@@ -61,6 +61,19 @@ export function DailyReportPrint({ date, lang, rows, free }: Props) {
   )
   const totalPeople = totals.adults + totals.children + totals.drivers
 
+  // Daylong guests who hold no room at all (bookings/segments whose rooms
+  // sum to zero units) — so the summary shows how many day guests are on
+  // the property beyond what the room columns account for.
+  const noRoom = listing.reduce(
+    (acc, r) => {
+      if (r.package_type !== 'daylong') return acc
+      const units = r.rooms.reduce((s, room) => s + (room.qty ?? 0), 0)
+      if (units > 0) return acc
+      return { bookings: acc.bookings + 1, guests: acc.guests + r.adults + r.children_paid + r.children_free }
+    },
+    { bookings: 0, guests: 0 },
+  )
+
   return (
     <div className="mx-auto max-w-5xl px-6 py-8 text-gray-900">
       {/* Print-only CSS: A4 margins + hide the toolbar */}
@@ -142,6 +155,12 @@ export function DailyReportPrint({ date, lang, rows, free }: Props) {
             <td className="center">{t.total}</td>
             <td colSpan={3} className="center">
               {renderTotals(totalPeople, totals, lang, t)}
+              {noRoom.bookings > 0 && (
+                <div style={{ marginTop: 2 }}>
+                  {t.no_room_daylong}: {fmtNum(noRoom.guests, lang)} {t.adults_short}
+                  {' '}({fmtNum(noRoom.bookings, lang)} {t.bookings_short})
+                </div>
+              )}
             </td>
           </tr>
         </tbody>
