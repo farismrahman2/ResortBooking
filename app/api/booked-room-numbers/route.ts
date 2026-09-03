@@ -14,13 +14,14 @@ export async function GET(req: NextRequest) {
   const visitDate    = req.nextUrl.searchParams.get('visitDate')
   const checkOutDate = req.nextUrl.searchParams.get('checkOutDate') || null
   const excludeId    = req.nextUrl.searchParams.get('excludeId')    || undefined
+  const excludeQuoteId = req.nextUrl.searchParams.get('excludeQuoteId') || undefined
 
   if (!visitDate || !/^\d{4}-\d{2}-\d{2}$/.test(visitDate)) {
     return NextResponse.json({ error: 'Invalid or missing ?visitDate=YYYY-MM-DD' }, { status: 400 })
   }
 
   try {
-    const b = await getRoomNumberBuckets(visitDate, checkOutDate, excludeId)
+    const b = await getRoomNumberBuckets(visitDate, checkOutDate, excludeId, excludeQuoteId)
     return NextResponse.json({
       takenRoomNumbers:        b.taken,
       noonRoomNumbers:         b.noon,

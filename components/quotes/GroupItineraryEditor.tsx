@@ -24,6 +24,8 @@ interface Props {
   dayPackage:   PackageWithPrices | null
   /** Booking being edited — its own rooms must not read as taken. */
   excludeBookingId?: string
+  /** Quote being edited — likewise. */
+  excludeQuoteId?: string
   error?: string | null
   /** "6:00 PM" — the evening handover time, for labels. */
   handoverLabel?: string
@@ -49,7 +51,7 @@ const blankSegment = (day_date: string, stay_kind: StayKind): GroupSegment => ({
  * nights: it appears in three overnight blocks.
  */
 export function GroupItineraryEditor({
-  value, onChange, rooms, nightPackage, dayPackage, excludeBookingId, error, handoverLabel = '6:00 PM',
+  value, onChange, rooms, nightPackage, dayPackage, excludeBookingId, excludeQuoteId, error, handoverLabel = '6:00 PM',
 }: Props) {
   const segments = useMemo(() => sortSegments(value), [value])
   const dates    = useMemo(() => distinctDates(segments), [segments])
@@ -70,6 +72,7 @@ export function GroupItineraryEditor({
       if (bucketsByDate[date]) continue
       const base = new URLSearchParams({ visitDate: date })
       if (excludeBookingId) base.set('excludeId', excludeBookingId)
+      if (excludeQuoteId)   base.set('excludeQuoteId', excludeQuoteId)
       const nightParams = new URLSearchParams(base); nightParams.set('checkOutDate', addDaysIso(date, 1))
       Promise.all([
         fetch(`/api/booked-room-numbers?${nightParams}`).then((r) => r.json()),
@@ -83,7 +86,7 @@ export function GroupItineraryEditor({
     }
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dates.join(','), excludeBookingId])
+  }, [dates.join(','), excludeBookingId, excludeQuoteId])
 
   const get = (date: string, kind: StayKind) =>
     segments.find((s) => s.day_date === date && s.stay_kind === kind) ?? null

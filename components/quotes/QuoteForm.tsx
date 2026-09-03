@@ -337,6 +337,8 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
     if (!visitDate) { setBookedRoomNumbers([]); setNoonRoomNumbers([]); return }
     const params = new URLSearchParams({ visitDate })
     if (checkOutDate) params.set('checkOutDate', checkOutDate)
+    // Editing a confirmed quote: its own rooms are not "taken by someone else".
+    if (quoteId) params.set('excludeQuoteId', quoteId)
     fetch(`/api/booked-room-numbers?${params}`)
       .then((r) => r.json())
       .then((d) => {
@@ -346,7 +348,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
         setUntilEveningRoomNumbers(d.untilEveningRoomNumbers ?? [])
       })
       .catch(() => { setBookedRoomNumbers([]); setNoonRoomNumbers([]); setEveningOnlyRoomNumbers([]); setUntilEveningRoomNumbers([]) })
-  }, [visitDate, checkOutDate])
+  }, [visitDate, checkOutDate, quoteId])
 
 
   // Helper: build comp room selections for submission
@@ -596,6 +598,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
             )}
             <GroupItineraryEditor
               handoverLabel={handoverLabel}
+              excludeQuoteId={quoteId}
               value={days}
               onChange={(next) => setValue('days', next.map((d) => ({
                 ...d, notes: d.notes ?? null,

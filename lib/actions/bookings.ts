@@ -92,7 +92,7 @@ export async function convertQuoteToBooking(
       }
       const cap = await checkGroupAvailabilityConflict(groupDays, { excludeQuoteId: quoteId })
       if (cap) return { success: false, error: `Cannot convert: ${cap}` }
-      const clashes = await findGroupRoomNumberConflicts(groupDays)
+      const clashes = await findGroupRoomNumberConflicts(groupDays, undefined, quoteId)
       if (clashes.length > 0) {
         const unique = Array.from(new Set(clashes.map((c) => c.room)))
         return {
@@ -137,7 +137,7 @@ export async function convertQuoteToBooking(
     // claimed by another booking that confirmed first. A room the quote hands
     // over in the evening only needs its night free.
     const conflictingNumbers = await findRoomNumberConflicts(
-      requestedRoomQtys, quote.visit_date, quote.check_out_date,
+      requestedRoomQtys, quote.visit_date, quote.check_out_date, undefined, quoteId,
     )
     if (conflictingNumbers.length > 0) {
       const unique = Array.from(new Set(conflictingNumbers))

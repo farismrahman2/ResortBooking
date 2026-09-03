@@ -272,11 +272,15 @@ export async function getRoomNumberBuckets(
   visitDate:        string,
   checkOutDate:     string | null,
   excludeBookingId?: string,
+  /** The quote being edited or converted. Confirmed quotes hold their room
+   *  numbers, so without this a quote reads its own rooms as taken and
+   *  refuses to convert — "booked by someone else", by itself. */
+  excludeQuoteId?:   string,
 ): Promise<RoomNumberBuckets> {
   const kind  = checkOutDate ? 'night' : 'daylong'
   const dates = datesOf(visitDate, checkOutDate)
   // One day earlier so stays checking out on visitDate are seen (noon rule).
-  const stays = await fetchStays(addDaysIso(visitDate, -1), checkOutDate ?? addDaysIso(visitDate, 1), { excludeBookingId })
+  const stays = await fetchStays(addDaysIso(visitDate, -1), checkOutDate ?? addDaysIso(visitDate, 1), { excludeBookingId, excludeQuoteId })
 
   if (kind === 'daylong') {
     const b = roomNumberBuckets(occupancyFor(stays, visitDate), 'daylong')
@@ -324,8 +328,9 @@ export async function findRoomNumberConflicts(
   visitDate: string,
   checkOutDate: string | null,
   excludeBookingId?: string,
+  excludeQuoteId?: string,
 ): Promise<string[]> {
-  const b = await getRoomNumberBuckets(visitDate, checkOutDate, excludeBookingId)
+  const b = await getRoomNumberBuckets(visitDate, checkOutDate, excludeBookingId, excludeQuoteId)
   const taken = new Set(b.taken), eveningOnly = new Set(b.eveningOnly)
   const out: string[] = []
   for (const r of rooms) {
@@ -466,6 +471,7 @@ export async function checkGroupAvailabilityConflict(
 export async function findGroupRoomNumberConflicts(
   segments: GroupSegment[],
   excludeBookingId?: string,
+  excludeQuoteId?: string,
 ): Promise<Array<{ date: string; room: string }>> {
   const out: Array<{ date: string; room: string }> = []
   for (const date of distinctDates(segments)) {
@@ -473,7 +479,7 @@ export async function findGroupRoomNumberConflicts(
       if (seg.day_date !== date || seg.rooms.length === 0) continue
       const { kind, rooms } = segmentRequest(seg)
       const clashes = await findRoomNumberConflicts(
-        rooms, date, kind === 'night' ? addDaysIso(date, 1) : null, excludeBookingId,
+        rooms, date, kind === 'night' ? addDaysIso(date, 1) : null, excludeBookingId, excludeQuoteId,
       )
       for (const room of clashes) out.push({ date, room })
     }
