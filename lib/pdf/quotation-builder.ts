@@ -1,4 +1,5 @@
 import type { QuoteWithRooms, BookingWithRooms, SettingsMap, RoomInventoryRow, QuoteRow, BookingRow } from '@/lib/supabase/types'
+import { to12Hour } from '@/lib/formatters/whatsapp'
 import { formatDate } from '@/lib/formatters/dates'
 import type { QuotationPdfInput } from './quotation'
 
@@ -38,6 +39,7 @@ export function buildQuotationPdfInput(args: {
       unit_price,
       nights:       isNight ? Number(source.nights ?? 1) : null,
       room_numbers: r.room_numbers ?? null,
+      evening_rooms: r.evening_rooms ?? null,
     }
   })
 
@@ -71,6 +73,7 @@ export function buildQuotationPdfInput(args: {
     childrenFree:  Number(source.children_free ?? 0),
     drivers:       Number(source.drivers ?? 0),
     rooms,
+    handoverLabel:  to12Hour(settings['evening_handover_time'] ?? '18:00'),
     lineItems,
     subtotal:        Number(source.subtotal ?? 0),
     discount:        Number(source.discount ?? 0),

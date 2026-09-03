@@ -59,7 +59,11 @@ export interface QuotationPdfInput {
     unit_price:   number
     nights:       number | null
     room_numbers?: string[] | null
+    /** Handed over at the evening handover time on the check-in day. */
+    evening_rooms?: string[] | null
   }>
+  /** "6:00 PM" — when evening-handover rooms are given to the guests. */
+  handoverLabel?: string
   lineItems: Array<{
     label:      string
     qty:        number
@@ -141,16 +145,34 @@ export function QuotationPdfDocument(p: QuotationPdfInput) {
             const right = isComp
               ? 'Complimentary'
               : `${r.qty} × ${bdt(r.unit_price)}${nightFactor} = ${bdt(subtotal)}`
+            const evening = (r.evening_rooms ?? []).filter((n) => (r.room_numbers ?? []).includes(n))
+            const numbers = (r.room_numbers ?? []).map((n) => (evening.includes(n) ? `${n} from ${p.handoverLabel ?? '6:00 PM'}` : n))
             return (
               <View key={i} style={styles.inline}>
                 <Text style={styles.inlineLabel}>
                   {r.display_name} × {r.qty}
-                  {r.room_numbers && r.room_numbers.length > 0 ? ` (${r.room_numbers.join(', ')})` : ''}
+                  {numbers.length > 0 ? ` (${numbers.join(', ')})` : ''}
                 </Text>
                 <Text style={styles.inlineValue}>{right}</Text>
               </View>
             )
           })}
+          {(() => {
+            // Which rooms the guests get on arrival and which in the evening,
+            // stated once and plainly — the same block the WhatsApp message has.
+            const evening = p.rooms.flatMap((r) => (r.evening_rooms ?? []).filter((n) => (r.room_numbers ?? []).includes(n)))
+            if (evening.length === 0) return null
+            const arrival = p.rooms.flatMap((r) => (r.room_numbers ?? []).filter((n) => !(r.evening_rooms ?? []).includes(n)))
+            return (
+              <View style={{ marginTop: 6, paddingTop: 6, borderTopWidth: 0.5, borderTopColor: '#d1d5db' }}>
+                <Text style={[styles.small, { fontWeight: 'bold' }]}>Room handover</Text>
+                {arrival.length > 0 && <Text style={styles.small}>On arrival: {arrival.join(', ')}</Text>}
+                <Text style={styles.small}>
+                  From {p.handoverLabel ?? '6:00 PM'}: {evening.join(', ')} (after the day's guests leave)
+                </Text>
+              </View>
+            )
+          })()}
         </View>
 
         {/* Pricing breakdown */}
