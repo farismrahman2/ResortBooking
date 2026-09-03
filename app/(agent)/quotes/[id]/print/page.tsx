@@ -21,6 +21,16 @@ export default async function QuotePrintPage({ params }: PrintPageProps) {
     <>
       {/* Hide sidebar and topbar when printing */}
       <style>{`
+        /* Chrome remembers the last print job's layout, so a report printed
+           landscape leaves the next quotation coming out sideways and shrunk.
+           Pin the orientation. A zero page margin also stops Chrome adding its
+           own date / URL header and footer; the wrapper carries the real margin.
+           No fixed paper size — forcing A4 against a phone's Letter default
+           produced blank pages elsewhere. */
+        @page {
+          size: portrait;
+          margin: 0;
+        }
         @media print {
           /* Hide everything outside the print layout */
           nav, aside, header, .sidebar, [data-sidebar], [data-topbar] {
@@ -30,7 +40,7 @@ export default async function QuotePrintPage({ params }: PrintPageProps) {
             background: white !important;
           }
           .print-page-wrapper {
-            padding: 0 !important;
+            padding: 10mm 12mm !important;
           }
         }
       `}</style>
