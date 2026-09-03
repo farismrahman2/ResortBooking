@@ -1,280 +1,344 @@
 import { createClient } from '@/lib/supabase/server'
-import { checkRoomAvailability } from '@/lib/engine/availability'
-import { nextDay } from '@/lib/config/rooms'
 import { addDaysIso } from '@/lib/dates'
 import {
-  distinctDates, roomsRequestedOnDate, roomNumbersOnDate, type GroupSegment,
-} from '@/lib/bookings/group-itinerary'
+  occupancyOnDate, findHalvesConflict, availabilityByHalves, roomNumberBuckets,
+  type StayLike, type OccupancyRecord, type RequestedRoom,
+} from '@/lib/engine/halves'
+import { distinctDates, type GroupSegment } from '@/lib/bookings/group-itinerary'
 import type { AvailabilityResult, RoomInventoryRow, RoomType } from '@/lib/supabase/types'
-import type { OccupiedRoom } from '@/lib/engine/availability'
 
-// ─── Shared availability conflict check ──────────────────────────────────────
+export type { RequestedRoom } from '@/lib/engine/halves'
 
 /**
- * Check if requested rooms are available across every night in [visitDate, checkOutDate).
- * For daylong, only checks the single visit date.
- * Optionally excludes a booking from the occupancy count (for date-change scenarios).
- * Optionally excludes a quote (for re-checking at conversion time, where the quote
- * being converted shouldn't conflict with itself).
- * Returns a human-readable conflict message, or null if all clear.
+ * AVAILABILITY — the database side of lib/engine/halves.ts.
+ *
+ * Every question ("can this quote have these rooms?", "what is free on the
+ * 10th?", "which room numbers can the picker offer?") is answered the same
+ * way: fetch every stay that touches the dates, turn each into what it
+ * occupies per date split into DAY and NIGHT halves, and ask the pure engine.
+ * A room handed over at 6 PM occupies the night only, so its day can still be
+ * sold; a daylong occupies the day only, so its night still can. One model,
+ * one fetch shape, no special cases downstream.
+ *
+ * Sources: booking_rooms, confirmed-but-unconverted quote_rooms, and group
+ * itinerary segments (each one night or one day). Cancelled and no-show
+ * bookings occupy nothing — the room is back on the market.
  */
-export async function checkAvailabilityConflict(
-  visitDate: string,
-  checkOutDate: string | null,
-  requestedRooms: { room_type: string; qty: number }[],
-  excludeBookingId?: string,
-  excludeQuoteId?: string,
-): Promise<string | null> {
-  const supabase = createClient()
+
+// ─── Fetching stays ──────────────────────────────────────────────────────────
+
+interface FetchOpts { excludeBookingId?: string; excludeQuoteId?: string }
+
+/**
+ * Every stay overlapping [rangeStart, rangeEnd), as StayLike records.
+ *
+ * Bounded fetches: without the overlap predicate this used to match every
+ * historical row, and past PostgREST's 1000-row cap current bookings silently
+ * fell out of the occupancy sum — the capacity guard approved overbookings.
+ */
+async function fetchStays(rangeStart: string, rangeEnd: string, opts: FetchOpts = {}): Promise<StayLike[]> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db = supabase as any
+  const db = createClient() as any
+  const overlapOr = `check_out_date.gt.${rangeStart},and(check_out_date.is.null,visit_date.gte.${rangeStart})`
 
-  // Build list of dates to check
-  const dates: string[] = []
-  if (!checkOutDate) {
-    dates.push(visitDate)
-  } else {
-    const cur = new Date(visitDate + 'T00:00:00')
-    const end = new Date(checkOutDate + 'T00:00:00')
-    while (cur < end) {
-      dates.push(cur.toISOString().slice(0, 10))
-      cur.setDate(cur.getDate() + 1)
-    }
-  }
-
-  // One bounded fetch for the whole [rangeStart, rangeEnd) window, then per-date
-  // sums in memory. This used to run two queries per night with only an upper
-  // date bound — every historical row matched, and past PostgREST's 1000-row
-  // response cap current bookings silently fell out of the occupancy sum, so
-  // the capacity guard approved overbookings.
-  //
-  // A booking blocks [visit_date, check_out_date), or just visit_date when
-  // check_out_date is null (daylong). It overlaps the window iff
-  // visit_date < rangeEnd AND (check_out_date > rangeStart OR
-  // (check_out_date IS NULL AND visit_date >= rangeStart)).
-  const rangeStart = visitDate
-  const rangeEnd   = checkOutDate ?? nextDay(visitDate)
-  const overlapOr  = `check_out_date.gt.${rangeStart},and(check_out_date.is.null,visit_date.gte.${rangeStart})`
-
-  let bookingQuery = db
+  let bookingQ = db
     .from('booking_rooms')
-    .select('room_type, qty, bookings!inner(id, visit_date, check_out_date, status)')
+    .select('room_type, qty, room_numbers, evening_rooms, bookings!inner(id, package_type, visit_date, check_out_date, status)')
     .lt('bookings.visit_date', rangeEnd)
     .or(overlapOr, { foreignTable: 'bookings' })
     .neq('bookings.status', 'cancelled')
+  if (opts.excludeBookingId) bookingQ = bookingQ.neq('bookings.id', opts.excludeBookingId)
 
-  if (excludeBookingId) {
-    bookingQuery = bookingQuery.neq('bookings.id', excludeBookingId)
-  }
-
-  let quoteQuery = db
+  let quoteQ = db
     .from('quote_rooms')
-    .select('room_type, qty, quotes!inner(id, visit_date, check_out_date, status, converted_to_booking_id)')
+    .select('room_type, qty, room_numbers, evening_rooms, quotes!inner(id, package_type, visit_date, check_out_date, status, converted_to_booking_id)')
     .lt('quotes.visit_date', rangeEnd)
     .or(overlapOr, { foreignTable: 'quotes' })
     .eq('quotes.status', 'confirmed')
     .is('quotes.converted_to_booking_id', null)
+  if (opts.excludeQuoteId) quoteQ = quoteQ.neq('quotes.id', opts.excludeQuoteId)
 
-  if (excludeQuoteId) {
-    quoteQuery = quoteQuery.neq('quotes.id', excludeQuoteId)
-  }
-
-  // Group itineraries keep their rooms in booking_days / quote_days, one row
-  // per date, so they are fetched by exact date rather than by range overlap.
-  // Status is re-checked in JS below, as it is for the range rows.
-  let dayRoomQuery = db
+  // Group itineraries keep their rooms one row per date.
+  let dayQ = db
     .from('booking_day_rooms')
-    .select('room_type, qty, booking_days!inner(day_date, booking_id, bookings!inner(status))')
-    .gte('booking_days.day_date', rangeStart)
+    .select('room_type, qty, room_numbers, evening_rooms, booking_days!inner(day_date, stay_kind, booking_id, bookings!inner(status))')
+    .gte('booking_days.day_date', addDaysIso(rangeStart, -1))   // a night segment the day before still covers the night
     .lt('booking_days.day_date', rangeEnd)
-  if (excludeBookingId) dayRoomQuery = dayRoomQuery.neq('booking_days.booking_id', excludeBookingId)
+  if (opts.excludeBookingId) dayQ = dayQ.neq('booking_days.booking_id', opts.excludeBookingId)
 
-  let quoteDayRoomQuery = db
+  let quoteDayQ = db
     .from('quote_day_rooms')
-    .select('room_type, qty, quote_days!inner(day_date, quote_id, quotes!inner(status, converted_to_booking_id))')
-    .gte('quote_days.day_date', rangeStart)
+    .select('room_type, qty, room_numbers, evening_rooms, quote_days!inner(day_date, stay_kind, quote_id, quotes!inner(status, converted_to_booking_id))')
+    .gte('quote_days.day_date', addDaysIso(rangeStart, -1))
     .lt('quote_days.day_date', rangeEnd)
-  if (excludeQuoteId) quoteDayRoomQuery = quoteDayRoomQuery.neq('quote_days.quote_id', excludeQuoteId)
+  if (opts.excludeQuoteId) quoteDayQ = quoteDayQ.neq('quote_days.quote_id', opts.excludeQuoteId)
 
-  const [
-    { data: inventory }, { data: bookingOccupied }, { data: quoteOccupied },
-    { data: dayRoomOccupied }, { data: quoteDayRoomOccupied },
-  ] = await Promise.all([
-    db.from('room_inventory').select('room_type, total_units'),
-    bookingQuery,
-    quoteQuery,
-    dayRoomQuery,
-    quoteDayRoomQuery,
-  ])
+  const [{ data: br }, { data: qr }, { data: bdr }, { data: qdr }] =
+    await Promise.all([bookingQ, quoteQ, dayQ, quoteDayQ])
 
-  for (const date of dates) {
-    // Sum occupied units per room type on this date
-    const occupied = new Map<string, number>()
-    for (const row of bookingOccupied ?? []) {
-      const b = (row as any).bookings
-      // Defensive guard: the embedded .neq('bookings.status', 'cancelled')
-      // filter doesn't reliably cascade to the parent rows under !inner in
-      // every PostgREST version, so cancelled bookings can slip through.
-      // no_show frees the room same as cancelled — the advance was paid but
-      // the guest never arrived, so the inventory is back on the market.
-      if (!b || b.status === 'cancelled' || b.status === 'no_show') continue
-      // visit_date <= date used to be guaranteed by the (per-date) query; now
-      // the fetch spans the whole window, so it must be checked here.
-      const blocks = b.visit_date <= date
-        && (b.check_out_date ? b.check_out_date > date : b.visit_date === date)
-      if (blocks) {
-        occupied.set(row.room_type, (occupied.get(row.room_type) ?? 0) + row.qty)
-      }
-    }
-    for (const row of quoteOccupied ?? []) {
-      const q = (row as any).quotes
-      // Same defensive guard as bookings — only confirmed, unconverted quotes block.
-      if (!q || q.status !== 'confirmed' || q.converted_to_booking_id) continue
-      const blocks = q.visit_date <= date
-        && (q.check_out_date ? q.check_out_date > date : q.visit_date === date)
-      if (blocks) {
-        occupied.set(row.room_type, (occupied.get(row.room_type) ?? 0) + row.qty)
-      }
-    }
-    for (const row of (dayRoomOccupied ?? []) as any[]) {
-      const d = row.booking_days
-      const b = d?.bookings
-      if (!d || !b || b.status === 'cancelled' || b.status === 'no_show') continue
-      if (d.day_date !== date) continue
-      occupied.set(row.room_type, (occupied.get(row.room_type) ?? 0) + row.qty)
-    }
-    for (const row of (quoteDayRoomOccupied ?? []) as any[]) {
-      const d = row.quote_days
-      const q = d?.quotes
-      if (!d || !q || q.status !== 'confirmed' || q.converted_to_booking_id) continue
-      if (d.day_date !== date) continue
-      occupied.set(row.room_type, (occupied.get(row.room_type) ?? 0) + row.qty)
-    }
+  const stays: StayLike[] = []
+  const room = (r: any) => ({   // eslint-disable-line @typescript-eslint/no-explicit-any
+    room_type: r.room_type as string, qty: Number(r.qty ?? 0),
+    room_numbers: (r.room_numbers ?? []) as string[], evening_rooms: (r.evening_rooms ?? []) as string[],
+  })
+  const kindOf = (t: string): 'daylong' | 'night' | null =>
+    t === 'daylong' ? 'daylong' : t === 'night' ? 'night' : null
 
-    // Check each requested room
-    for (const req of requestedRooms) {
-      const totalUnits = (inventory ?? []).find((r: any) => r.room_type === req.room_type)?.total_units ?? 0
-      const alreadyBooked = occupied.get(req.room_type) ?? 0
-      const available = totalUnits - alreadyBooked
-      if (req.qty > available) {
-        return `${req.room_type.replace(/_/g, ' ')} is unavailable on ${date} (${available} of ${totalUnits} remaining, ${req.qty} requested)`
-      }
-    }
+  // Status is re-checked here: the embedded filter doesn't reliably cascade to
+  // parent rows under !inner in every PostgREST version.
+  for (const r of (br ?? []) as any[]) {   // eslint-disable-line @typescript-eslint/no-explicit-any
+    const b = r.bookings
+    if (!b || b.status === 'cancelled' || b.status === 'no_show') continue
+    const kind = kindOf(b.package_type); if (!kind) continue
+    stays.push({ package_type: kind, visit_date: b.visit_date, check_out_date: b.check_out_date, rooms: [room(r)] })
   }
+  for (const r of (qr ?? []) as any[]) {   // eslint-disable-line @typescript-eslint/no-explicit-any
+    const q = r.quotes
+    if (!q || q.status !== 'confirmed' || q.converted_to_booking_id) continue
+    const kind = kindOf(q.package_type); if (!kind) continue
+    stays.push({ package_type: kind, visit_date: q.visit_date, check_out_date: q.check_out_date, rooms: [room(r)] })
+  }
+  const segment = (d: any, r: any): StayLike | null => {   // eslint-disable-line @typescript-eslint/no-explicit-any
+    if (!d) return null
+    return d.stay_kind === 'night'
+      ? { package_type: 'night',   visit_date: d.day_date, check_out_date: addDaysIso(d.day_date, 1), rooms: [room(r)] }
+      : { package_type: 'daylong', visit_date: d.day_date, check_out_date: null, rooms: [room(r)] }
+  }
+  for (const r of (bdr ?? []) as any[]) {   // eslint-disable-line @typescript-eslint/no-explicit-any
+    const b = r.booking_days?.bookings
+    if (!b || b.status === 'cancelled' || b.status === 'no_show') continue
+    const s = segment(r.booking_days, r); if (s) stays.push(s)
+  }
+  for (const r of (qdr ?? []) as any[]) {   // eslint-disable-line @typescript-eslint/no-explicit-any
+    const q = r.quote_days?.quotes
+    if (!q || q.status !== 'confirmed' || q.converted_to_booking_id) continue
+    const s = segment(r.quote_days, r); if (s) stays.push(s)
+  }
+  return stays
+}
 
+function occupancyFor(stays: StayLike[], date: string): OccupancyRecord[] {
+  return stays.flatMap((s) => occupancyOnDate(s, date))
+}
+
+async function inventoryTotals(): Promise<Map<string, number>> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = createClient() as any
+  const { data } = await db.from('room_inventory').select('room_type, total_units')
+  return new Map(((data ?? []) as Array<{ room_type: string; total_units: number }>)
+    .map((r) => [r.room_type, Number(r.total_units ?? 0)]))
+}
+
+function datesOf(visitDate: string, checkOutDate: string | null): string[] {
+  if (!checkOutDate) return [visitDate]
+  const out: string[] = []
+  for (let d = visitDate; d < checkOutDate; d = addDaysIso(d, 1)) out.push(d)
+  return out
+}
+
+// ─── Capacity check ──────────────────────────────────────────────────────────
+
+/**
+ * Can these rooms be had on every date of [visitDate, checkOutDate) — or on
+ * visitDate alone for a daylong (checkOutDate null)? Room numbers and
+ * evening_rooms on the request make the check exact; without them it is a
+ * per-type count. Returns a human-readable conflict, or null.
+ */
+export async function checkAvailabilityConflict(
+  visitDate: string,
+  checkOutDate: string | null,
+  requestedRooms: RequestedRoom[],
+  excludeBookingId?: string,
+  excludeQuoteId?: string,
+): Promise<string | null> {
+  if (requestedRooms.every((r) => r.qty <= 0)) return null
+  const dates = datesOf(visitDate, checkOutDate)
+  const [inventory, stays] = await Promise.all([
+    inventoryTotals(),
+    fetchStays(visitDate, checkOutDate ?? addDaysIso(visitDate, 1), { excludeBookingId, excludeQuoteId }),
+  ])
+  const kind = checkOutDate ? 'night' : 'daylong'
+  for (const date of dates) {
+    const conflict = findHalvesConflict(inventory, occupancyFor(stays, date), requestedRooms, kind, date === visitDate, date)
+    if (conflict) return conflict
+  }
   return null
 }
 
-/** Get room availability for a single date */
+// ─── Per-date availability (grid, API) ───────────────────────────────────────
+
+function toResults(
+  inventory: RoomInventoryRow[],
+  occupancy: OccupancyRecord[],
+  packageType?: 'daylong' | 'night',
+): AvailabilityResult[] {
+  const halves = new Map(availabilityByHalves(inventory, occupancy).map((h) => [h.room_type, h]))
+  return [...inventory]
+    .sort((a, b) => a.display_order - b.display_order)
+    // Daylong-only rooms aren't for night stays.
+    .filter((r) => !(packageType === 'night' && r.daylong_only))
+    .map((r) => {
+      const h = halves.get(r.room_type)!
+      // "All" reads the night half — the stricter of the two, and what a
+      // reservation desk means by "is the room free"; both halves are carried.
+      const useDay = packageType === 'daylong'
+      return {
+        room_type:       r.room_type,
+        display_name:    r.display_name,
+        total_units:     r.total_units,
+        booked:          useDay ? h.booked_day : h.booked_night,
+        available:       useDay ? h.available_day : h.available_night,
+        booked_day:      h.booked_day,
+        available_day:   h.available_day,
+        booked_night:    h.booked_night,
+        available_night: h.available_night,
+        daylong_only:    r.daylong_only,
+      }
+    })
+}
+
+/** Room availability for a single date, both halves. */
 export async function getRoomAvailability(
-  date: string,   // ISO date
+  date: string,
   inventory: RoomInventoryRow[],
   packageType?: 'daylong' | 'night',
 ): Promise<AvailabilityResult[]> {
-  const supabase = createClient()
-
-  // Overlap bound pushed to SQL: without the .or() the only predicate was
-  // visit_date <= date, which matches every historical row and silently
-  // truncates at PostgREST's 1000-row cap once the resort has enough history.
-  const dayOverlapOr = `check_out_date.gt.${date},and(check_out_date.is.null,visit_date.eq.${date})`
-
-  const [{ data: bookingOccupied }, { data: quoteOccupied }, { data: dayRooms }, { data: quoteDayRooms }] = await Promise.all([
-    supabase
-      .from('booking_rooms')
-      .select('room_type, qty, bookings!inner(visit_date, check_out_date, status)')
-      .filter('bookings.visit_date', 'lte', date)
-      .or(dayOverlapOr, { foreignTable: 'bookings' })
-      .filter('bookings.status', 'neq', 'cancelled'),
-    // Confirmed quotes that overlap, excluding ones already converted to a
-    // booking (they'd be double-counted).
-    supabase
-      .from('quote_rooms')
-      .select('room_type, qty, quotes!inner(visit_date, check_out_date, status, converted_to_booking_id)')
-      .filter('quotes.visit_date', 'lte', date)
-      .or(dayOverlapOr, { foreignTable: 'quotes' })
-      .eq('quotes.status', 'confirmed')
-      .is('quotes.converted_to_booking_id', null),
-    // Group itineraries — rooms on exactly this date.
-    (supabase as any)
-      .from('booking_day_rooms')
-      .select('room_type, qty, booking_days!inner(day_date, bookings!inner(status))')
-      .eq('booking_days.day_date', date),
-    (supabase as any)
-      .from('quote_day_rooms')
-      .select('room_type, qty, quote_days!inner(day_date, quotes!inner(status, converted_to_booking_id))')
-      .eq('quote_days.day_date', date),
-  ])
-
-  // Merge and filter by actual date overlap
-  const occupied: OccupiedRoom[] = []
-
-  for (const row of bookingOccupied ?? []) {
-    const booking = (row as any).bookings
-    if (!booking || booking.status === 'cancelled' || booking.status === 'no_show') continue
-    const checkOut = booking.check_out_date ?? booking.visit_date
-    // Inclusive of visit_date, exclusive of check_out_date
-    if (booking.visit_date <= date && (booking.check_out_date ? booking.check_out_date > date : booking.visit_date === date)) {
-      occupied.push({ room_type: row.room_type as RoomType, qty_booked: row.qty })
-    }
-  }
-
-  for (const row of quoteOccupied ?? []) {
-    const quote = (row as any).quotes
-    if (quote.visit_date <= date && (quote.check_out_date ? quote.check_out_date > date : quote.visit_date === date)) {
-      occupied.push({ room_type: row.room_type as RoomType, qty_booked: row.qty })
-    }
-  }
-  for (const row of (dayRooms ?? []) as any[]) {
-    const b = row.booking_days?.bookings
-    if (!b || b.status === 'cancelled' || b.status === 'no_show') continue
-    occupied.push({ room_type: row.room_type as RoomType, qty_booked: row.qty })
-  }
-  for (const row of (quoteDayRooms ?? []) as any[]) {
-    const q = row.quote_days?.quotes
-    if (!q || q.status !== 'confirmed' || q.converted_to_booking_id) continue
-    occupied.push({ room_type: row.room_type as RoomType, qty_booked: row.qty })
-  }
-
-  return checkRoomAvailability(inventory, occupied, packageType)
+  const stays = await fetchStays(date, addDaysIso(date, 1))
+  return toResults(inventory, occupancyFor(stays, date), packageType)
 }
 
-/** Get availability for a date range using the Supabase RPC */
+/** Availability over a range, from the SQL function the calendar uses. */
 export async function getAvailabilityRange(
-  from: string,   // ISO date
-  to: string,     // ISO date
+  from: string,
+  to: string,
   inventory: RoomInventoryRow[],
+  packageType?: 'daylong' | 'night',
 ): Promise<Map<string, AvailabilityResult[]>> {
   const supabase = createClient()
-
-  const { data, error } = await supabase.rpc('get_availability_range', {
-    p_from: from,
-    p_to: to,
-  })
-
+  const { data, error } = await supabase.rpc('get_availability_range', { p_from: from, p_to: to })
   if (error) {
     console.error('get_availability_range RPC error:', error)
-    // Fall back to single-date queries
-    const result = new Map<string, AvailabilityResult[]>()
-    return result
+    return new Map()
   }
-
-  // Group by date
-  const byDate = new Map<string, OccupiedRoom[]>()
-  for (const row of data ?? []) {
-    const dateStr = row.check_date
-    const existing = byDate.get(dateStr) ?? []
-    existing.push({ room_type: row.check_room_type, qty_booked: Number(row.qty_booked) })
-    byDate.set(dateStr, existing)
-  }
-
-  // Compute availability for each date
-  const result = new Map<string, AvailabilityResult[]>()
-  for (const [date, occupied] of byDate) {
-    result.set(date, checkRoomAvailability(inventory, occupied))
-  }
-
-  return result
+  return rangeRowsToResults((data ?? []) as any[], inventory, packageType)   // eslint-disable-line @typescript-eslint/no-explicit-any
 }
+
+/** Shared by the query above and the availability API's range path. */
+export function rangeRowsToResults(
+  rows: Array<{ check_date: string; check_room_type: string; qty_day?: number | string; qty_night?: number | string; qty_booked?: number | string }>,
+  inventory: RoomInventoryRow[],
+  packageType?: 'daylong' | 'night',
+): Map<string, AvailabilityResult[]> {
+  const byDate = new Map<string, OccupancyRecord[]>()
+  for (const row of rows) {
+    const date = String(row.check_date)
+    const list = byDate.get(date) ?? []
+    // Older function shape (qty_booked only) is read as "both halves".
+    const day   = Number(row.qty_day   ?? row.qty_booked ?? 0)
+    const night = Number(row.qty_night ?? row.qty_booked ?? 0)
+    const both  = Math.min(day, night)
+    if (both > 0)        list.push({ room_type: row.check_room_type, qty: both,         room_numbers: [], day: true,  night: true })
+    if (day - both > 0)  list.push({ room_type: row.check_room_type, qty: day - both,   room_numbers: [], day: true,  night: false })
+    if (night - both > 0) list.push({ room_type: row.check_room_type, qty: night - both, room_numbers: [], day: false, night: true })
+    byDate.set(date, list)
+  }
+  const out = new Map<string, AvailabilityResult[]>()
+  for (const [date, occ] of byDate) out.set(date, toResults(inventory, occ, packageType))
+  return out
+}
+
+// ─── Room numbers for the pickers ────────────────────────────────────────────
+
+export interface RoomNumberBuckets {
+  /** Cannot be picked at all for this request. */
+  taken:        string[]
+  /** Daylong only: the previous night's guest checks out this morning —
+   *  usable after ~noon. Selectable, with a caveat. */
+  noon:         string[]
+  /** Night only: held by day guests on the check-in day — usable as a room
+   *  handed over in the evening. Selectable as an evening room. */
+  eveningOnly:  string[]
+  /** Daylong only: a night guest arrives this evening — fine for a day
+   *  visit; say so. */
+  untilEvening: string[]
+}
+
+/**
+ * Which physical rooms a request on these dates can have, and on what terms.
+ * Night requests: a room must be free every night, and free by day on every
+ * date after the first; on the first date a day-held room is `eveningOnly`.
+ */
+export async function getRoomNumberBuckets(
+  visitDate:        string,
+  checkOutDate:     string | null,
+  excludeBookingId?: string,
+): Promise<RoomNumberBuckets> {
+  const kind  = checkOutDate ? 'night' : 'daylong'
+  const dates = datesOf(visitDate, checkOutDate)
+  // One day earlier so stays checking out on visitDate are seen (noon rule).
+  const stays = await fetchStays(addDaysIso(visitDate, -1), checkOutDate ?? addDaysIso(visitDate, 1), { excludeBookingId })
+
+  if (kind === 'daylong') {
+    const b = roomNumberBuckets(occupancyFor(stays, visitDate), 'daylong')
+    const takenSet = new Set(b.taken)
+    const noon = new Set<string>()
+    for (const s of stays) {
+      if (s.package_type !== 'night' || s.check_out_date !== visitDate) continue
+      for (const r of s.rooms) for (const n of r.room_numbers) if (!takenSet.has(n)) noon.add(n)
+    }
+    return { taken: b.taken, noon: [...noon], eveningOnly: [], untilEvening: b.untilEvening }
+  }
+
+  const taken = new Set<string>()
+  let eveningOnly: string[] = []
+  dates.forEach((date, i) => {
+    const b = roomNumberBuckets(occupancyFor(stays, date), 'night')
+    for (const n of b.taken) taken.add(n)
+    if (i === 0) eveningOnly = b.eveningOnly
+    else for (const n of b.eveningOnly) taken.add(n)   // day-held on a later date = guest in house = taken
+  })
+  return {
+    taken:        [...taken],
+    noon:         [],
+    eveningOnly:  eveningOnly.filter((n) => !taken.has(n)),
+    untilEvening: [],
+  }
+}
+
+/** Flat "cannot pick" list — kept for callers that only need that. */
+export async function getBookedRoomNumbers(
+  visitDate: string, checkOutDate: string | null, excludeBookingId?: string,
+): Promise<string[]> {
+  return (await getRoomNumberBuckets(visitDate, checkOutDate, excludeBookingId)).taken
+}
+
+/** Same buckets, under the name the room-number API has always used. */
+export const getRoomNumberAvailability = getRoomNumberBuckets
+
+/**
+ * Physical room numbers a request names that it cannot have. Instant rooms
+ * need the room free in both halves; evening rooms need only the night.
+ */
+export async function findRoomNumberConflicts(
+  rooms: RequestedRoom[],
+  visitDate: string,
+  checkOutDate: string | null,
+  excludeBookingId?: string,
+): Promise<string[]> {
+  const b = await getRoomNumberBuckets(visitDate, checkOutDate, excludeBookingId)
+  const taken = new Set(b.taken), eveningOnly = new Set(b.eveningOnly)
+  const out: string[] = []
+  for (const r of rooms) {
+    const evening = new Set(r.evening_rooms ?? [])
+    for (const n of r.room_numbers ?? []) {
+      if (taken.has(n)) { out.push(n); continue }
+      if (checkOutDate && eveningOnly.has(n) && !evening.has(n)) out.push(n)
+    }
+  }
+  return [...new Set(out)]
+}
+
+// ─── Guests on a date ────────────────────────────────────────────────────────
 
 export interface DayGuestCounts {
   bookings:        number
@@ -296,9 +360,8 @@ export interface DayGuestCounts {
  * no-show excluded. Powers the tap-a-date summary on the availability page.
  */
 export async function getGuestsOnDate(date: string): Promise<DayGuestCounts> {
-  const supabase = createClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = supabase as any
+  const sb = createClient() as any
   const [{ data, error }, { data: segs }] = await Promise.all([
     sb.from('bookings')
       .select('package_type, visit_date, check_out_date, status, adults, children_paid, children_free, drivers')
@@ -364,184 +427,58 @@ export async function getGuestsOnDate(date: string): Promise<DayGuestCounts> {
   return out
 }
 
-/**
- * Return all room numbers that are already assigned in other bookings whose date
- * range overlaps [visitDate, checkOutDate). Pass excludeBookingId to exclude the
- * current booking being edited.
- */
-export async function getBookedRoomNumbers(
-  visitDate:        string,
-  checkOutDate:     string | null,
-  excludeBookingId?: string,
-): Promise<string[]> {
-  const supabase = createClient()
-
-  const aStart = visitDate
-  const aEnd   = checkOutDate ?? nextDay(visitDate)
-
-  // The overlap window is pushed into the query. Unbounded, this fetched every
-  // booking_rooms row ever created; past PostgREST's 1000-row cap an active
-  // overlapping booking could silently drop out of the result — and every
-  // room-number conflict guard in the app trusts this list, so the same
-  // physical room could be assigned to two bookings.
-  let query = supabase
-    .from('booking_rooms')
-    .select('room_numbers, bookings!inner(id, visit_date, check_out_date, status)')
-    .lt('bookings.visit_date', aEnd)
-    .or(`check_out_date.gt.${aStart},and(check_out_date.is.null,visit_date.gte.${aStart})`, { foreignTable: 'bookings' })
-    .neq('bookings.status', 'cancelled')
-
-  if (excludeBookingId) {
-    query = query.neq('bookings.id', excludeBookingId)
-  }
-
-  let dayQuery = (supabase as any)
-    .from('booking_day_rooms')
-    .select('room_numbers, booking_days!inner(day_date, booking_id, bookings!inner(status))')
-    .gte('booking_days.day_date', aStart)
-    .lt('booking_days.day_date', aEnd)
-  if (excludeBookingId) dayQuery = dayQuery.neq('booking_days.booking_id', excludeBookingId)
-
-  const [{ data }, { data: dayData }] = await Promise.all([query, dayQuery])
-
-  const taken: string[] = []
-  for (const row of data ?? []) {
-    const b = (row as any).bookings
-    if (!b || b.status === 'cancelled' || b.status === 'no_show') continue
-    const bStart = b.visit_date
-    const bEnd   = b.check_out_date ?? nextDay(b.visit_date)
-    // Overlap check: [aStart, aEnd) ∩ [bStart, bEnd) ≠ ∅
-    if (aStart < bEnd && bStart < aEnd) {
-      taken.push(...((row as any).room_numbers ?? []))
-    }
-  }
-  // Itinerary rooms are already date-bounded by the query.
-  for (const row of (dayData ?? []) as any[]) {
-    const b = row.booking_days?.bookings
-    if (!b || b.status === 'cancelled' || b.status === 'no_show') continue
-    taken.push(...(row.room_numbers ?? []))
-  }
-
-  return taken
-}
-
-/**
- * Room-number availability split into two buckets for the quote/booking UI.
- *
- *  - `taken`: rooms occupied for the whole requested period (render red — not selectable).
- *  - `noon`:  rooms whose previous night guest checks out ON the visit date, so the
- *             room is free only after the ~noon checkout. Daylong visits only
- *             (checkOutDate == null). Render yellow — selectable, with a caveat.
- *
- * `taken` reuses getBookedRoomNumbers so it stays identical to the rest of the app.
- * `noon` additionally considers confirmed (unconverted) quotes, mirroring the
- * /api/room-noon-notice logic.
- */
-export async function getRoomNumberAvailability(
-  visitDate:        string,
-  checkOutDate:     string | null,
-  excludeBookingId?: string,
-): Promise<{ taken: string[]; noon: string[] }> {
-  const taken = await getBookedRoomNumbers(visitDate, checkOutDate, excludeBookingId)
-
-  // Noon turnover only applies to daylong visits. For a night range the previous
-  // guest's same-day checkout is already handled by the exclusive overlap check.
-  if (checkOutDate) return { taken, noon: [] }
-
-  const supabase = createClient()
-  const takenSet = new Set(taken)
-  const noon: string[] = []
-
-  // Night bookings checking out on the visit date — previous guest leaves at noon.
-  let bookingQuery = supabase
-    .from('booking_rooms')
-    .select('room_numbers, bookings!inner(id, check_out_date, status)')
-    .eq('bookings.check_out_date', visitDate)
-    .neq('bookings.status', 'cancelled')
-
-  if (excludeBookingId) {
-    bookingQuery = bookingQuery.neq('bookings.id', excludeBookingId)
-  }
-
-  const { data: bookingRows } = await bookingQuery
-  for (const row of bookingRows ?? []) {
-    const b = (row as any).bookings
-    if (!b || b.status === 'cancelled' || b.status === 'no_show') continue
-    for (const n of (row as any).room_numbers ?? []) {
-      if (!takenSet.has(n)) noon.push(n)
-    }
-  }
-
-  // Confirmed, not-yet-converted quotes checking out on the visit date.
-  const { data: quoteRows } = await supabase
-    .from('quote_rooms')
-    .select('room_numbers, quotes!inner(check_out_date, status, converted_to_booking_id)')
-    .eq('quotes.check_out_date', visitDate)
-    .eq('quotes.status', 'confirmed')
-    .is('quotes.converted_to_booking_id', null)
-
-  for (const row of quoteRows ?? []) {
-    for (const n of (row as any).room_numbers ?? []) {
-      if (!takenSet.has(n)) noon.push(n)
-    }
-  }
-
-  // A group's overnight segment on the previous date checks out of those
-  // rooms this morning — unless the same room is slept in again tonight, in
-  // which case it is already in `taken` and stays red.
-  const prevDate = addDaysIso(visitDate, -1)
-  let groupNight = (supabase as any)
-    .from('booking_day_rooms')
-    .select('room_numbers, booking_days!inner(day_date, stay_kind, booking_id, bookings!inner(status))')
-    .eq('booking_days.day_date', prevDate)
-    .eq('booking_days.stay_kind', 'night')
-  if (excludeBookingId) groupNight = groupNight.neq('booking_days.booking_id', excludeBookingId)
-  const { data: groupRows } = await groupNight
-  for (const row of (groupRows ?? []) as any[]) {
-    const b = row.booking_days?.bookings
-    if (!b || b.status === 'cancelled' || b.status === 'no_show') continue
-    for (const n of row.room_numbers ?? []) if (!takenSet.has(n)) noon.push(n)
-  }
-
-  return { taken, noon: [...new Set(noon)] }
-}
-
 // ─── Group itineraries ───────────────────────────────────────────────────────
 
+/** A segment as the engine sees it: one night (with evening rooms) or one day. */
+function segmentRequest(seg: GroupSegment): { kind: 'daylong' | 'night'; rooms: RequestedRoom[] } {
+  return {
+    kind:  seg.stay_kind === 'night' ? 'night' : 'daylong',
+    rooms: seg.rooms.map((r) => ({
+      room_type: r.room_type, qty: r.qty,
+      room_numbers: r.room_numbers ?? [], evening_rooms: r.evening_rooms ?? [],
+    })),
+  }
+}
+
 /**
- * Capacity check for a whole itinerary: every date is checked on its own,
- * with that date's rooms summed across its overnight and day-guest segments.
- * Returns the first conflict message, or null.
+ * Capacity check for a whole itinerary against everything ELSE on the books,
+ * segment by segment. The validator already keeps the itinerary consistent
+ * with itself (a room slept in on the 5th can only be lent to that day's
+ * day guests as an evening room).
  */
 export async function checkGroupAvailabilityConflict(
   segments: GroupSegment[],
   opts: { excludeBookingId?: string; excludeQuoteId?: string } = {},
 ): Promise<string | null> {
-  for (const date of distinctDates(segments)) {
-    const requested = roomsRequestedOnDate(segments, date)
-    if (requested.length === 0) continue
+  for (const seg of segments) {
+    if (seg.rooms.length === 0) continue
+    const { kind, rooms } = segmentRequest(seg)
     const conflict = await checkAvailabilityConflict(
-      date, null, requested, opts.excludeBookingId, opts.excludeQuoteId,
+      seg.day_date, kind === 'night' ? addDaysIso(seg.day_date, 1) : null, rooms,
+      opts.excludeBookingId, opts.excludeQuoteId,
     )
     if (conflict) return conflict
   }
   return null
 }
 
-/**
- * Physical room numbers the itinerary names that another booking already
- * holds on the same date. Empty when all clear.
- */
+/** Room numbers the itinerary names that another booking already holds. */
 export async function findGroupRoomNumberConflicts(
   segments: GroupSegment[],
   excludeBookingId?: string,
 ): Promise<Array<{ date: string; room: string }>> {
   const out: Array<{ date: string; room: string }> = []
   for (const date of distinctDates(segments)) {
-    const wanted = roomNumbersOnDate(segments, date)
-    if (wanted.length === 0) continue
-    const taken = new Set(await getBookedRoomNumbers(date, null, excludeBookingId))
-    for (const room of wanted) if (taken.has(room)) out.push({ date, room })
+    for (const seg of segments) {
+      if (seg.day_date !== date || seg.rooms.length === 0) continue
+      const { kind, rooms } = segmentRequest(seg)
+      const clashes = await findRoomNumberConflicts(
+        rooms, date, kind === 'night' ? addDaysIso(date, 1) : null, excludeBookingId,
+      )
+      for (const room of clashes) out.push({ date, room })
+    }
   }
   return out
 }
+
+export type { RoomType }

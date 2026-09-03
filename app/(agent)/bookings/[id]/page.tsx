@@ -15,7 +15,7 @@ import { getBookingById } from '@/lib/queries/bookings'
 import { listSalesEmployees } from '@/lib/queries/employees'
 import { getSettings, getHolidayDateStrings, getRoomInventory } from '@/lib/queries/settings'
 import { WhatsAppLink } from '@/components/ui/WhatsAppLink'
-import { getBookedRoomNumbers } from '@/lib/queries/availability'
+import { getRoomNumberBuckets } from '@/lib/queries/availability'
 import { listAdvancePayments } from '@/lib/queries/advance-payments'
 import { listPaymentAccounts } from '@/lib/queries/payment-accounts'
 import { getCheckoutByBooking, getChargesByCheckout } from '@/lib/queries/checkout'
@@ -52,13 +52,14 @@ export default async function BookingDetailPage({ params }: PageProps) {
 
   // Room numbers already taken by OTHER bookings for the same date range,
   // plus the advance instalment ledger (empty until migration 003 runs).
-  const [bookedRoomNumbers, advancePayments, paymentAccounts] = booking
+  const [roomBuckets, advancePayments, paymentAccounts] = booking
     ? await Promise.all([
-        getBookedRoomNumbers(booking.visit_date, booking.check_out_date, params.id),
+        getRoomNumberBuckets(booking.visit_date, booking.check_out_date, params.id),
         listAdvancePayments(params.id).catch(() => []),
         listPaymentAccounts().catch(() => []),
       ])
-    : [[], [], []]
+    : [{ taken: [] as string[], noon: [] as string[], eveningOnly: [] as string[], untilEvening: [] as string[] }, [], []]
+  const bookedRoomNumbers = roomBuckets.taken
 
   if (!booking) notFound()
 
@@ -280,14 +281,20 @@ export default async function BookingDetailPage({ params }: PageProps) {
                         </div>
                         {r.room_numbers && r.room_numbers.length > 0 && (
                           <div className="mt-1.5 flex flex-wrap gap-1">
-                            {r.room_numbers.map((num) => (
-                              <span
-                                key={num}
-                                className="inline-flex items-center rounded bg-forest-100 px-2 py-0.5 text-xs font-mono font-semibold text-forest-700"
-                              >
-                                #{num}
-                              </span>
-                            ))}
+                            {r.room_numbers.map((num) => {
+                              const evening = (r.evening_rooms ?? []).includes(num)
+                              return (
+                                <span
+                                  key={num}
+                                  title={evening ? `Handed over at ${settings['evening_handover_time'] ?? '18:00'}` : undefined}
+                                  className={evening
+                                    ? 'inline-flex items-center gap-1 rounded bg-orange-100 px-2 py-0.5 text-xs font-mono font-semibold text-orange-800'
+                                    : 'inline-flex items-center rounded bg-forest-100 px-2 py-0.5 text-xs font-mono font-semibold text-forest-700'}
+                                >
+                                  #{num}{evening && <span className="font-sans text-[10px] font-medium">from {settings['evening_handover_time'] ?? '18:00'}</span>}
+                                </span>
+                              )
+                            })}
                           </div>
                         )}
                       </div>
@@ -379,7 +386,9 @@ export default async function BookingDetailPage({ params }: PageProps) {
               <CardHeader>
                 <CardTitle>Actions</CardTitle>
               </CardHeader>
-              <BookingActions booking={booking} holidayDates={holidayDates} inventory={inventory} bookedRoomNumbers={bookedRoomNumbers} advancePayments={advancePayments} paymentAccounts={paymentAccounts} />
+              <BookingActions booking={booking} holidayDates={holidayDates} inventory={inventory} bookedRoomNumbers={bookedRoomNumbers}
+          eveningOnlyRoomNumbers={roomBuckets.eveningOnly}
+          handoverTime={settings['evening_handover_time'] ?? '18:00'} advancePayments={advancePayments} paymentAccounts={paymentAccounts} />
             </Card>
           </div>
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { checkAvailabilityConflict, getBookedRoomNumbers } from '@/lib/queries/availability'
+import { checkAvailabilityConflict, findRoomNumberConflicts } from '@/lib/queries/availability'
 import { calculateDaylong, calculateNight } from '@/lib/engine/calculator'
 import { getHolidayDateStrings } from '@/lib/queries/settings'
 import type { RoomType } from '@/lib/supabase/types'
@@ -44,9 +44,11 @@ export async function GET(req: NextRequest) {
       .select('*')
       .eq('booking_id', bookingId)
 
-    const bookingRooms = (rooms ?? []) as { room_type: RoomType; qty: number; unit_price: number; room_numbers: string[] }[]
+    const bookingRooms = (rooms ?? []) as { room_type: RoomType; qty: number; unit_price: number; room_numbers: string[]; evening_rooms?: string[] }[]
 
-    // 1. Availability check (excluding this booking)
+    // 1. Capacity on the new dates (excluding this booking). Counts only —
+    //    the room numbers are checked separately so the UI can offer to
+    //    clear just the ones that clash.
     const requestedRooms = bookingRooms.map((r) => ({ room_type: r.room_type, qty: r.qty }))
     const conflictMessage = await checkAvailabilityConflict(
       visitDate,
@@ -55,15 +57,18 @@ export async function GET(req: NextRequest) {
       bookingId,
     )
 
-    // 2. Find conflicting room numbers on new dates
-    const takenRoomNumbers = await getBookedRoomNumbers(visitDate, checkOutDate, bookingId)
-
+    // 2. Room numbers that can't come along to the new dates. A room handed
+    //    over in the evening only needs its night free there.
+    const clashing = new Set(await findRoomNumberConflicts(
+      bookingRooms.map((r) => ({
+        room_type: r.room_type, qty: r.qty, room_numbers: r.room_numbers ?? [], evening_rooms: r.evening_rooms ?? [],
+      })),
+      visitDate, checkOutDate, bookingId,
+    ))
     const conflictingRoomNumbers: Record<string, string[]> = {}
     for (const r of bookingRooms) {
-      const conflicts = (r.room_numbers ?? []).filter((num: string) => takenRoomNumbers.includes(num))
-      if (conflicts.length > 0) {
-        conflictingRoomNumbers[r.room_type] = conflicts
-      }
+      const conflicts = (r.room_numbers ?? []).filter((num: string) => clashing.has(num))
+      if (conflicts.length > 0) conflictingRoomNumbers[r.room_type] = conflicts
     }
 
     // 3. Recalculate pricing with new dates using frozen snapshot

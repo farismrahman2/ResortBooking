@@ -33,6 +33,7 @@ export interface RoomSelection {
   qty:          number
   unit_price:   number        // price per room (from package_room_prices snapshot)
   room_numbers?: string[]     // specific room numbers assigned (internal only)
+  evening_rooms?: string[]    // of those, handed over in the evening on the check-in day
 }
 
 export interface DaylongInputs {

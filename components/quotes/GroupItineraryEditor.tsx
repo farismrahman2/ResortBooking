@@ -10,7 +10,7 @@ import { GuestInputs, type GuestValues } from '@/components/quotes/GuestInputs'
 import { addDaysIso } from '@/lib/dates'
 import { formatBDT } from '@/lib/formatters/currency'
 import {
-  sortSegments, distinctDates, presenceByDate, roomNumbersOnDate, shortDayLabel,
+  sortSegments, distinctDates, presenceByDate, roomNumberClashesOnDate, shortDayLabel,
   type GroupSegment, type GroupSegmentRoom, type StayKind,
 } from '@/lib/bookings/group-itinerary'
 import type { RoomSelection } from '@/lib/engine/calculator'
@@ -25,6 +25,8 @@ interface Props {
   /** Booking being edited — its own rooms must not read as taken. */
   excludeBookingId?: string
   error?: string | null
+  /** "6:00 PM" — the evening handover time, for labels. */
+  handoverLabel?: string
 }
 
 const blankSegment = (day_date: string, stay_kind: StayKind): GroupSegment => ({
@@ -47,28 +49,35 @@ const blankSegment = (day_date: string, stay_kind: StayKind): GroupSegment => ({
  * nights: it appears in three overnight blocks.
  */
 export function GroupItineraryEditor({
-  value, onChange, rooms, nightPackage, dayPackage, excludeBookingId, error,
+  value, onChange, rooms, nightPackage, dayPackage, excludeBookingId, error, handoverLabel = '6:00 PM',
 }: Props) {
   const segments = useMemo(() => sortSegments(value), [value])
   const dates    = useMemo(() => distinctDates(segments), [segments])
   const presence = useMemo(() => presenceByDate(segments), [segments])
 
-  // Taken / noon room numbers per date, fetched once per date in the itinerary.
-  const [takenByDate, setTakenByDate] = useState<Record<string, { taken: string[]; noon: string[] }>>({})
+  // Room-number buckets per date, one set for the overnight block (a one-night
+  // stay D → D+1) and one for the day-guest block (a day visit on D).
+  type Buckets = { taken: string[]; noon: string[]; eveningOnly: string[]; untilEvening: string[] }
+  const EMPTY: Buckets = { taken: [], noon: [], eveningOnly: [], untilEvening: [] }
+  const [bucketsByDate, setBucketsByDate] = useState<Record<string, { night: Buckets; day: Buckets }>>({})
   useEffect(() => {
     let cancelled = false
+    const parse = (d: any): Buckets => ({   // eslint-disable-line @typescript-eslint/no-explicit-any
+      taken: d.takenRoomNumbers ?? [], noon: d.noonRoomNumbers ?? [],
+      eveningOnly: d.eveningOnlyRoomNumbers ?? [], untilEvening: d.untilEveningRoomNumbers ?? [],
+    })
     for (const date of dates) {
-      if (takenByDate[date]) continue
-      const params = new URLSearchParams({ visitDate: date })
-      if (excludeBookingId) params.set('excludeId', excludeBookingId)
-      fetch(`/api/booked-room-numbers?${params}`)
-        .then((r) => r.json())
-        .then((d) => {
+      if (bucketsByDate[date]) continue
+      const base = new URLSearchParams({ visitDate: date })
+      if (excludeBookingId) base.set('excludeId', excludeBookingId)
+      const nightParams = new URLSearchParams(base); nightParams.set('checkOutDate', addDaysIso(date, 1))
+      Promise.all([
+        fetch(`/api/booked-room-numbers?${nightParams}`).then((r) => r.json()),
+        fetch(`/api/booked-room-numbers?${base}`).then((r) => r.json()),
+      ])
+        .then(([n, d]) => {
           if (cancelled) return
-          setTakenByDate((prev) => ({
-            ...prev,
-            [date]: { taken: d.takenRoomNumbers ?? [], noon: d.noonRoomNumbers ?? [] },
-          }))
+          setBucketsByDate((prev) => ({ ...prev, [date]: { night: parse(n), day: parse(d) } }))
         })
         .catch(() => { /* leave unknown — the server re-checks on save */ })
     }
@@ -127,7 +136,7 @@ export function GroupItineraryEditor({
 
   /** Rooms for a block, in RoomSelector's shape. */
   const toSelections = (segRooms: GroupSegmentRoom[]): RoomSelection[] =>
-    segRooms.map((r) => ({ ...r, display_name: r.display_name ?? roomLabel(r.room_type), room_numbers: r.room_numbers ?? [] }))
+    segRooms.map((r) => ({ ...r, display_name: r.display_name ?? roomLabel(r.room_type), room_numbers: r.room_numbers ?? [], evening_rooms: r.evening_rooms ?? [] }))
 
   /** Keep a room's complimentary flag when the selector re-emits it with a package price. */
   const fromSelections = (prev: GroupSegmentRoom[], sel: RoomSelection[]): GroupSegmentRoom[] =>
@@ -137,6 +146,7 @@ export function GroupItineraryEditor({
         room_type: r.room_type, display_name: r.display_name, qty: r.qty,
         unit_price: was && was.unit_price === 0 ? 0 : r.unit_price,
         room_numbers: r.room_numbers ?? [],
+        evening_rooms: (r.evening_rooms ?? []).filter((n) => (r.room_numbers ?? []).includes(n)),
       }
     })
 
@@ -162,11 +172,20 @@ export function GroupItineraryEditor({
         const night = get(date, 'night')
         const day   = get(date, 'daylong')
         const p     = presence.find((x) => x.date === date)
-        const avail = takenByDate[date] ?? { taken: [], noon: [] }
-        // Rooms picked in the other block on this date are also off-limits.
-        const takenForNight = [...avail.taken, ...(day   ? day.rooms.flatMap((r) => r.room_numbers) : [])]
-        const takenForDay   = [...avail.taken, ...(night ? night.rooms.flatMap((r) => r.room_numbers) : [])]
-        const dupes = (() => { const n = roomNumbersOnDate(segments, date); return n.filter((x, i) => n.indexOf(x) !== i) })()
+        const avail = bucketsByDate[date] ?? { night: EMPTY, day: EMPTY }
+        // Within the itinerary: a room the day guests have can still be slept
+        // in tonight IF it is handed over in the evening — so for the
+        // overnight block it is evening-only, not taken. A room slept in
+        // tonight is off-limits to the day guests unless it is an evening
+        // room, in which case they have it until the handover.
+        const dayNums      = day   ? day.rooms.flatMap((r) => r.room_numbers) : []
+        const nightNums    = night ? night.rooms.flatMap((r) => r.room_numbers) : []
+        const nightEvening = night ? night.rooms.flatMap((r) => r.evening_rooms ?? []) : []
+        const nightTaken   = avail.night.taken
+        const nightEvOnly  = [...avail.night.eveningOnly, ...dayNums.filter((n) => !nightTaken.includes(n))]
+        const dayTaken     = [...avail.day.taken, ...nightNums.filter((n) => !nightEvening.includes(n))]
+        const dayUntilEve  = [...avail.day.untilEvening, ...nightEvening]
+        const dupes = roomNumberClashesOnDate(segments, date)
 
         return (
           <div key={date} className="rounded-xl border border-gray-200 bg-white">
@@ -201,7 +220,7 @@ export function GroupItineraryEditor({
             </div>
             {dupes.length > 0 && (
               <p className="border-b border-red-100 bg-red-50 px-4 py-1.5 text-xs text-red-700">
-                Room {[...new Set(dupes)].join(', ')} is used twice on this date.
+                Room {dupes.join(', ')} is used twice on this date — mark it for evening handover if the day guests have it first.
               </p>
             )}
 
@@ -220,7 +239,8 @@ export function GroupItineraryEditor({
                     rooms={rooms} selectedPackage={nightPackage} packageType="night"
                     value={toSelections(night.rooms)}
                     onChange={(sel) => setSegment(date, 'night', { rooms: fromSelections(night.rooms, sel) })}
-                    bookedRoomNumbers={takenForNight} noonRoomNumbers={avail.noon}
+                    bookedRoomNumbers={nightTaken} eveningOnlyRoomNumbers={nightEvOnly}
+                    handoverLabel={handoverLabel}
                   />
                   <CompToggles seg={night} pkg={nightPackage} onToggle={(t) => toggleComp(date, 'night', t, nightPackage)} />
                   <GuestInputs
@@ -258,7 +278,9 @@ export function GroupItineraryEditor({
                       rooms={rooms} selectedPackage={dayPackage} packageType="daylong"
                       value={toSelections(day.rooms)}
                       onChange={(sel) => setSegment(date, 'daylong', { rooms: fromSelections(day.rooms, sel) })}
-                      bookedRoomNumbers={takenForDay} noonRoomNumbers={avail.noon}
+                      bookedRoomNumbers={dayTaken} noonRoomNumbers={avail.day.noon}
+                      untilEveningRoomNumbers={dayUntilEve}
+                      handoverLabel={handoverLabel}
                     />
                     <CompToggles seg={day} pkg={dayPackage} onToggle={(t) => toggleComp(date, 'daylong', t, dayPackage)} />
                   </div>

@@ -122,7 +122,10 @@ export async function createQuote(
       : await checkAvailabilityConflict(
           validated.visit_date,
           validated.check_out_date ?? null,
-          validated.rooms.map((r) => ({ room_type: r.room_type, qty: r.qty })),
+          validated.rooms.map((r) => ({
+            room_type: r.room_type, qty: r.qty,
+            room_numbers: r.room_numbers ?? [], evening_rooms: r.evening_rooms ?? [],
+          })),
         )
     if (conflict) return { success: false, error: `Availability conflict: ${conflict}` }
 
@@ -182,6 +185,7 @@ export async function createQuote(
       qty:          r.qty,
       unit_price:   r.unit_price,
       room_numbers: r.room_numbers ?? [],
+      evening_rooms: (r.evening_rooms ?? []).filter((n) => (r.room_numbers ?? []).includes(n)),
     }))
 
     if (roomRows.length > 0) {
@@ -370,6 +374,7 @@ export async function updateQuote(
       qty:          r.qty,
       unit_price:   r.unit_price,
       room_numbers: r.room_numbers ?? [],
+      evening_rooms: (r.evening_rooms ?? []).filter((n) => (r.room_numbers ?? []).includes(n)),
     }))
     if (roomRows.length > 0) {
       const { error: insErr } = await supabase.from('quote_rooms').insert(roomRows)

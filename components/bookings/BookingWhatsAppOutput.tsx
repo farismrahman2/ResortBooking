@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react'
 import { Copy, Check, Eye, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
-import { formatWhatsApp } from '@/lib/formatters/whatsapp'
+import { formatWhatsApp, to12Hour } from '@/lib/formatters/whatsapp'
 import { rowsToSegments } from '@/lib/bookings/group-itinerary'
 import { itineraryLinesFor } from '@/lib/bookings/itinerary-lines'
 import type { BookingWithRooms, SettingsMap, RoomType } from '@/lib/supabase/types'
@@ -39,6 +39,8 @@ export function BookingWhatsAppOutput({ booking, settings, salesRepName, roomAva
       qty:          r.qty,
       unit_price:   r.unit_price,
       nights:       booking.nights ?? null,
+      room_numbers:  r.room_numbers ?? [],
+      evening_rooms: r.evening_rooms ?? [],
     }))
 
     const params: WhatsAppParams = {
@@ -48,7 +50,8 @@ export function BookingWhatsAppOutput({ booking, settings, salesRepName, roomAva
       customerName:        booking.customer_name,
       customerPhone:       booking.customer_phone,
       packageType:         booking.package_type,
-      itinerary:           booking.package_type === 'group' ? itineraryLinesFor(rowsToSegments(booking.days ?? [])) : undefined,
+      itinerary:           booking.package_type === 'group' ? itineraryLinesFor(rowsToSegments(booking.days ?? []), to12Hour(settings['evening_handover_time'] ?? '18:00')) : undefined,
+      handoverTime:        settings['evening_handover_time'] ?? '18:00',
       visitDate:           booking.visit_date,
       checkOutDate:        booking.check_out_date,
       checkIn:             snap.check_in,

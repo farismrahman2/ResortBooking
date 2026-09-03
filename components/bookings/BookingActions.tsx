@@ -12,6 +12,7 @@ import { NumberInput } from '@/components/ui/NumberInput'
 import { ChangeDatesModal } from '@/components/bookings/ChangeDatesModal'
 import { SwapRoomsModal } from '@/components/bookings/SwapRoomsModal'
 import { formatBDT } from '@/lib/formatters/currency'
+import { to12Hour } from '@/lib/formatters/whatsapp'
 import { calculateDaylong, calculateNight, calculateGroup } from '@/lib/engine/calculator'
 import { snapshotToPackageWithPrices } from '@/lib/engine/snapshot'
 import { rowsToSegments, type GroupSegment } from '@/lib/bookings/group-itinerary'
@@ -40,6 +41,10 @@ interface BookingActionsProps {
   holidayDates:       string[]
   inventory:          RoomInventoryRow[]
   bookedRoomNumbers:  string[]   // room numbers taken by other bookings (same dates)
+  /** Held by day guests on the check-in day — pickable only as evening-handover rooms. */
+  eveningOnlyRoomNumbers?: string[]
+  /** HH:MM from settings; when evening-handover rooms are given to the guests. */
+  handoverTime?: string
   /** Advance instalments — each with its own date, time and method. */
   advancePayments?:   AdvancePaymentRow[]
   /** Destination accounts for the instalment form. */
@@ -48,8 +53,9 @@ interface BookingActionsProps {
 
 export function BookingActions({
   booking, holidayDates, inventory, bookedRoomNumbers, advancePayments = [],
-  paymentAccounts = [],
+  paymentAccounts = [], eveningOnlyRoomNumbers = [], handoverTime = '18:00',
 }: BookingActionsProps) {
+  const handoverLabel = to12Hour(handoverTime)
   const router  = useRouter()
   const snap    = booking.package_snapshot
   const isGroup = booking.package_type === 'group'
@@ -131,6 +137,20 @@ export function BookingActions({
 
   const [roomQtys,     setRoomQtys]     = useState<Record<string, RoomQty>>(initialRooms)
   const [roomNums,     setRoomNums]     = useState<Record<string, string[]>>(initialNums)
+  // Rooms handed over at the evening handover time on the check-in day.
+  const [roomEvening,  setRoomEvening]  = useState<Record<string, string[]>>(() => {
+    const map: Record<string, string[]> = {}
+    for (const r of booking.rooms) if (r.unit_price > 0) map[r.room_type] = [...(r.evening_rooms ?? [])]
+    return map
+  })
+  const isNightBooking = booking.package_type === 'night'
+  function toggleEvening(roomType: string, roomNum: string) {
+    if (eveningOnlyRoomNumbers.includes(roomNum)) return   // day-held: evening only, no going back
+    setRoomEvening((prev) => {
+      const cur = prev[roomType] ?? []
+      return { ...prev, [roomType]: cur.includes(roomNum) ? cur.filter((n) => n !== roomNum) : [...cur, roomNum] }
+    })
+  }
   const [compRoomData, setCompRoomData] = useState<Record<string, CompRoomRow>>(initialCompRooms)
   const [extraItems, setExtraItems] = useState<ExtraItem[]>(() => (booking as any).extra_items ?? [])
 
@@ -169,15 +189,19 @@ export function BookingActions({
   }
 
   function toggleRoomNumber(roomType: string, roomNum: string) {
-    setRoomNums((prev) => {
-      const current = prev[roomType] ?? []
-      const maxQty  = roomQtys[roomType]?.qty ?? 0
-      if (current.includes(roomNum)) {
-        return { ...prev, [roomType]: current.filter((n) => n !== roomNum) }
-      }
-      if (current.length >= maxQty) return prev   // can't select more than qty
-      return { ...prev, [roomType]: [...current, roomNum] }
-    })
+    const current = roomNums[roomType] ?? []
+    const maxQty  = roomQtys[roomType]?.qty ?? 0
+    if (current.includes(roomNum)) {
+      setRoomNums((prev) => ({ ...prev, [roomType]: current.filter((n) => n !== roomNum) }))
+      setRoomEvening((prev) => ({ ...prev, [roomType]: (prev[roomType] ?? []).filter((n) => n !== roomNum) }))
+      return
+    }
+    if (current.length >= maxQty) return   // can't select more than qty
+    setRoomNums((prev) => ({ ...prev, [roomType]: [...current, roomNum] }))
+    // A room held by day guests can only be had in the evening — flag it on the way in.
+    if (isNightBooking && eveningOnlyRoomNumbers.includes(roomNum)) {
+      setRoomEvening((prev) => ({ ...prev, [roomType]: [...(prev[roomType] ?? []), roomNum] }))
+    }
   }
 
   // Live recalculation
@@ -284,6 +308,7 @@ export function BookingActions({
         qty:          r.qty,
         unit_price:   r.unit_price,
         room_numbers: roomNums[rt] ?? [],
+        evening_rooms: isNightBooking ? (roomEvening[rt] ?? []).filter((n) => (roomNums[rt] ?? []).includes(n)) : [],
       }))
       // Complimentary rooms (daylong only, unit_price=0) — with room_numbers
       const compRooms = booking.package_type === 'daylong'
@@ -529,28 +554,54 @@ export function BookingActions({
                         </p>
                         <div className="flex flex-wrap gap-1.5">
                           {fixedNums.map((num) => {
-                            const isTaken    = bookedRoomNumbers.includes(num) && !selected.includes(num)
-                            const isSelected = selected.includes(num)
+                            const isTaken       = bookedRoomNumbers.includes(num) && !selected.includes(num)
+                            const isSelected    = selected.includes(num)
+                            const isEveningOnly = !isTaken && isNightBooking && eveningOnlyRoomNumbers.includes(num)
+                            const isEvening     = isSelected && (roomEvening[inv.room_type] ?? []).includes(num)
                             return (
-                              <button
-                                key={num}
-                                onClick={() => !isTaken && toggleRoomNumber(inv.room_type, num)}
-                                disabled={isTaken}
-                                title={isTaken ? `Room ${num} is booked` : undefined}
-                                className={[
-                                  'rounded-md border px-2.5 py-1 text-xs font-mono font-semibold transition-colors',
-                                  isSelected
-                                    ? 'border-forest-500 bg-forest-600 text-white'
-                                    : isTaken
-                                    ? 'border-gray-200 bg-gray-100 text-gray-300 cursor-not-allowed'
-                                    : 'border-gray-300 bg-white text-gray-700 hover:border-forest-400 hover:bg-forest-50',
-                                ].join(' ')}
-                              >
-                                {num}
-                              </button>
+                              <span key={num} className="inline-flex items-stretch">
+                                <button
+                                  onClick={() => !isTaken && toggleRoomNumber(inv.room_type, num)}
+                                  disabled={isTaken}
+                                  title={isTaken ? `Room ${num} is booked`
+                                    : isEveningOnly ? `Room ${num} is with day guests until ${handoverLabel} — available for the night from then`
+                                    : undefined}
+                                  className={[
+                                    'rounded-md border px-2.5 py-1 text-xs font-mono font-semibold transition-colors',
+                                    isSelected && isNightBooking ? 'rounded-r-none' : '',
+                                    isSelected
+                                      ? isEvening ? 'border-orange-500 bg-orange-600 text-white' : 'border-forest-500 bg-forest-600 text-white'
+                                      : isTaken
+                                      ? 'border-gray-200 bg-gray-100 text-gray-300 cursor-not-allowed'
+                                      : isEveningOnly
+                                      ? 'border-orange-400 bg-orange-100 text-orange-800 hover:bg-orange-200'
+                                      : 'border-gray-300 bg-white text-gray-700 hover:border-forest-400 hover:bg-forest-50',
+                                  ].join(' ')}
+                                >
+                                  {num}
+                                </button>
+                                {isSelected && isNightBooking && (
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleEvening(inv.room_type, num)}
+                                    title={isEvening ? `Handed over at ${handoverLabel}` : `Handed over on arrival — click for ${handoverLabel}`}
+                                    className={[
+                                      'rounded-r-md border border-l-0 px-1.5 text-[10px] font-semibold',
+                                      isEvening ? 'border-orange-500 bg-orange-100 text-orange-800' : 'border-forest-500 bg-forest-50 text-forest-700 hover:bg-forest-100',
+                                    ].join(' ')}
+                                  >
+                                    {isEvening ? '6PM' : 'now'}
+                                  </button>
+                                )}
+                              </span>
                             )
                           })}
                         </div>
+                        {isNightBooking && selected.length > 0 && (
+                          <p className="mt-1.5 text-[10px] text-gray-500">
+                            “now” = handed over on arrival · “6PM” = handed over at {handoverLabel}, after that day’s day guests leave; the day on that room stays sellable.
+                          </p>
+                        )}
                         {selected.length < current && (
                           <p className="mt-1.5 text-[10px] text-amber-600">
                             Select {current - selected.length} more room{current - selected.length !== 1 ? 's' : ''}
@@ -833,7 +884,7 @@ export function BookingActions({
         booking={booking}
         holidayDates={holidayDates}
         inventory={inventory}
-        bookedRoomNumbers={bookedRoomNumbers}
+        bookedRoomNumbers={[...bookedRoomNumbers, ...eveningOnlyRoomNumbers]}
       />
     </div>
   )

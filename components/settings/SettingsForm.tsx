@@ -25,6 +25,9 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
   const [whatsappFooter, setWhatsappFooter] = useState(
     initialSettings['whatsapp_footer_text'] ?? '',
   )
+  const [eveningHandover, setEveningHandover] = useState(
+    initialSettings['evening_handover_time'] ?? '18:00',
+  )
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
@@ -37,6 +40,7 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
         contact_numbers: contactNumbers,
         default_notes: defaultNotes,
         whatsapp_footer_text: whatsappFooter,
+        evening_handover_time: eveningHandover,
       }))
       if (!result.success) {
         setError(result.error ?? 'Failed to save settings')
@@ -78,6 +82,15 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
         rows={2}
         value={whatsappFooter}
         onChange={(e) => setWhatsappFooter(e.target.value)}
+      />
+
+      <Input
+        label="Evening room handover time"
+        type="time"
+        value={eveningHandover}
+        onChange={(e) => setEveningHandover(e.target.value)}
+        hint="When rooms marked 'evening handover' on a night booking are given to the guests — after that day's day guests leave. Shown on confirmations and the daily report."
+        className="max-w-[200px]"
       />
 
       {error && (

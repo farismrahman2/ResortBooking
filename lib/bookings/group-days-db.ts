@@ -51,6 +51,7 @@ export async function insertGroupDays(
       qty:          r.qty,
       unit_price:   r.unit_price,
       room_numbers: r.room_numbers ?? [],
+      evening_rooms: (r.evening_rooms ?? []).filter((n) => (r.room_numbers ?? []).includes(n)),
     })))
     if (roomErr) return `Could not save the rooms for ${d.day_date}: ${roomErr.message}`
   }
@@ -90,6 +91,7 @@ export async function replaceGroupDays(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       rooms: (r.rooms ?? []).map((x: any) => ({
         room_type: x.room_type, qty: x.qty ?? 0, unit_price: x.unit_price ?? 0, room_numbers: x.room_numbers ?? [],
+        evening_rooms: x.evening_rooms ?? [],
       })),
     }))
     await insertGroupDays(db, kind, parentId, restore)

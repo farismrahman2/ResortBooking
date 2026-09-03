@@ -57,6 +57,7 @@ export default async function EditQuotePage({ params }: PageProps) {
     qty:          r.qty,
     unit_price:   r.unit_price,
     room_numbers: r.room_numbers ?? [],
+    evening_rooms: r.evening_rooms ?? [],
   }))
 
   // Recover flat discount from the stored effective discount
@@ -82,6 +83,7 @@ export default async function EditQuotePage({ params }: PageProps) {
                           drivers: d.drivers, extra_beds: d.extra_beds ?? 0, notes: d.notes ?? null,
                           rooms: (d.rooms ?? []).map((r) => ({
                             room_type: r.room_type, qty: r.qty, unit_price: r.unit_price, room_numbers: r.room_numbers ?? [],
+                            evening_rooms: r.evening_rooms ?? [],
                           })),
                         })),
     package_type:       quote.package_type,

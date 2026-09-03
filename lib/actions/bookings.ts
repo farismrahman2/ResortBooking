@@ -6,7 +6,7 @@ import { generateBookingNumber, isUniqueViolation } from '@/lib/utils'
 import { calculateDaylong, calculateNight, calculateGroup } from '@/lib/engine/calculator'
 import { getHolidayDateStrings } from '@/lib/queries/settings'
 import {
-  checkAvailabilityConflict, getBookedRoomNumbers,
+  checkAvailabilityConflict, findRoomNumberConflicts,
   checkGroupAvailabilityConflict, findGroupRoomNumberConflicts,
 } from '@/lib/queries/availability'
 import { rowsToSegments, deriveGroupHeader, type GroupSegment } from '@/lib/bookings/group-itinerary'
@@ -110,8 +110,10 @@ export async function convertQuoteToBooking(
     // initial availability check ran when the quote was created — but other
     // bookings may have claimed the same rooms in the meantime.
     const requestedRoomQtys = ((quoteRooms ?? []) as any[]).map((r) => ({
-      room_type: r.room_type as string,
-      qty:       Number(r.qty ?? 0),
+      room_type:     r.room_type as string,
+      qty:           Number(r.qty ?? 0),
+      room_numbers:  (r.room_numbers ?? []) as string[],
+      evening_rooms: (r.evening_rooms ?? []) as string[],
     }))
     const capacityErr = await checkAvailabilityConflict(
       quote.visit_date,
@@ -132,16 +134,11 @@ export async function convertQuoteToBooking(
     if (unassignedErr) return { success: false, error: `Cannot convert: ${unassignedErr}` }
 
     // Specific room numbers — guard against the same physical rooms being
-    // claimed by another booking that confirmed first.
-    const taken = new Set(
-      await getBookedRoomNumbers(quote.visit_date, quote.check_out_date),
+    // claimed by another booking that confirmed first. A room the quote hands
+    // over in the evening only needs its night free.
+    const conflictingNumbers = await findRoomNumberConflicts(
+      requestedRoomQtys, quote.visit_date, quote.check_out_date,
     )
-    const conflictingNumbers: string[] = []
-    for (const r of (quoteRooms ?? []) as any[]) {
-      for (const num of (r.room_numbers ?? [])) {
-        if (taken.has(num)) conflictingNumbers.push(num)
-      }
-    }
     if (conflictingNumbers.length > 0) {
       const unique = Array.from(new Set(conflictingNumbers))
       return {
@@ -218,6 +215,7 @@ export async function convertQuoteToBooking(
           qty:          r.qty,
           unit_price:   r.unit_price,
           room_numbers: r.room_numbers ?? [],
+          evening_rooms: r.evening_rooms ?? [],
         })),
       )
       if (roomsErr) {
@@ -668,7 +666,7 @@ export async function updateBooking(
     children_free: number
     drivers:       number
     extra_beds:    number
-    rooms: { room_type: RoomType; display_name: string; qty: number; unit_price: number; room_numbers: string[] }[]
+    rooms: { room_type: RoomType; display_name: string; qty: number; unit_price: number; room_numbers: string[]; evening_rooms?: string[] }[]
     extra_items: { label: string; qty: number; unit_price: number }[]
     // context for recalculation
     package_type:     PackageType
@@ -695,6 +693,21 @@ export async function updateBooking(
 
     const unassignedErr = findUnassignedRoomNumbersError(rooms.filter((r) => r.qty > 0))
     if (unassignedErr) return { success: false, error: unassignedErr }
+
+    // The rooms this edit names must be free on these dates — the room
+    // picker greys out what it knows about, but another agent may have
+    // booked in the meantime. Evening rooms only need the night.
+    if (package_type !== 'group') {
+      const clashes = await findRoomNumberConflicts(
+        rooms.filter((r) => r.qty > 0).map((r) => ({
+          room_type: r.room_type, qty: r.qty, room_numbers: r.room_numbers ?? [], evening_rooms: r.evening_rooms ?? [],
+        })),
+        visit_date, check_out_date, bookingId,
+      )
+      if (clashes.length > 0) {
+        return { success: false, error: `Room ${clashes.join(', ')} is already booked by another booking on these dates` }
+      }
+    }
 
     // Same guard as date changes and room swaps: a cancelled or checked-out
     // booking's totals are history — rewriting them after the fact corrupts
@@ -794,6 +807,7 @@ export async function updateBooking(
           qty:          r.qty,
           unit_price:   r.unit_price,
           room_numbers: r.room_numbers ?? [],
+          evening_rooms: (r.evening_rooms ?? []).filter((n) => (r.room_numbers ?? []).includes(n)),
         })),
       )
       if (insErr) {
@@ -891,10 +905,18 @@ export async function confirmDateChange(
       .select('*')
       .eq('booking_id', bookingId)
 
-    const bookingRooms = (rooms ?? []) as { id: string; room_type: RoomType; qty: number; unit_price: number; room_numbers: string[] }[]
+    const bookingRooms = (rooms ?? []) as { id: string; room_type: RoomType; qty: number; unit_price: number; room_numbers: string[]; evening_rooms?: string[] }[]
 
-    // Re-check availability (guard against race conditions)
-    const requestedRooms = bookingRooms.map((r) => ({ room_type: r.room_type, qty: r.qty }))
+    // Re-check availability (guard against race conditions). Room numbers the
+    // preview cleared as conflicting are dropped from the request; evening
+    // handover follows whichever of the room's numbers survive.
+    const requestedRooms = bookingRooms.map((r) => {
+      const keep = input.cleared_room_numbers[r.room_type] ?? r.room_numbers ?? []
+      return {
+        room_type: r.room_type, qty: r.qty,
+        room_numbers: keep, evening_rooms: (r.evening_rooms ?? []).filter((n) => keep.includes(n)),
+      }
+    })
     const conflict = await checkAvailabilityConflict(
       input.new_visit_date,
       input.new_check_out_date,
@@ -975,7 +997,10 @@ export async function confirmDateChange(
       const finalNums = input.cleared_room_numbers[r.room_type] ?? r.room_numbers ?? []
       await db
         .from('booking_rooms')
-        .update({ room_numbers: finalNums })
+        .update({
+          room_numbers:  finalNums,
+          evening_rooms: (r.evening_rooms ?? []).filter((n) => finalNums.includes(n)),
+        })
         .eq('id', r.id)
     }
 
@@ -1074,14 +1099,17 @@ export async function swapRoomAssignment(
         }
       }
 
-      // Check not taken by other bookings (exclude self)
-      const taken = await getBookedRoomNumbers(booking.visit_date, booking.check_out_date, bookingId)
-      // Also exclude numbers currently on this row (they're being replaced)
-      const currentOwn = new Set(roomRow.room_numbers ?? [])
-      for (const num of input.new_room_numbers) {
-        if (taken.includes(num) && !currentOwn.has(num)) {
-          return { success: false, error: `Room ${num} is already booked by another booking on these dates` }
-        }
+      // Check not taken by other bookings (exclude self). A room that was
+      // handed over in the evening keeps that flag if it stays on the row; a
+      // replacement room is instant unless the edit screen says otherwise.
+      const keptEvening = ((roomRow as { evening_rooms?: string[] }).evening_rooms ?? [])
+        .filter((n) => input.new_room_numbers.includes(n))
+      const clashes = await findRoomNumberConflicts(
+        [{ room_type: roomRow.room_type, qty: roomRow.qty, room_numbers: input.new_room_numbers, evening_rooms: keptEvening }],
+        booking.visit_date, booking.check_out_date, bookingId,
+      )
+      if (clashes.length > 0) {
+        return { success: false, error: `Room ${clashes.join(', ')} is already booked by another booking on these dates` }
       }
       // Also check against other rows in THIS booking (paid+comp can't share numbers)
       for (const other of bookingRooms) {
@@ -1093,7 +1121,7 @@ export async function swapRoomAssignment(
         }
       }
 
-      await db.from('booking_rooms').update({ room_numbers: input.new_room_numbers }).eq('id', roomRow.id)
+      await db.from('booking_rooms').update({ room_numbers: input.new_room_numbers, evening_rooms: keptEvening }).eq('id', roomRow.id)
 
       await db.from('history_log').insert({
         entity_type: 'booking',
@@ -1233,13 +1261,16 @@ export async function swapRoomAssignment(
             return { success: false, error: `Room ${num} is not a valid ${input.to_room_type} room` }
           }
         }
-        // Re-check taken (exclude self + own row's current numbers)
-        const taken = await getBookedRoomNumbers(booking.visit_date, booking.check_out_date, bookingId)
-        const ownCurrent = new Set(oldRow.room_numbers ?? [])
-        for (const num of input.new_room_numbers) {
-          if (taken.includes(num) && !ownCurrent.has(num)) {
-            return { success: false, error: `Room ${num} is already booked on these dates` }
-          }
+        // Re-check against other bookings (self excluded). Evening flags
+        // follow the numbers that survive the change.
+        const keptEvening = ((oldRow as { evening_rooms?: string[] }).evening_rooms ?? [])
+          .filter((n) => input.new_room_numbers.includes(n))
+        const clashes = await findRoomNumberConflicts(
+          [{ room_type: input.to_room_type, qty: oldRow.qty, room_numbers: input.new_room_numbers, evening_rooms: keptEvening }],
+          booking.visit_date, booking.check_out_date, bookingId,
+        )
+        if (clashes.length > 0) {
+          return { success: false, error: `Room ${clashes.join(', ')} is already booked on these dates` }
         }
         // Check against other rows in this booking
         for (const other of bookingRooms) {
@@ -1258,6 +1289,7 @@ export async function swapRoomAssignment(
         room_type:    input.to_room_type,
         unit_price:   newUnitPrice,
         room_numbers: input.new_room_numbers,
+        evening_rooms: ((oldRow as { evening_rooms?: string[] }).evening_rooms ?? []).filter((n) => input.new_room_numbers.includes(n)),
       }).eq('id', oldRow.id)
 
       // Recalculate entire booking

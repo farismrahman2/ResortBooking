@@ -11,7 +11,7 @@ import { formatDate, formatDateRange } from './dates'
 const SEP = '━━━━━━━━━━━━━━━━━━'
 
 /** Convert a 24-hour "HH:MM" (or "HH:MM:SS") time to 12-hour "h:MM AM/PM". */
-function to12Hour(time: string): string {
+export function to12Hour(time: string): string {
   if (!time) return time
   const [hRaw, mRaw = '00'] = time.split(':')
   let h = parseInt(hRaw, 10)
@@ -54,7 +54,12 @@ export interface WhatsAppParams {
     qty:          number
     unit_price:   number
     nights:       number | null
+    room_numbers?:  string[]
+    /** Handed over at the evening handover time on the check-in day. */
+    evening_rooms?: string[]
   }[]
+  /** HH:MM — when evening-handover rooms are given to the guests. */
+  handoverTime?:       string
   adults:              number
   childrenPaid:        number
   childrenFree:        number
@@ -114,6 +119,20 @@ export function formatWhatsApp(p: WhatsAppParams): string {
     .map((r) => `${r.display_name} × ${r.qty}: Complimentary`)
     .join('\n')
 
+  // Which physical rooms, and when the guests get them. Only spelled out when
+  // some rooms are handed over in the evening — otherwise the numbers alone
+  // would be noise on a message that already lists the room types.
+  const eveningNums = p.rooms.flatMap((r) => (r.evening_rooms ?? []).filter((n) => (r.room_numbers ?? []).includes(n)))
+  const arrivalNums = p.rooms.flatMap((r) => (r.room_numbers ?? []).filter((n) => !(r.evening_rooms ?? []).includes(n)))
+  const handoverLines = eveningNums.length > 0
+    ? [
+        ``,
+        `🔑 *ROOM HANDOVER*`,
+        ...(arrivalNums.length ? [`  On arrival: ${arrivalNums.join(', ')}`] : []),
+        `  From ${to12Hour(p.handoverTime ?? '18:00')}: ${eveningNums.join(', ')} (after the day's guests leave)`,
+      ]
+    : []
+
   // Guest summary
   const guestParts: string[] = []
   if (p.adults > 0) guestParts.push(`Adults: ${p.adults}`)
@@ -159,6 +178,7 @@ export function formatWhatsApp(p: WhatsAppParams): string {
           `🏨 *ROOMS*`,
           roomLines || (compRooms.length > 0 ? '  (no paid rooms)' : '  (no rooms selected)'),
           ...(compRooms.length > 0 ? [``, `🎁 *COMPLIMENTARY ROOMS*`, compRoomLines] : []),
+          ...handoverLines,
           ...(p.roomAvailableAfterNoon ? [`⚠️ *Note:* Room will be available after 12:00 PM (previous guest checking out)`] : []),
           SEP,
           `👥 *GUESTS*`,

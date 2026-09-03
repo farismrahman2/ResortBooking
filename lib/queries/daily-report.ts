@@ -11,6 +11,8 @@ export interface DailyReportRoom {
   room_type:    RoomType
   qty:          number
   room_numbers: string[]   // manually assigned room numbers
+  /** Handed over at the evening handover time on the check-in day. */
+  evening_rooms: string[]
 }
 
 export interface DailyReportRow {
@@ -88,7 +90,7 @@ export async function getDailyReport(date: string): Promise<DailyReportRow[]> {
           children_paid:  v.children_paid,
           children_free:  v.children_free,
           drivers:        v.drivers,
-          rooms:          v.rooms.map((r) => ({ room_type: r.room_type as RoomType, qty: r.qty, room_numbers: r.room_numbers ?? [] })),
+          rooms:          v.rooms.map((r) => ({ room_type: r.room_type as RoomType, qty: r.qty, room_numbers: r.room_numbers ?? [], evening_rooms: r.evening_rooms ?? [] })),
           meals:          getMealsForBookingOnDate({
             package_type: v.package_type, visit_date: v.visit_date, check_out_date: v.check_out_date,
             adults: v.adults, children_paid: v.children_paid, children_free: v.children_free,
@@ -136,6 +138,7 @@ export async function getDailyReport(date: string): Promise<DailyReportRow[]> {
       room_type:    r.room_type as RoomType,
       qty:          r.qty,
       room_numbers: r.room_numbers ?? [],
+      evening_rooms: r.evening_rooms ?? [],
     }))
 
     rows.push({
@@ -167,6 +170,9 @@ export interface FreeRooms {
   free_after_12pm: string[]
   /** Rooms occupied by a daylong booking ending today (free once the daylong session ends) */
   free_after_6pm: string[]
+  /** Rooms a night guest takes over this evening and nobody has by day —
+   *  sellable for a day visit until the handover. */
+  free_until_6pm: string[]
 }
 
 /**
@@ -186,12 +192,16 @@ export function computeFreeRooms(rows: DailyReportRow[]): FreeRooms {
   const nightCheckoutRooms = new Set<string>()   // night stays whose check_out_date is today
   const daylongRooms       = new Set<string>()   // daylong bookings today
 
+  const eveningArrivalRooms = new Set<string>()   // taken over tonight, free by day
   for (const row of rows) {
     const isNightCheckout = row.is_checkout && row.package_type === 'night'
+    const isNightCheckin  = row.is_checkin  && row.package_type === 'night'
     for (const r of row.rooms) {
       for (const num of r.room_numbers) {
         if (isNightCheckout) {
           nightCheckoutRooms.add(num)
+        } else if (isNightCheckin && (r.evening_rooms ?? []).includes(num)) {
+          eveningArrivalRooms.add(num)
         } else {
           occupiedAllDay.add(num)
           if (row.package_type === 'daylong') daylongRooms.add(num)
@@ -200,10 +210,11 @@ export function computeFreeRooms(rows: DailyReportRow[]): FreeRooms {
     }
   }
 
-  const free_after_12pm = [...nightCheckoutRooms].filter((n) => !occupiedAllDay.has(n))
+  const free_after_12pm = [...nightCheckoutRooms].filter((n) => !occupiedAllDay.has(n) && !eveningArrivalRooms.has(n))
   const free_after_6pm  = [...daylongRooms]
+  const free_until_6pm  = [...eveningArrivalRooms].filter((n) => !occupiedAllDay.has(n))
   const free_all_day    = allRoomNumbers.filter(
-    (n) => !occupiedAllDay.has(n) && !nightCheckoutRooms.has(n),
+    (n) => !occupiedAllDay.has(n) && !nightCheckoutRooms.has(n) && !eveningArrivalRooms.has(n),
   )
 
   // Sort numerically where possible
@@ -216,5 +227,6 @@ export function computeFreeRooms(rows: DailyReportRow[]): FreeRooms {
     free_all_day:    free_all_day.sort(cmp),
     free_after_12pm: free_after_12pm.sort(cmp),
     free_after_6pm:  free_after_6pm.sort(cmp),
+    free_until_6pm:  free_until_6pm.sort(cmp),
   }
 }

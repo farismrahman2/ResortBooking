@@ -11,7 +11,7 @@ import { calculateDaylong, calculateNight, calculateGroup, type CalculationResul
 import { GroupItineraryEditor } from '@/components/quotes/GroupItineraryEditor'
 import { deriveGroupHeader } from '@/lib/bookings/group-itinerary'
 import { itineraryLinesFor } from '@/lib/bookings/itinerary-lines'
-import { itineraryLines, type ItineraryLine } from '@/lib/formatters/whatsapp'
+import { itineraryLines, to12Hour, type ItineraryLine } from '@/lib/formatters/whatsapp'
 import { getDayType } from '@/lib/formatters/dates'
 import { Input } from '@/components/ui/Input'
 import { NumberInput } from '@/components/ui/NumberInput'
@@ -62,6 +62,9 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
   const [calcResult,         setCalcResult]         = useState<CalculationResult | null>(null)
   const [bookedRoomNumbers,    setBookedRoomNumbers]    = useState<string[]>([])
   const [noonRoomNumbers,      setNoonRoomNumbers]      = useState<string[]>([])
+  const [eveningOnlyRoomNumbers,  setEveningOnlyRoomNumbers]  = useState<string[]>([])
+  const [untilEveningRoomNumbers, setUntilEveningRoomNumbers] = useState<string[]>([])
+  const handoverLabel = to12Hour(settings['evening_handover_time'] ?? '18:00')
   const [extraItems,           setExtraItems]           = useState<ExtraItem[]>(initialExtraItems ?? [])
   const [roomAvailableAfterNoon, setRoomAvailableAfterNoon] = useState(false)
   // Duplicate detection — when set, the modal prompts for override
@@ -339,8 +342,10 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
       .then((d) => {
         setBookedRoomNumbers(d.takenRoomNumbers ?? [])
         setNoonRoomNumbers(d.noonRoomNumbers ?? [])
+        setEveningOnlyRoomNumbers(d.eveningOnlyRoomNumbers ?? [])
+        setUntilEveningRoomNumbers(d.untilEveningRoomNumbers ?? [])
       })
-      .catch(() => { setBookedRoomNumbers([]); setNoonRoomNumbers([]) })
+      .catch(() => { setBookedRoomNumbers([]); setNoonRoomNumbers([]); setEveningOnlyRoomNumbers([]); setUntilEveningRoomNumbers([]) })
   }, [visitDate, checkOutDate])
 
 
@@ -381,7 +386,8 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
       // Ensure room_numbers is always an array (RoomSelection has it optional)
       const allRooms = [...data.rooms, ...buildCompRoomSelections()].map((r) => ({
         ...r,
-        room_numbers: r.room_numbers ?? [],
+        room_numbers:  r.room_numbers ?? [],
+        evening_rooms: (r.evening_rooms ?? []).filter((n) => (r.room_numbers ?? []).includes(n)),
       }))
       const payload = {
         ...data, extra_items: extraItems, rooms: isGroup ? [] : allRooms,
@@ -589,8 +595,12 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
               <p className="text-xs text-red-600">{errors.package_id?.message ?? errors.day_package_id?.message}</p>
             )}
             <GroupItineraryEditor
+              handoverLabel={handoverLabel}
               value={days}
-              onChange={(next) => setValue('days', next.map((d) => ({ ...d, notes: d.notes ?? null })), { shouldDirty: true })}
+              onChange={(next) => setValue('days', next.map((d) => ({
+                ...d, notes: d.notes ?? null,
+                rooms: d.rooms.map((r) => ({ ...r, evening_rooms: r.evening_rooms ?? [] })),
+              })), { shouldDirty: true })}
               rooms={rooms}
               nightPackage={nightPackage}
               dayPackage={dayPackage}
@@ -661,6 +671,9 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
                 onChange={(r) => field.onChange(r)}
                 bookedRoomNumbers={bookedRoomNumbers}
                 noonRoomNumbers={noonRoomNumbers}
+                eveningOnlyRoomNumbers={eveningOnlyRoomNumbers}
+                untilEveningRoomNumbers={untilEveningRoomNumbers}
+                handoverLabel={handoverLabel}
               />
             )}
           />

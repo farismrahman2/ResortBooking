@@ -123,7 +123,7 @@ export function DailyReportPrint({ date, lang, rows, free }: Props) {
               <td className="center">{packageLabel(row.package_type, lang)}</td>
               <td className="center">{renderGuests(row, lang, t)}</td>
               <td className="center">{renderMeals(row, t)}</td>
-              <td className="center">{renderRooms(row, lang, nightCheckoutRooms)}</td>
+              <td className="center">{renderRooms(row, lang, nightCheckoutRooms, t)}</td>
             </tr>
           ))}
 
@@ -185,16 +185,22 @@ function renderMeals(row: DailyReportRow, t: typeof DICT['en']) {
   return parts.join(', ')
 }
 
-function renderRooms(row: DailyReportRow, lang: Lang, afterNoonRooms: Set<string>) {
+function renderRooms(row: DailyReportRow, lang: Lang, afterNoonRooms: Set<string>, t: typeof DICT['en']) {
   // Flatten to tokens so we can bold the rooms that only free after noon
-  // (a night guest checks out at 12, so the daylong group gets that room late).
-  const tokens: Array<{ text: string; afterNoon: boolean }> = []
+  // (a night guest checks out at 12, so the daylong group gets that room late)
+  // and mark the rooms a night guest only gets in the evening.
+  const tokens: Array<{ text: string; afterNoon: boolean; evening: boolean }> = []
   for (const r of row.rooms) {
     if (r.room_numbers.length > 0) {
-      for (const n of r.room_numbers) tokens.push({ text: fmtNum(n, lang), afterNoon: afterNoonRooms.has(n) })
+      for (const n of r.room_numbers) {
+        tokens.push({
+          text: fmtNum(n, lang), afterNoon: afterNoonRooms.has(n),
+          evening: row.is_checkin && row.package_type === 'night' && (r.evening_rooms ?? []).includes(n),
+        })
+      }
     } else {
       // No assigned number — show room type as fallback
-      tokens.push({ text: `${roomTypeLabel(r.room_type, r.room_type.replace(/_/g, ' '), lang)} × ${fmtNum(r.qty, lang)}`, afterNoon: false })
+      tokens.push({ text: `${roomTypeLabel(r.room_type, r.room_type.replace(/_/g, ' '), lang)} × ${fmtNum(r.qty, lang)}`, afterNoon: false, evening: false })
     }
   }
   if (tokens.length === 0) return '—'
@@ -204,6 +210,7 @@ function renderRooms(row: DailyReportRow, lang: Lang, afterNoonRooms: Set<string
         <span key={i}>
           {i > 0 ? ', ' : ''}
           {tk.afterNoon ? <strong style={{ fontWeight: 700 }}>{tk.text}</strong> : tk.text}
+          {tk.evening && <span style={{ fontSize: '0.8em' }}> ({t.from_6pm})</span>}
         </span>
       ))}
     </>
@@ -220,6 +227,9 @@ function renderFreeRooms(free: FreeRooms, lang: Lang, t: typeof DICT['en']) {
   }
   if (free.free_after_6pm.length > 0) {
     lines.push(`${t.after_6pm} ${free.free_after_6pm.map((n) => fmtNum(n, lang)).join(', ')}`)
+  }
+  if ((free.free_until_6pm ?? []).length > 0) {
+    lines.push(`${t.until_6pm} ${free.free_until_6pm.map((n) => fmtNum(n, lang)).join(', ')}`)
   }
   if (lines.length === 0) return '—'
   return (

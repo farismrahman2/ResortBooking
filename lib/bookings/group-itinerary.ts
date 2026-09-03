@@ -31,6 +31,9 @@ export interface GroupSegmentRoom {
   /** 0 = complimentary, as everywhere else in the system. */
   unit_price:    number
   room_numbers:  string[]
+  /** Overnight segments only: rooms handed over in the evening, so the day
+   *  on them can go to that date's day guests. */
+  evening_rooms?: string[]
 }
 
 export interface GroupSegment {
@@ -160,6 +163,29 @@ export function deriveGroupHeader(segments: GroupSegment[]): GroupHeader | null 
   }
 }
 
+/**
+ * Room numbers used twice on one date in a way that can't work: the same room
+ * in two overnight segments (impossible — one per date), or slept in AND lent
+ * to day guests without being an evening room. An overnight room handed over
+ * in the evening may serve that day's day guests first; that is the point.
+ */
+export function roomNumberClashesOnDate(segments: GroupSegment[], date: string): string[] {
+  const night = segments.filter((s) => s.day_date === date && s.stay_kind === 'night')
+  const day   = segments.filter((s) => s.day_date === date && s.stay_kind === 'daylong')
+  const nightNums = new Set<string>(), evening = new Set<string>(), clashes = new Set<string>()
+  for (const s of night) for (const r of s.rooms) {
+    for (const n of r.room_numbers ?? []) { if (nightNums.has(n)) clashes.add(n); nightNums.add(n) }
+    for (const n of r.evening_rooms ?? []) evening.add(n)
+  }
+  const dayNums = new Set<string>()
+  for (const s of day) for (const r of s.rooms) for (const n of r.room_numbers ?? []) {
+    if (dayNums.has(n)) clashes.add(n)
+    dayNums.add(n)
+    if (nightNums.has(n) && !evening.has(n)) clashes.add(n)
+  }
+  return [...clashes]
+}
+
 /** Every physical room number the itinerary uses on one date, across both kinds. */
 export function roomNumbersOnDate(segments: GroupSegment[], date: string): string[] {
   const out: string[] = []
@@ -277,7 +303,7 @@ export interface GroupDayRowLike {
   drivers:       number | null
   extra_beds?:   number | null
   notes?:        string | null
-  rooms?:        Array<{ room_type: string; qty: number | null; unit_price: number | null; room_numbers: string[] | null }> | null
+  rooms?:        Array<{ room_type: string; qty: number | null; unit_price: number | null; room_numbers: string[] | null; evening_rooms?: string[] | null }> | null
 }
 
 /** Normalise itinerary rows (with their embedded rooms) into segments. */
@@ -297,6 +323,7 @@ export function rowsToSegments(rows: GroupDayRowLike[] | null | undefined): Grou
       qty:          Number(x.qty ?? 0),
       unit_price:   Number(x.unit_price ?? 0),
       room_numbers: x.room_numbers ?? [],
+      evening_rooms: x.evening_rooms ?? [],
     })),
   })))
 }

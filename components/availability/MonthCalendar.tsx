@@ -9,7 +9,8 @@ const WEEKS_VISIBLE = 5
 interface DaySummary {
   date:           string  // YYYY-MM-DD
   totalUnits:     number
-  totalAvailable: number
+  totalAvailable: number            // night half — what "is the room free" means at the desk
+  totalAvailableDay: number         // day half — differs when rooms are handed over in the evening
   rooms:          AvailabilityResult[]   // for the per-cell hover tooltip
 }
 
@@ -111,14 +112,16 @@ export function MonthCalendar({ selectedDate, onDateClick, inventory }: MonthCal
             date:           iso,
             totalUnits:     totalInventory,
             totalAvailable: totalInventory,
+            totalAvailableDay: totalInventory,
             rooms:          defaultRooms(),
           })
         }
         for (const d of data.dates ?? []) {
           const rooms = (d.rooms as AvailabilityResult[]).filter((r) => !r.daylong_only)
           const totalUnits     = rooms.reduce((s, r) => s + r.total_units, 0)
-          const totalAvailable = rooms.reduce((s, r) => s + r.available,   0)
-          map.set(d.date, { date: d.date, rooms, totalUnits, totalAvailable })
+          const totalAvailable = rooms.reduce((s, r) => s + (r.available_night ?? r.available), 0)
+          const totalAvailableDay = rooms.reduce((s, r) => s + (r.available_day ?? r.available), 0)
+          map.set(d.date, { date: d.date, rooms, totalUnits, totalAvailable, totalAvailableDay })
         }
         setDays(map)
       } catch (err) {
@@ -223,6 +226,11 @@ export function MonthCalendar({ selectedDate, onDateClick, inventory }: MonthCal
                       <span className="opacity-70">/{summary.totalUnits}</span>
                     </>
                   )}
+                  {summary.totalAvailableDay !== summary.totalAvailable && (
+                    <span className="block text-[9px] font-medium opacity-80 sm:text-[10px]">
+                      day {summary.totalAvailableDay}
+                    </span>
+                  )}
                 </div>
               ) : loading ? (
                 <span className="text-[10px] text-gray-400">…</span>
@@ -241,6 +249,9 @@ export function MonthCalendar({ selectedDate, onDateClick, inventory }: MonthCal
                       <span className="font-mono tabular-nums">
                         <span className={r.available === 0 ? 'text-red-300' : 'text-white'}>{r.available}</span>
                         <span className="text-white/50">/{r.total_units}</span>
+                        {r.available_day !== undefined && r.available_day !== r.available && (
+                          <span className="text-white/60"> · day {r.available_day}</span>
+                        )}
                       </span>
                     </div>
                   ))}

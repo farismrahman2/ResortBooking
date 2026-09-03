@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { ROOM_NUMBERS } from '@/lib/config/rooms'
-import { deriveGroupHeader, roomNumbersOnDate, distinctDates } from '@/lib/bookings/group-itinerary'
+import { deriveGroupHeader, roomNumberClashesOnDate, distinctDates } from '@/lib/bookings/group-itinerary'
 import type { RoomType } from '@/lib/supabase/types'
 
 export const ExtraItemSchema = z.object({
@@ -15,6 +15,8 @@ const RoomSelectionSchema = z.object({
   qty:          z.number().int().min(1, 'Quantity must be at least 1'),
   unit_price:   z.number().int().min(0),
   room_numbers: z.array(z.string()).default([]),
+  /** Handed over in the evening on the check-in day. Night stays only. */
+  evening_rooms: z.array(z.string()).default([]),
 })
 
 // ── Group itinerary ─────────────────────────────────────────────────────────
@@ -25,6 +27,7 @@ const GroupSegmentRoomSchema = z.object({
   qty:          z.number().int().min(1, 'Quantity must be at least 1'),
   unit_price:   z.number().int().min(0),
   room_numbers: z.array(z.string()).default([]),
+  evening_rooms: z.array(z.string()).default([]),
 })
 
 export const GroupSegmentSchema = z.object({
@@ -220,6 +223,13 @@ export const CreateQuoteSchema = BaseQuoteSchema
           ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['days', i, 'rooms'], message: 'Tree House is available for day use only' })
         }
         d.rooms.forEach((r, ri) => {
+          const stray = r.evening_rooms.filter((n) => !r.room_numbers.includes(n))
+          if (stray.length) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['days', i, 'rooms', ri, 'evening_rooms'], message: `${d.day_date}: room ${stray.join(', ')} is marked for evening handover but not selected` })
+          }
+          if (d.stay_kind === 'daylong' && r.evening_rooms.length) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['days', i, 'rooms', ri, 'evening_rooms'], message: `${d.day_date}: evening handover applies to overnight rooms only` })
+          }
           const fixed = ROOM_NUMBERS[r.room_type as RoomType] ?? []
           if (fixed.length === 0) return
           if (r.room_numbers.length !== r.qty) {
@@ -232,17 +242,28 @@ export const CreateQuoteSchema = BaseQuoteSchema
         })
       })
       // The same physical room can't be slept in AND lent to day guests on
-      // one date — or listed twice in any way. Across dates is fine: that is
-      // how Room 101 stays booked for three nights.
+      // one date — unless it is handed over in the evening, in which case the
+      // day guests have it first. Across dates is fine: that is how Room 101
+      // stays booked for three nights.
       for (const date of distinctDates(data.days)) {
-        const nums = roomNumbersOnDate(data.days, date)
-        const dupes = nums.filter((n, i) => nums.indexOf(n) !== i)
+        const dupes = roomNumberClashesOnDate(data.days, date)
         if (dupes.length) {
-          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['days'], message: `Room ${[...new Set(dupes)].join(', ')} is used twice on ${date}` })
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['days'], message: `Room ${dupes.join(', ')} is used twice on ${date} — mark it for evening handover if the day guests have it first` })
         }
       }
       return
     }
+    // Evening handover only means something on a night stay's check-in day,
+    // and only for rooms the booking actually has.
+    data.rooms.forEach((r, idx) => {
+      const stray = r.evening_rooms.filter((n) => !r.room_numbers.includes(n))
+      if (stray.length) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['rooms', idx, 'evening_rooms'], message: `Room ${stray.join(', ')} is marked for evening handover but not selected` })
+      }
+      if (data.package_type === 'daylong' && r.evening_rooms.length) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['rooms', idx, 'evening_rooms'], message: 'Evening handover applies to night stays only' })
+      }
+    })
     // Every selected room type with fixed room numbers must have exactly qty
     // specific room numbers picked. Prevents "ghost" rooms where the booking
     // has a room type but no physical room assigned.

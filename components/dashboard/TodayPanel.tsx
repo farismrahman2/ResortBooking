@@ -141,7 +141,10 @@ function TodayList({
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium text-gray-900">{r.customer_name}</span>
                   <span className="block truncate text-[11px] text-gray-500">
-                    {r.room_numbers.length ? `Room ${r.room_numbers.join(', ')}` : r.booking_number}
+                    {r.room_numbers.length
+                      ? `Room ${r.room_numbers.filter((n) => !(r.evening_rooms ?? []).includes(n)).join(', ') || '—'}`
+                        + ((r.evening_rooms ?? []).length ? ` · ${r.evening_rooms.join(', ')} from 6 PM` : '')
+                      : r.booking_number}
                     {' · '}{r.guests} guest{r.guests === 1 ? '' : 's'}
                     {r.remaining > 0 && <span className="text-red-600"> · {formatBDT(r.remaining)} due</span>}
                   </span>

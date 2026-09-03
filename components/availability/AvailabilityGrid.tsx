@@ -64,6 +64,12 @@ export function AvailabilityGrid({ rooms }: AvailabilityGridProps) {
               {room.booked > 0 && (
                 <p className="mt-0.5 text-xs text-gray-500">{room.booked} booked</p>
               )}
+              {room.available_day !== undefined && room.available_night !== undefined
+                && room.available_day !== room.available_night && (
+                <p className="mt-0.5 text-xs text-sky-700">
+                  Day {room.available_day} · Night {room.available_night} free
+                </p>
+              )}
             </div>
           )
         })}

@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRoomNumberAvailability } from '@/lib/queries/availability'
+import { getRoomNumberBuckets } from '@/lib/queries/availability'
 
+/**
+ * GET /api/booked-room-numbers?visitDate=…[&checkOutDate=…][&excludeId=…]
+ *
+ * Room numbers for the picker, sorted by what a request on these dates can
+ * do with them. `takenRoomNumbers` / `noonRoomNumbers` keep their old names;
+ * `eveningOnlyRoomNumbers` (night stays: held by day guests on arrival day —
+ * pick as an evening-handover room) and `untilEveningRoomNumbers` (day
+ * visits: a night guest arrives in the evening) are new.
+ */
 export async function GET(req: NextRequest) {
   const visitDate    = req.nextUrl.searchParams.get('visitDate')
   const checkOutDate = req.nextUrl.searchParams.get('checkOutDate') || null
@@ -11,9 +20,13 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const { taken, noon } = await getRoomNumberAvailability(visitDate, checkOutDate, excludeId)
-    // `takenRoomNumbers` kept for back-compat; `noonRoomNumbers` are free after ~noon.
-    return NextResponse.json({ takenRoomNumbers: taken, noonRoomNumbers: noon })
+    const b = await getRoomNumberBuckets(visitDate, checkOutDate, excludeId)
+    return NextResponse.json({
+      takenRoomNumbers:        b.taken,
+      noonRoomNumbers:         b.noon,
+      eveningOnlyRoomNumbers:  b.eveningOnly,
+      untilEveningRoomNumbers: b.untilEvening,
+    })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }

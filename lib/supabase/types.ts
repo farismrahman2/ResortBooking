@@ -142,6 +142,9 @@ export interface QuoteRoomRow {
   qty: number
   unit_price: number
   room_numbers: string[]
+  /** Subset of room_numbers handed over at the evening handover time on the
+   *  check-in day — the day on those rooms is still sellable. */
+  evening_rooms?: string[]
 }
 
 export interface BookingRow {
@@ -197,6 +200,9 @@ export interface BookingRoomRow {
   qty: number
   unit_price: number
   room_numbers: string[]   // specific room numbers assigned (e.g. ['103', '104'])
+  /** Subset of room_numbers handed over at the evening handover time on the
+   *  check-in day — the day on those rooms is still sellable. */
+  evening_rooms?: string[]
 }
 
 /** A room line inside one itinerary segment. unit_price 0 = complimentary. */
@@ -206,6 +212,9 @@ export interface GroupDayRoomRow {
   qty: number
   unit_price: number
   room_numbers: string[]
+  /** Subset of room_numbers handed over at the evening handover time on the
+   *  check-in day — the day on those rooms is still sellable. */
+  evening_rooms?: string[]
 }
 
 /** One (date, kind) segment of a group itinerary — see lib/bookings/group-itinerary.ts. */
@@ -796,8 +805,14 @@ export interface AvailabilityResult {
   room_type: RoomType
   display_name: string
   total_units: number
+  /** The half the caller asked about (day for daylong, night otherwise). */
   booked: number
   available: number
+  /** Both halves — they differ when rooms are handed over in the evening. */
+  booked_day?: number
+  available_day?: number
+  booked_night?: number
+  available_night?: number
   daylong_only: boolean
 }
 

@@ -15,6 +15,8 @@ export interface TodayRow {
   package_type:   string
   status:         string
   room_numbers:   string[]
+  /** Of those, handed over at the evening handover time (arrivals only). */
+  evening_rooms:  string[]
   guests:         number
   remaining:      number
 }
@@ -37,14 +39,17 @@ export interface TodaySnapshot {
  * group's header holds its peak day, which is the wrong number for either.
  */
 function toRow(b: any, groupDate?: string): TodayRow {   // eslint-disable-line @typescript-eslint/no-explicit-any
-  let rooms  = (b.booking_rooms ?? []).flatMap((r: any) => r.room_numbers ?? [])   // eslint-disable-line @typescript-eslint/no-explicit-any
-  let guests = (b.adults ?? 0) + (b.children_paid ?? 0) + (b.children_free ?? 0)
+  let rooms   = (b.booking_rooms ?? []).flatMap((r: any) => r.room_numbers ?? [])   // eslint-disable-line @typescript-eslint/no-explicit-any
+  let evening = (b.booking_rooms ?? []).flatMap((r: any) => r.evening_rooms ?? [])  // eslint-disable-line @typescript-eslint/no-explicit-any
+  let guests  = (b.adults ?? 0) + (b.children_paid ?? 0) + (b.children_free ?? 0)
   if (b.package_type === 'group' && groupDate) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const segs = ((b.booking_days ?? []) as any[]).filter((d) => d.day_date === groupDate)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    rooms  = segs.flatMap((d) => (d.booking_day_rooms ?? []).flatMap((r: any) => r.room_numbers ?? []))
-    guests = segs.reduce((n, d) => n + (d.adults ?? 0) + (d.children_paid ?? 0) + (d.children_free ?? 0), 0)
+    rooms   = segs.flatMap((d) => (d.booking_day_rooms ?? []).flatMap((r: any) => r.room_numbers ?? []))
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    evening = segs.filter((d) => d.stay_kind === 'night').flatMap((d) => (d.booking_day_rooms ?? []).flatMap((r: any) => r.evening_rooms ?? []))
+    guests  = segs.reduce((n, d) => n + (d.adults ?? 0) + (d.children_paid ?? 0) + (d.children_free ?? 0), 0)
   }
   return {
     id:             b.id,
@@ -54,6 +59,7 @@ function toRow(b: any, groupDate?: string): TodayRow {   // eslint-disable-line 
     package_type:   b.package_type,
     status:         b.status,
     room_numbers:   rooms,
+    evening_rooms:  evening.filter((n: string) => rooms.includes(n)),
     guests,
     remaining:      Number(b.remaining ?? 0),
   }
@@ -69,8 +75,8 @@ export async function getTodaySnapshot(): Promise<TodaySnapshot> {
   const BASE = `
     id, booking_number, customer_name, customer_phone, package_type, status,
     adults, children_paid, children_free, remaining, visit_date, check_out_date,
-    booking_rooms(room_numbers, qty)`
-  const SELECT     = `${BASE}, booking_days(day_date, stay_kind, adults, children_paid, children_free, booking_day_rooms(room_numbers, qty))`
+    booking_rooms(room_numbers, evening_rooms, qty)`
+  const SELECT     = `${BASE}, booking_days(day_date, stay_kind, adults, children_paid, children_free, booking_day_rooms(room_numbers, evening_rooms, qty))`
   const SELECT_MIN = BASE
 
   const [arrivalsRes, departuresRes, inHouseRes, invRes, settingRes, trendRes, groupTonightRes] = await Promise.all([
