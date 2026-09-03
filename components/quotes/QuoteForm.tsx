@@ -1143,7 +1143,8 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
               checkIn={previewPackage.check_in}
               checkOut={previewPackage.check_out}
               rooms={allRoomsWithComp}
-              itinerary={isGroup ? itineraryLinesFor(days) : undefined}
+              itinerary={isGroup ? itineraryLinesFor(days, handoverLabel) : undefined}
+              handoverLabel={handoverLabel}
               calcResult={calcResult}
               discountPct={watchedValues.discount_pct ?? 0}
               mealsText={previewPackage.meals}
@@ -1223,6 +1224,8 @@ interface WhatsAppPreviewProps {
   rooms: RS[]
   /** Group quotes: replaces the rooms block with a day-by-day one. */
   itinerary?: ItineraryLine[]
+  /** "6:00 PM" — the evening handover time. */
+  handoverLabel?: string
   calcResult: CalculationResult
   /** Percentage behind the discount, shown next to it in the message. */
   discountPct?: number
@@ -1243,6 +1246,7 @@ function WhatsAppPreview({
   checkOut,
   rooms,
   itinerary,
+  handoverLabel = '6:00 PM',
   calcResult,
   discountPct,
   mealsText,
@@ -1277,6 +1281,19 @@ function WhatsAppPreview({
     .map((r) => `${r.display_name} × ${r.qty}: Complimentary`)
     .join('\n')
 
+  // Which rooms the guests get on arrival and which at the evening handover —
+  // the same block the final message carries, so the preview is not a lie.
+  const eveningNums = rooms.flatMap((r) => (r.evening_rooms ?? []).filter((n) => (r.room_numbers ?? []).includes(n)))
+  const arrivalNums = rooms.flatMap((r) => (r.room_numbers ?? []).filter((n) => !(r.evening_rooms ?? []).includes(n)))
+  const handoverLines = eveningNums.length > 0
+    ? [
+        '',
+        '🔑 *ROOM HANDOVER*',
+        ...(arrivalNums.length ? [`  On arrival: ${arrivalNums.join(', ')}`] : []),
+        `  From ${handoverLabel}: ${eveningNums.join(', ')} (after the day's guests leave)`,
+      ]
+    : []
+
   // Show qty × unit_price = subtotal so the recipient can audit the math.
   // Single-unit lines (qty=1, no nights) collapse to just the label + total.
   const pricingLines = calcResult.line_items
@@ -1307,6 +1324,7 @@ function WhatsAppPreview({
           '🏨 *ROOMS*',
           roomLines || (compRoomsPreview.length > 0 ? '  (no paid rooms)' : '  (no rooms selected)'),
           ...(compRoomsPreview.length > 0 ? [``, `🎁 *COMPLIMENTARY ROOMS*`, compRoomLines] : []),
+          ...handoverLines,
           ...(roomAvailableAfterNoon ? ['⚠️ *Note:* Room will be available after 12:00 PM (previous guest checking out)'] : []),
         ]),
     SEP,
