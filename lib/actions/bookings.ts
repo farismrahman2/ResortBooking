@@ -14,7 +14,7 @@ import { insertGroupDays, replaceGroupDays } from '@/lib/bookings/group-days-db'
 import { findDuplicateBookings } from '@/lib/queries/duplicate-bookings'
 import { ROOM_NUMBERS } from '@/lib/config/rooms'
 import { requirePermission, getCurrentUserContext } from '@/lib/auth/permissions'
-import { isMissingRelation } from '@/lib/supabase/errors'
+import { isMissingRelation, roomRowError } from '@/lib/supabase/errors'
 import { getAdvanceDefaultAccountId, listAccountsForMethod } from '@/lib/queries/payment-accounts'
 import { requiresAccount, missingAccountError } from '@/lib/payments/account-rules'
 import { findUnassignedRoomNumbersError } from '@/lib/validators/quote'
@@ -220,7 +220,7 @@ export async function convertQuoteToBooking(
       )
       if (roomsErr) {
         await db.from('bookings').delete().eq('id', booking.id)
-        return { success: false, error: `Could not copy rooms to the booking: ${roomsErr.message}` }
+        return { success: false, error: `Could not copy rooms to the booking: ${roomRowError(roomsErr)}` }
       }
     }
 
@@ -792,7 +792,7 @@ export async function updateBooking(
     // insert fails.
     const { data: oldRooms } = await (supabase as any)
       .from('booking_rooms')
-      .select('room_type, qty, unit_price, room_numbers')
+      .select('room_type, qty, unit_price, room_numbers, evening_rooms')
       .eq('booking_id', bookingId)
 
     const { error: delErr } = await supabase.from('booking_rooms').delete().eq('booking_id', bookingId)
@@ -817,7 +817,7 @@ export async function updateBooking(
             oldRooms.map((r: any) => ({ ...r, booking_id: bookingId })),
           )
         }
-        return { success: false, error: `Could not save rooms — the booking was left unchanged: ${insErr.message}` }
+        return { success: false, error: `Could not save rooms — the booking was left unchanged: ${roomRowError(insErr)}` }
       }
     }
 

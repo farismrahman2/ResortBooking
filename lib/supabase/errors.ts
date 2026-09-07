@@ -20,3 +20,21 @@ export function isMissingRelation(error: any): boolean {
   const msg = `${error.message ?? ''} ${error.details ?? ''} ${error.hint ?? ''}`
   return /does not exist|could not find the (table|column|function)|schema cache/i.test(msg)
 }
+
+/**
+ * A room row rejected by the unique index on (quote|booking, room_type).
+ *
+ * Until migrations/comp-rooms/001 is applied, one paid room and one free room
+ * of the same type collide, and the raw Postgres text ("duplicate key value
+ * violates unique constraint …") tells the agent nothing they can act on.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function roomRowError(error: any): string {
+  const msg = String(error?.message ?? '')
+  if (String(error?.code ?? '') === '23505' && /room_type/.test(msg)) {
+    return 'The same room type is listed twice — once paid and once complimentary. ' +
+           'Either give the free room a different room type, or apply the pending ' +
+           'comp-rooms migration, which lets a paid and a free room share a type.'
+  }
+  return msg
+}

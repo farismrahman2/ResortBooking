@@ -12,6 +12,7 @@ import { replaceGroupDays, insertGroupDays } from '@/lib/bookings/group-days-db'
 import type { GroupSegment } from '@/lib/bookings/group-itinerary'
 import type { PackageSnapshot } from '@/lib/supabase/types'
 import { findDuplicateBookings } from '@/lib/queries/duplicate-bookings'
+import { roomRowError } from '@/lib/supabase/errors'
 import { requirePermission } from '@/lib/auth/permissions'
 import type { ActionResult, ActionData } from './types'
 import type { BookingStatus, RoomType } from '@/lib/supabase/types'
@@ -192,7 +193,7 @@ export async function createQuote(
       const { error: roomsErr } = await supabase.from('quote_rooms').insert(roomRows)
       if (roomsErr) {
         await supabase.from('quotes').delete().eq('id', quote.id)
-        return { success: false, error: `Could not save the quote's rooms: ${roomsErr.message}` }
+        return { success: false, error: `Could not save the quote's rooms: ${roomRowError(roomsErr)}` }
       }
     }
 
@@ -365,7 +366,7 @@ export async function updateQuote(
     // delete used to leave the quote roomless (and report success), making it
     // invisible to capacity checks.
     const { data: oldRooms } = await supabase.from('quote_rooms')
-      .select('room_type, qty, unit_price, room_numbers').eq('quote_id', id)
+      .select('room_type, qty, unit_price, room_numbers, evening_rooms').eq('quote_id', id)
     const { error: delErr } = await supabase.from('quote_rooms').delete().eq('quote_id', id)
     if (delErr) return { success: false, error: `Could not update rooms: ${delErr.message}` }
     const roomRows = validated.rooms.map((r) => ({
@@ -384,7 +385,7 @@ export async function updateQuote(
             (oldRooms as any[]).map((r) => ({ ...r, quote_id: id })),
           )
         }
-        return { success: false, error: `Could not save rooms — the quote's rooms were left unchanged: ${insErr.message}` }
+        return { success: false, error: `Could not save rooms — the quote's rooms were left unchanged: ${roomRowError(insErr)}` }
       }
     }
 
