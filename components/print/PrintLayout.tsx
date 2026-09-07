@@ -58,9 +58,14 @@ export function PrintLayout({ quote, booking, settings }: PrintLayoutProps) {
   const notesText = record.customer_notes ?? record.package_snapshot.notes
 
   return (
-    <div className="print-layout mx-auto max-w-[800px] bg-white p-8 font-sans text-gray-900 print:p-6 print:shadow-none">
+    /* The `print:` spacing below is deliberately tighter than the screen
+       version: an ordinary confirmation was running a little past one page,
+       so the payment box and footer landed alone on page two behind half a
+       blank page. Padding here is print:p-0 because .print-page-wrapper
+       already supplies the 10mm/12mm page margin. */
+    <div className="print-layout mx-auto max-w-[800px] bg-white p-8 font-sans text-gray-900 print:p-0 print:shadow-none">
       {/* ── HEADER ─────────────────────────────────────────── */}
-      <div className="mb-6 flex items-start justify-between border-b-2 border-gray-800 pb-4">
+      <div className="mb-6 flex items-start justify-between border-b-2 border-gray-800 pb-4 print:mb-4 print:pb-2">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-gray-900">{resortName}</h1>
           {contactNums && (
@@ -77,7 +82,7 @@ export function PrintLayout({ quote, booking, settings }: PrintLayoutProps) {
       </div>
 
       {/* ── CUSTOMER ───────────────────────────────────────── */}
-      <div className="mb-6 grid grid-cols-2 gap-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
+      <div className="mb-6 grid grid-cols-2 gap-4 rounded-lg border border-gray-200 bg-gray-50 p-4 print:mb-3 print:gap-2 print:p-3">
         {(record as any).is_corporate && (record as any).company_name && (
           <InfoRow label="Company" value={(record as any).company_name} className="col-span-2" />
         )}
@@ -100,7 +105,7 @@ export function PrintLayout({ quote, booking, settings }: PrintLayoutProps) {
 
       {/* ── ITINERARY (group) ──────────────────────────────── */}
       {record.package_type === 'group' && (record.days?.length ?? 0) > 0 && (
-        <div className="mb-6">
+        <div className="mb-6 print:mb-3">
           <SectionTitle>Itinerary</SectionTitle>
           <table className="w-full border-collapse text-sm">
             <thead>
@@ -117,7 +122,7 @@ export function PrintLayout({ quote, booking, settings }: PrintLayoutProps) {
                 const paid = s.rooms.filter((r) => r.unit_price > 0).map((r) => describeRoom(r, handoverLabel))
                 const comp = s.rooms.filter((r) => r.unit_price === 0).map((r) => describeRoom(r, handoverLabel))
                 return (
-                  <tr key={`${s.day_date}-${s.stay_kind}`} className="border-b border-gray-100 align-top">
+                  <tr key={`${s.day_date}-${s.stay_kind}`} className="border-b border-gray-100 align-top print:break-inside-avoid">
                     <Td className="whitespace-nowrap">{shortDayLabel(s.day_date)}</Td>
                     <Td>{s.stay_kind === 'night' ? 'Overnight' : 'Day guests'}</Td>
                     <Td className="text-center">
@@ -140,7 +145,7 @@ export function PrintLayout({ quote, booking, settings }: PrintLayoutProps) {
 
       {/* ── ROOMS TABLE ────────────────────────────────────── */}
       {rooms.length > 0 && (
-        <div className="mb-6">
+        <div className="mb-6 print:mb-3">
           <SectionTitle>Rooms</SectionTitle>
           <table className="w-full border-collapse text-sm">
             <thead>
@@ -161,7 +166,7 @@ export function PrintLayout({ quote, booking, settings }: PrintLayoutProps) {
                     ? room.qty * room.unit_price * nights
                     : room.qty * room.unit_price
                 return (
-                  <tr key={room.id} className="border-b border-gray-100">
+                  <tr key={room.id} className="border-b border-gray-100 print:break-inside-avoid">
                     <Td>{ROOM_LABELS[room.room_type] ?? room.room_type}</Td>
                     <Td className="text-center">{room.qty}</Td>
                     <Td>
@@ -189,7 +194,7 @@ export function PrintLayout({ quote, booking, settings }: PrintLayoutProps) {
       )}
 
       {/* ── PRICING BREAKDOWN ──────────────────────────────── */}
-      <div className="mb-6">
+      <div className="mb-6 print:mb-3">
         <SectionTitle>Pricing Breakdown</SectionTitle>
         <table className="w-full border-collapse text-sm">
           <thead>
@@ -203,7 +208,7 @@ export function PrintLayout({ quote, booking, settings }: PrintLayoutProps) {
           </thead>
           <tbody>
             {record.line_items.map((item, idx) => (
-              <tr key={idx} className="border-b border-gray-100">
+              <tr key={idx} className="border-b border-gray-100 print:break-inside-avoid">
                 <Td>{item.label}</Td>
                 <Td className="text-center">{item.qty}</Td>
                 {record.package_type !== 'daylong' && (
@@ -217,8 +222,8 @@ export function PrintLayout({ quote, booking, settings }: PrintLayoutProps) {
         </table>
 
         {/* Totals block */}
-        <div className="mt-3 flex justify-end">
-          <div className="w-64">
+        <div className="mt-3 flex justify-end print:mt-2">
+          <div className="w-64 print:break-inside-avoid">
             <TotalRow label="Subtotal" value={formatBDT(record.subtotal)} />
             {record.discount > 0 && (
               <TotalRow label="Discount" value={`-${formatBDT(record.discount)}`} className="text-red-600" />
@@ -234,7 +239,7 @@ export function PrintLayout({ quote, booking, settings }: PrintLayoutProps) {
 
       {/* ── MEALS ──────────────────────────────────────────── */}
       {record.package_snapshot.meals && (
-        <div className="mb-6">
+        <div className="mb-6 print:mb-3">
           <SectionTitle>Meals Included</SectionTitle>
           <p className="whitespace-pre-wrap text-sm text-gray-700">{record.package_snapshot.meals}</p>
         </div>
@@ -242,7 +247,7 @@ export function PrintLayout({ quote, booking, settings }: PrintLayoutProps) {
 
       {/* ── NOTES ──────────────────────────────────────────── */}
       {notesText && (
-        <div className="mb-6">
+        <div className="mb-6 print:mb-3">
           <SectionTitle>Notes</SectionTitle>
           <p className="whitespace-pre-wrap text-sm text-gray-700">{notesText}</p>
         </div>
@@ -250,14 +255,14 @@ export function PrintLayout({ quote, booking, settings }: PrintLayoutProps) {
 
       {/* ── PAYMENT ────────────────────────────────────────── */}
       {paymentInfo && (
-        <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4">
+        <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4 print:mb-3 print:p-3 print:break-inside-avoid">
           <SectionTitle className="text-amber-800">Payment Information</SectionTitle>
           <p className="whitespace-pre-wrap text-sm text-amber-900">{paymentInfo}</p>
         </div>
       )}
 
       {/* ── FOOTER ─────────────────────────────────────────── */}
-      <div className="mt-8 border-t border-gray-200 pt-4 text-center text-xs text-gray-400">
+      <div className="mt-8 border-t border-gray-200 pt-4 text-center text-xs text-gray-400 print:mt-4 print:pt-2">
         {footerText ? (
           <p>{footerText}</p>
         ) : (
@@ -278,7 +283,7 @@ function SectionTitle({
   className?: string
 }) {
   return (
-    <h2 className={`mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500 ${className}`}>
+    <h2 className={`mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500 print:mb-1 ${className}`}>
       {children}
     </h2>
   )
@@ -309,7 +314,7 @@ function Th({
   className?: string
 }) {
   return (
-    <th className={`px-3 py-2 text-xs font-semibold text-gray-600 ${className}`}>{children}</th>
+    <th className={`px-3 py-2 text-xs font-semibold text-gray-600 print:py-1 ${className}`}>{children}</th>
   )
 }
 
@@ -321,7 +326,7 @@ function Td({
   className?: string
 }) {
   return (
-    <td className={`px-3 py-2 text-sm text-gray-800 ${className}`}>{children}</td>
+    <td className={`px-3 py-2 text-sm text-gray-800 print:py-1 ${className}`}>{children}</td>
   )
 }
 
