@@ -1,6 +1,7 @@
 'use client'
 
 import { Badge } from '@/components/ui/Badge'
+import { formatTime12h } from '@/lib/formatters/dates'
 import type { PackageWithPrices } from '@/lib/supabase/types'
 
 interface PackageSelectorProps {
@@ -94,10 +95,10 @@ export function PackageSelector({ packages, value, onChange }: PackageSelectorPr
           </div>
           <div className="flex items-center gap-4 text-xs text-gray-600">
             <span>
-              <span className="font-medium">Check-in:</span> {selectedPkg.check_in}
+              <span className="font-medium">Check-in:</span> {formatTime12h(selectedPkg.check_in)}
             </span>
             <span>
-              <span className="font-medium">Check-out:</span> {selectedPkg.check_out}
+              <span className="font-medium">Check-out:</span> {formatTime12h(selectedPkg.check_out)}
             </span>
           </div>
           {(selectedPkg.meals || selectedPkg.activities) && (

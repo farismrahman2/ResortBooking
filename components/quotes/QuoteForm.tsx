@@ -1316,7 +1316,7 @@ function WhatsAppPreview({
     `👤 *Name:* ${customerName}`,
     `📞 *Contact:* ${customerPhone}`,
     `📅 *Date:* ${dateLine}`,
-    `🕐 *Check-in:* ${checkIn}  |  *Check-out:* ${checkOut}`,
+    `🕐 *Check-in:* ${to12Hour(checkIn)}  |  *Check-out:* ${to12Hour(checkOut)}`,
     SEP,
     ...(itinerary && itinerary.length > 0
       ? ['🗓️ *ITINERARY*', ...itineraryLines(itinerary)]

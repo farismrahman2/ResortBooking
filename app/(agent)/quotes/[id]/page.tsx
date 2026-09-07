@@ -9,7 +9,7 @@ import { ItineraryCard } from '@/components/bookings/ItineraryCard'
 import { getEffectiveQuoteForDisplay } from '@/lib/queries/quotes'
 import { getSettings } from '@/lib/queries/settings'
 import { createClient } from '@/lib/supabase/server'
-import { formatDate, formatDateRange } from '@/lib/formatters/dates'
+import { formatDate, formatDateRange, formatTime12h } from '@/lib/formatters/dates'
 import { WhatsAppLink } from '@/components/ui/WhatsAppLink'
 import { formatBDT } from '@/lib/formatters/currency'
 import type { CalculationResult } from '@/lib/engine/calculator'
@@ -136,7 +136,7 @@ export default async function QuoteDetailPage({ params }: PageProps) {
                 <div>
                   <dt className="text-xs font-medium text-gray-500">Timing</dt>
                   <dd className="mt-0.5 text-gray-900">
-                    {snap.check_in} → {snap.check_out}
+                    {formatTime12h(snap.check_in)} → {formatTime12h(snap.check_out)}
                   </dd>
                 </div>
                 {snap.meals && (

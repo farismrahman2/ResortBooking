@@ -21,7 +21,7 @@ import { listPaymentAccounts } from '@/lib/queries/payment-accounts'
 import { getCheckoutByBooking, getChargesByCheckout } from '@/lib/queries/checkout'
 import { hasPermission } from '@/lib/auth/permissions'
 import { createClient } from '@/lib/supabase/server'
-import { formatDate, formatDateRange } from '@/lib/formatters/dates'
+import { formatDate, formatDateRange, formatTime12h } from '@/lib/formatters/dates'
 import { formatBDT } from '@/lib/formatters/currency'
 import type { RoomType } from '@/lib/supabase/types'
 
@@ -187,11 +187,11 @@ export default async function BookingDetailPage({ params }: PageProps) {
                 </div>
                 <div>
                   <dt className="text-xs font-medium text-gray-500">Check-in</dt>
-                  <dd className="mt-0.5 font-mono text-gray-900">{snap.check_in}</dd>
+                  <dd className="mt-0.5 font-mono text-gray-900">{formatTime12h(snap.check_in)}</dd>
                 </div>
                 <div>
                   <dt className="text-xs font-medium text-gray-500">Check-out</dt>
-                  <dd className="mt-0.5 font-mono text-gray-900">{snap.check_out}</dd>
+                  <dd className="mt-0.5 font-mono text-gray-900">{formatTime12h(snap.check_out)}</dd>
                 </div>
                 <div>
                   <dt className="text-xs font-medium text-gray-500">Customer Phone</dt>

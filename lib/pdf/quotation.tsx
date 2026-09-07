@@ -1,5 +1,6 @@
 import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer'
 import { formatBDT } from '@/lib/formatters/currency'
+import { formatTime12h } from '@/lib/formatters/dates'
 
 const styles = StyleSheet.create({
   page: { padding: 36, fontSize: 10, fontFamily: 'Helvetica', color: '#111827', lineHeight: 1.5 },
@@ -116,8 +117,8 @@ export function QuotationPdfDocument(p: QuotationPdfInput) {
           <View style={styles.metaRight}>
             <Text style={styles.label}>Date</Text>
             <Text style={styles.value}>{p.visitDate}</Text>
-            <Text style={styles.small}>Check-in: {p.checkIn}</Text>
-            <Text style={styles.small}>Check-out: {p.checkOut}</Text>
+            <Text style={styles.small}>Check-in: {formatTime12h(p.checkIn)}</Text>
+            <Text style={styles.small}>Check-out: {formatTime12h(p.checkOut)}</Text>
           </View>
         </View>
 

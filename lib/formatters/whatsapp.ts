@@ -6,22 +6,14 @@
  */
 
 import { formatBDT } from './currency'
-import { formatDate, formatDateRange } from './dates'
+import { formatDate, formatDateRange, formatTime12h } from './dates'
 
 const SEP = '━━━━━━━━━━━━━━━━━━'
 
-/** Convert a 24-hour "HH:MM" (or "HH:MM:SS") time to 12-hour "h:MM AM/PM". */
-export function to12Hour(time: string): string {
-  if (!time) return time
-  const [hRaw, mRaw = '00'] = time.split(':')
-  let h = parseInt(hRaw, 10)
-  if (Number.isNaN(h)) return time
-  const minutes = mRaw.padStart(2, '0').slice(0, 2)
-  const period = h >= 12 ? 'PM' : 'AM'
-  h = h % 12
-  if (h === 0) h = 12
-  return `${h}:${minutes} ${period}`
-}
+/** Convert a 24-hour "HH:MM" (or "HH:MM:SS") time to 12-hour "h:MM AM/PM".
+ *  Lives in `./dates`; aliased here for the call sites that import it from
+ *  this module. */
+export const to12Hour = formatTime12h
 
 
 export interface ItineraryLine {

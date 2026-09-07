@@ -31,6 +31,22 @@ export function formatDateRange(checkIn: string, checkOut: string): string {
 }
 
 /**
+ * Format a package time for display: '09:00:00' → '9:00 AM', '19:00' → '7:00 PM'.
+ * Postgres `time` columns come back as 'HH:MM:SS', so never show them raw.
+ */
+export function formatTime12h(time: string): string {
+  if (!time) return time
+  const [hRaw, mRaw = '00'] = time.split(':')
+  let h = parseInt(hRaw, 10)
+  if (Number.isNaN(h)) return time
+  const minutes = mRaw.padStart(2, '0').slice(0, 2)
+  const period = h >= 12 ? 'PM' : 'AM'
+  h = h % 12
+  if (h === 0) h = 12
+  return `${h}:${minutes} ${period}`
+}
+
+/**
  * Convert a Date to ISO date string 'YYYY-MM-DD'
  */
 export function toISODate(date: Date): string {

@@ -91,7 +91,7 @@ export function PrintLayout({ quote, booking, settings }: PrintLayoutProps) {
         <InfoRow label="Date / Stay"   value={dateLine} />
         <InfoRow
           label="Check-in / Check-out"
-          value={`${record.package_snapshot.check_in}  —  ${record.package_snapshot.check_out}`}
+          value={`${to12Hour(record.package_snapshot.check_in)}  —  ${to12Hour(record.package_snapshot.check_out)}`}
         />
         {guestParts.length > 0 && (
           <InfoRow label="Guests" value={guestParts.join(', ')} className="col-span-2" />
