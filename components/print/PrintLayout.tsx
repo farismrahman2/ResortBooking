@@ -4,6 +4,7 @@ import type { QuoteWithRooms, BookingWithRooms, SettingsMap, RoomType } from '@/
 import { rowsToSegments, sortSegments, shortDayLabel } from '@/lib/bookings/group-itinerary'
 import { describeRoom } from '@/lib/bookings/itinerary-lines'
 import { to12Hour } from '@/lib/formatters/whatsapp'
+import { guestHandoverLabel } from '@/lib/settings/handover'
 
 interface PrintLayoutProps {
   quote?:   QuoteWithRooms
@@ -39,7 +40,7 @@ export function PrintLayout({ quote, booking, settings }: PrintLayoutProps) {
   const contactNums   = settings['contact_numbers']     ?? ''
   const paymentInfo   = settings['payment_instructions'] ?? ''
   const footerText    = settings['print_footer_text']   ?? settings['whatsapp_footer_text'] ?? ''
-  const handoverLabel = to12Hour(settings['evening_handover_time'] ?? '18:00')
+  const handoverLabel = guestHandoverLabel(settings)
 
   const dateLine =
     (record.package_type === 'night' || record.package_type === 'group') && record.check_out_date

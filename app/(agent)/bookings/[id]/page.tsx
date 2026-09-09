@@ -22,6 +22,7 @@ import { getCheckoutByBooking, getChargesByCheckout } from '@/lib/queries/checko
 import { hasPermission } from '@/lib/auth/permissions'
 import { createClient } from '@/lib/supabase/server'
 import { formatDate, formatDateRange, formatTime12h } from '@/lib/formatters/dates'
+import { internalHandoverLabel, internalHandoverTime } from '@/lib/settings/handover'
 import { formatBDT } from '@/lib/formatters/currency'
 import type { RoomType } from '@/lib/supabase/types'
 
@@ -286,12 +287,12 @@ export default async function BookingDetailPage({ params }: PageProps) {
                               return (
                                 <span
                                   key={num}
-                                  title={evening ? `Handed over at ${settings['evening_handover_time'] ?? '18:00'}` : undefined}
+                                  title={evening ? `Handed over at ${internalHandoverLabel(settings)}` : undefined}
                                   className={evening
                                     ? 'inline-flex items-center gap-1 rounded bg-orange-100 px-2 py-0.5 text-xs font-mono font-semibold text-orange-800'
                                     : 'inline-flex items-center rounded bg-forest-100 px-2 py-0.5 text-xs font-mono font-semibold text-forest-700'}
                                 >
-                                  #{num}{evening && <span className="font-sans text-[10px] font-medium">from {settings['evening_handover_time'] ?? '18:00'}</span>}
+                                  #{num}{evening && <span className="font-sans text-[10px] font-medium">from {internalHandoverLabel(settings)}</span>}
                                 </span>
                               )
                             })}
@@ -388,7 +389,7 @@ export default async function BookingDetailPage({ params }: PageProps) {
               </CardHeader>
               <BookingActions booking={booking} holidayDates={holidayDates} inventory={inventory} bookedRoomNumbers={bookedRoomNumbers}
           eveningOnlyRoomNumbers={roomBuckets.eveningOnly}
-          handoverTime={settings['evening_handover_time'] ?? '18:00'} advancePayments={advancePayments} paymentAccounts={paymentAccounts} />
+          handoverTime={internalHandoverTime(settings)} advancePayments={advancePayments} paymentAccounts={paymentAccounts} />
             </Card>
           </div>
 

@@ -3,7 +3,8 @@
 import { useState, useMemo } from 'react'
 import { Copy, Check, Eye, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
-import { formatWhatsApp, to12Hour } from '@/lib/formatters/whatsapp'
+import { formatWhatsApp } from '@/lib/formatters/whatsapp'
+import { guestHandoverLabel, guestHandoverTime } from '@/lib/settings/handover'
 import { rowsToSegments } from '@/lib/bookings/group-itinerary'
 import { itineraryLinesFor } from '@/lib/bookings/itinerary-lines'
 import type { QuoteWithRooms, SettingsMap } from '@/lib/supabase/types'
@@ -43,8 +44,8 @@ export function WhatsAppOutput({ quote, settings, roomAvailableAfterNoon }: What
       customerName:        quote.customer_name,
       customerPhone:       quote.customer_phone,
       packageType:         quote.package_type,
-      itinerary:           quote.package_type === 'group' ? itineraryLinesFor(rowsToSegments(quote.days ?? []), to12Hour(settings['evening_handover_time'] ?? '18:00')) : undefined,
-      handoverTime:        settings['evening_handover_time'] ?? '18:00',
+      itinerary:           quote.package_type === 'group' ? itineraryLinesFor(rowsToSegments(quote.days ?? []), guestHandoverLabel(settings)) : undefined,
+      handoverTime:        guestHandoverTime(settings),
       visitDate:           quote.visit_date,
       checkOutDate:        quote.check_out_date,
       checkIn:             quote.package_snapshot.check_in,

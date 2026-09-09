@@ -28,6 +28,9 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
   const [eveningHandover, setEveningHandover] = useState(
     initialSettings['evening_handover_time'] ?? '18:00',
   )
+  const [guestHandover, setGuestHandover] = useState(
+    initialSettings['evening_handover_guest_time'] ?? '19:00',
+  )
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
@@ -41,6 +44,7 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
         default_notes: defaultNotes,
         whatsapp_footer_text: whatsappFooter,
         evening_handover_time: eveningHandover,
+        evening_handover_guest_time: guestHandover,
       }))
       if (!result.success) {
         setError(result.error ?? 'Failed to save settings')
@@ -85,11 +89,20 @@ export function SettingsForm({ initialSettings }: SettingsFormProps) {
       />
 
       <Input
-        label="Evening room handover time"
+        label="Evening room handover time (internal)"
         type="time"
         value={eveningHandover}
         onChange={(e) => setEveningHandover(e.target.value)}
-        hint="When rooms marked 'evening handover' on a night booking are given to the guests — after that day's day guests leave. Shown on confirmations and the daily report."
+        hint="When rooms marked 'evening handover' on a night booking actually free up — after that day's day guests leave. Used by the availability board and the daily report."
+        className="max-w-[200px]"
+      />
+
+      <Input
+        label="Evening room handover time (told to guests)"
+        type="time"
+        value={guestHandover}
+        onChange={(e) => setGuestHandover(e.target.value)}
+        hint="The later time quoted on the WhatsApp message, the quotation and the confirmation, so housekeeping has the room ready before the guest arrives."
         className="max-w-[200px]"
       />
 

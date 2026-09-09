@@ -12,6 +12,7 @@ import { GroupItineraryEditor } from '@/components/quotes/GroupItineraryEditor'
 import { deriveGroupHeader } from '@/lib/bookings/group-itinerary'
 import { itineraryLinesFor } from '@/lib/bookings/itinerary-lines'
 import { itineraryLines, to12Hour, type ItineraryLine } from '@/lib/formatters/whatsapp'
+import { internalHandoverLabel, guestHandoverLabel } from '@/lib/settings/handover'
 import { getDayType } from '@/lib/formatters/dates'
 import { Input } from '@/components/ui/Input'
 import { NumberInput } from '@/components/ui/NumberInput'
@@ -64,7 +65,10 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
   const [noonRoomNumbers,      setNoonRoomNumbers]      = useState<string[]>([])
   const [eveningOnlyRoomNumbers,  setEveningOnlyRoomNumbers]  = useState<string[]>([])
   const [untilEveningRoomNumbers, setUntilEveningRoomNumbers] = useState<string[]>([])
-  const handoverLabel = to12Hour(settings['evening_handover_time'] ?? '18:00')
+  // Staff pickers show when the room really frees up; the WhatsApp draft
+  // below shows the later time the guest is given.
+  const handoverLabel      = internalHandoverLabel(settings)
+  const guestHandoverText  = guestHandoverLabel(settings)
   const [extraItems,           setExtraItems]           = useState<ExtraItem[]>(initialExtraItems ?? [])
   const [roomAvailableAfterNoon, setRoomAvailableAfterNoon] = useState(false)
   // Duplicate detection — when set, the modal prompts for override
@@ -1143,8 +1147,8 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
               checkIn={previewPackage.check_in}
               checkOut={previewPackage.check_out}
               rooms={allRoomsWithComp}
-              itinerary={isGroup ? itineraryLinesFor(days, handoverLabel) : undefined}
-              handoverLabel={handoverLabel}
+              itinerary={isGroup ? itineraryLinesFor(days, guestHandoverText) : undefined}
+              handoverLabel={guestHandoverText}
               calcResult={calcResult}
               discountPct={watchedValues.discount_pct ?? 0}
               mealsText={previewPackage.meals}

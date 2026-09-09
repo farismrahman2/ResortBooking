@@ -15,8 +15,10 @@ const SETTING_RULES: Record<string, (v: string) => boolean> = {
   contact_numbers:      text(500),
   default_notes:        text(2000),
   whatsapp_footer_text: text(1000),
-  /** HH:MM — when rooms marked for evening handover are given to night guests. */
+  /** HH:MM — when rooms marked for evening handover actually free up. Staff views. */
   evening_handover_time: (v) => /^([01]\d|2[0-3]):[0-5]\d$/.test(v),
+  /** HH:MM — the later time quoted to the guest, so the room is ready first. */
+  evening_handover_guest_time: (v) => /^([01]\d|2[0-3]):[0-5]\d$/.test(v),
 }
 
 /** Create or update a settings key-value pair */
