@@ -1,53 +1,111 @@
-import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer'
-import { formatBDT } from '@/lib/formatters/currency'
+import { Document, Page, Text, View, Image, StyleSheet } from '@react-pdf/renderer'
 import { formatTime12h } from '@/lib/formatters/dates'
 
+/**
+ * The quotation / booking-confirmation PDF.
+ *
+ * Two rules this document has to respect:
+ *
+ *  1. Money is written "BDT 1,62,800", never with the ৳ sign. @react-pdf's
+ *     built-in Helvetica has no glyph for U+09F3 and silently substitutes a
+ *     wrong one — every amount came out as "ó5,000". Same for emoji.
+ *  2. A room row priced at 0 is complimentary. It still gets a line (the guest
+ *     needs to know which rooms are theirs) but never a rate or an amount.
+ *
+ * The layout deliberately matches lib/pdf/invoice.tsx so the three documents a
+ * guest receives look like one set.
+ */
+
+const BRAND = '#14532d'
+
 const styles = StyleSheet.create({
-  page: { padding: 36, fontSize: 10, fontFamily: 'Helvetica', color: '#111827', lineHeight: 1.5 },
-  header: { borderBottomWidth: 2, borderBottomColor: '#14532d', paddingBottom: 8, marginBottom: 12 },
-  brand: { fontSize: 18, fontWeight: 700, color: '#14532d' },
-  subtitle: { fontSize: 11, color: '#4b5563', marginTop: 2 },
-  draftBadge: { marginTop: 4, color: '#b45309', fontSize: 9, fontWeight: 700 },
-  metaRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
-  metaLeft: { flexBasis: '55%' },
-  metaRight: { flexBasis: '40%', textAlign: 'right', fontSize: 9, color: '#374151' },
-  label: { fontSize: 8, textTransform: 'uppercase', color: '#6b7280', letterSpacing: 0.5 },
-  value: { fontSize: 11 },
+  page: {
+    paddingTop: 36, paddingBottom: 40, paddingHorizontal: 40,
+    fontSize: 10, fontFamily: 'Helvetica', color: '#111827',
+  },
+  /** No `lineHeight` on the Page: @react-pdf 4.5 drops dynamic `render`
+   *  nodes — the page-number footer — when the Page style carries one. */
+  header:     { borderBottom: `1pt solid ${BRAND}`, paddingBottom: 8, marginBottom: 12 },
+  headerRow:  { flexDirection: 'row', alignItems: 'center' },
+  brand:      { fontSize: 16, fontWeight: 'bold', color: BRAND },
+  brandSub:   { fontSize: 8, color: '#6b7280', marginTop: 2 },
+
+  titleBar:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 },
+  title:      { fontSize: 18, fontWeight: 'bold', letterSpacing: 1 },
+  titleMeta:  { fontSize: 9, textAlign: 'right', color: '#374151' },
+  draft: {
+    marginTop: 4, alignSelf: 'flex-start', backgroundColor: '#fef3c7', color: '#92400e',
+    fontSize: 8, fontWeight: 'bold', letterSpacing: 0.5,
+    paddingVertical: 2, paddingHorizontal: 6, borderRadius: 3,
+  },
+
+  twoColumns: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
+  block:      { flexBasis: '48%' },
+  blockLabel: { fontSize: 8, textTransform: 'uppercase', letterSpacing: 0.5, color: '#6b7280', marginBottom: 2 },
+  blockBody:  { fontSize: 10, lineHeight: 1.35 },
+  blockStrong:{ fontSize: 10, fontWeight: 'bold', lineHeight: 1.35 },
 
   sectionLabel: {
-    fontSize: 9, fontWeight: 700, textTransform: 'uppercase',
-    color: '#14532d', marginTop: 10, marginBottom: 4, letterSpacing: 0.5,
+    fontSize: 8, textTransform: 'uppercase', letterSpacing: 0.5,
+    color: BRAND, fontWeight: 'bold', marginTop: 9, marginBottom: 3,
   },
-  block: { borderTopWidth: 0.5, borderTopColor: '#d1d5db', paddingTop: 6, paddingBottom: 4 },
-  inline: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 1 },
-  inlineLabel: { fontSize: 10, color: '#1f2937', flex: 1 },
-  inlineValue: { fontSize: 10, color: '#111827', fontFamily: 'Helvetica-Bold', textAlign: 'right' },
+  table:       { borderTop: '0.5pt solid #d1d5db', borderBottom: '0.5pt solid #d1d5db' },
+  tableHeader: {
+    flexDirection: 'row', backgroundColor: '#f3f4f6',
+    paddingVertical: 5, paddingHorizontal: 4,
+    fontSize: 8, textTransform: 'uppercase', letterSpacing: 0.5,
+    color: '#374151', fontWeight: 'bold',
+  },
+  tableRow:    { flexDirection: 'row', borderTop: '0.5pt solid #e5e7eb', paddingVertical: 4, paddingHorizontal: 4 },
+  colDesc:     { flexGrow: 1, flexShrink: 1, flexBasis: 0, paddingRight: 6 },
+  colRooms:    { width: 104, paddingRight: 6 },
+  colQty:      { width: 28, textAlign: 'right' },
+  colNights:   { width: 38, textAlign: 'right' },
+  colRate:     { width: 62, textAlign: 'right' },
+  colAmt:      { width: 74, textAlign: 'right' },
+  comp:        { fontSize: 9, color: '#047857' },
+  tableNote:   { fontSize: 8, color: '#6b7280', marginTop: 4, lineHeight: 1.3 },
 
-  totalsBlock: { borderTopWidth: 1, borderTopColor: '#14532d', marginTop: 8, paddingTop: 4 },
-  totalRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 },
-  grandTotalLabel: { fontSize: 12, fontWeight: 700, color: '#14532d' },
-  grandTotalValue: { fontSize: 12, fontWeight: 700, color: '#14532d', fontFamily: 'Helvetica-Bold' },
+  totals:      { marginTop: 10, alignSelf: 'flex-end', width: '58%' },
+  totalRow:    { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 },
+  totalLabel:  { color: '#374151' },
+  divider:     { borderTop: '0.5pt solid #d1d5db', marginVertical: 4 },
+  bigRow: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    paddingVertical: 6, paddingHorizontal: 6,
+    backgroundColor: BRAND, color: 'white', borderRadius: 3,
+    fontSize: 12, fontWeight: 'bold', marginTop: 4,
+  },
+  dueRow:      { backgroundColor: '#b45309' },
 
-  small: { fontSize: 9, color: '#374151', marginTop: 3 },
-  notes: { backgroundColor: '#fef3c7', borderRadius: 4, padding: 8, marginTop: 6 },
+  infoBody:    { fontSize: 9, color: '#374151' },
+  panel:       { marginTop: 12, border: '0.5pt solid #e5e7eb', borderRadius: 3, backgroundColor: '#f9fafb' },
+  panelRow:    { flexDirection: 'row', paddingVertical: 5, paddingHorizontal: 8 },
+  panelDivide: { borderTop: '0.5pt solid #e5e7eb' },
+  panelLabel:  { width: 86, fontSize: 8, textTransform: 'uppercase', letterSpacing: 0.5, color: '#6b7280' },
+  panelBody:   { flexGrow: 1, flexShrink: 1, flexBasis: 0, fontSize: 9, color: '#374151', lineHeight: 1.35 },
   footer: {
-    position: 'absolute', bottom: 24, left: 36, right: 36,
-    borderTopWidth: 0.5, borderTopColor: '#e5e7eb', paddingTop: 4,
-    fontSize: 8, color: '#9ca3af', textAlign: 'center',
+    position: 'absolute', bottom: 28, left: 40, right: 40,
+    borderTop: '0.5pt solid #e5e7eb', paddingTop: 6,
+    fontSize: 8, color: '#6b7280', textAlign: 'center',
   },
 })
 
 export interface QuotationPdfInput {
-  /** 'Quotation' or 'Confirmed Booking' — drives the heading. */
+  /** 'Quotation' or 'Booking Confirmation' — drives the heading. */
   documentType: 'quotation' | 'booking'
-  /** True for live draft preview; renders a "DRAFT PREVIEW" badge. */
+  /** True while the quote is still a draft; renders a "DRAFT" chip. */
   isDraftPreview?: boolean
   /** Display reference, e.g. quote_number or booking_number. */
   referenceNumber: string | null
   customerName:  string
   customerPhone: string
+  /** Set for corporate bookings — printed above the guest name. */
+  companyName?:  string | null
   packageName:   string
   visitDate:     string          // pre-formatted display string
+  /** When the quote/booking was raised, pre-formatted. */
+  issuedDate?:   string
   checkIn:       string
   checkOut:      string
   adults:        number
@@ -57,13 +115,14 @@ export interface QuotationPdfInput {
   rooms: Array<{
     display_name: string
     qty:          number
+    /** 0 means complimentary — no rate, no amount. */
     unit_price:   number
     nights:       number | null
     room_numbers?: string[] | null
     /** Handed over at the evening handover time on the check-in day. */
     evening_rooms?: string[] | null
   }>
-  /** "6:00 PM" — when evening-handover rooms are given to the guests. */
+  /** "7:00 PM" — when evening-handover rooms are given to the guests. */
   handoverLabel?: string
   lineItems: Array<{
     label:      string
@@ -85,179 +144,218 @@ export interface QuotationPdfInput {
   resortPhone?: string
   resortAddress?: string
   resortName?: string
+  /** Optional logo PNG/JPEG buffer — rendered left of the brand line. */
+  logo?: Buffer | string | null
   generatedAt: Date
 }
 
-function bdt(n: number): string { return formatBDT(Math.round(n)) }
+/** 162800 → "1,62,800". No ৳: Helvetica has no glyph for it. */
+function money(n: number): string {
+  return Math.round(n).toLocaleString('en-IN')
+}
+function bdt(n: number): string {
+  return `BDT ${money(n)}`
+}
 
 export function QuotationPdfDocument(p: QuotationPdfInput) {
-  const headingPrefix = p.documentType === 'booking' ? 'Booking' : 'Quotation'
-  const heading = p.isDraftPreview ? `${headingPrefix} (Draft Preview)` : headingPrefix
+  const title = p.documentType === 'booking' ? 'BOOKING CONFIRMATION' : 'QUOTATION'
+
+  const paidRooms = p.rooms.filter((r) => r.unit_price > 0)
+  const compRooms = p.rooms.filter((r) => r.unit_price === 0)
+  const showNights = p.rooms.some((r) => (r.nights ?? 0) > 1)
+
+  // Rooms handed over in the evening carry a marker and one footnote, rather
+  // than a parenthesis inside the column that would wrap the row.
+  const eveningNumbers = p.rooms.flatMap((r) =>
+    (r.evening_rooms ?? []).filter((n) => (r.room_numbers ?? []).includes(n)),
+  )
+
+  const guestParts = [
+    p.adults > 0       ? `${p.adults} adult${p.adults === 1 ? '' : 's'}` : null,
+    p.childrenPaid > 0 ? `${p.childrenPaid} child${p.childrenPaid === 1 ? '' : 'ren'}` : null,
+    p.childrenFree > 0 ? `${p.childrenFree} infant${p.childrenFree === 1 ? '' : 's'} (free)` : null,
+    p.drivers > 0      ? `${p.drivers} driver${p.drivers === 1 ? '' : 's'}` : null,
+  ].filter(Boolean)
+
+  function roomNumbersCell(r: QuotationPdfInput['rooms'][number]): string {
+    const nums = r.room_numbers ?? []
+    if (nums.length === 0) return '—'
+    const evening = r.evening_rooms ?? []
+    return nums.map((n) => (evening.includes(n) ? `${n}*` : n)).join(', ')
+  }
 
   return (
-    <Document>
+    <Document
+      title={`${title} ${p.referenceNumber ?? ''}`.trim()}
+      author={p.resortName ?? 'Garden Centre Resort'}
+    >
       <Page size="A4" style={styles.page} wrap>
-        {/* Header */}
+        {/* ── Brand ─────────────────────────────────────────── */}
         <View style={styles.header}>
-          <Text style={styles.brand}>🌿 {p.resortName ?? 'Garden Centre Resort'}</Text>
-          <Text style={styles.subtitle}>{heading}{p.referenceNumber ? ` · ${p.referenceNumber}` : ''}</Text>
-          {p.isDraftPreview && <Text style={styles.draftBadge}>DRAFT — not yet confirmed</Text>}
-          {p.resortAddress && <Text style={styles.small}>{p.resortAddress}</Text>}
-        </View>
-
-        {/* Customer + package meta */}
-        <View style={styles.metaRow}>
-          <View style={styles.metaLeft}>
-            <Text style={styles.label}>Package</Text>
-            <Text style={styles.value}>{p.packageName}</Text>
-            <Text style={[styles.label, { marginTop: 6 }]}>Guest</Text>
-            <Text style={styles.value}>{p.customerName}</Text>
-            <Text style={styles.small}>{p.customerPhone || '—'}</Text>
-          </View>
-          <View style={styles.metaRight}>
-            <Text style={styles.label}>Date</Text>
-            <Text style={styles.value}>{p.visitDate}</Text>
-            <Text style={styles.small}>Check-in: {formatTime12h(p.checkIn)}</Text>
-            <Text style={styles.small}>Check-out: {formatTime12h(p.checkOut)}</Text>
+          <View style={styles.headerRow}>
+            {p.logo && (
+              <Image src={p.logo as any} style={{ width: 52, height: 52, marginRight: 12, objectFit: 'contain' }} />  // eslint-disable-line @typescript-eslint/no-explicit-any
+            )}
+            <View style={{ flexGrow: 1, flexShrink: 1 }}>
+              <Text style={styles.brand}>{p.resortName ?? 'Garden Centre Resort'}</Text>
+              {p.resortAddress && <Text style={styles.brandSub}>{p.resortAddress}</Text>}
+              {p.resortPhone && <Text style={styles.brandSub}>{p.resortPhone}</Text>}
+            </View>
           </View>
         </View>
 
-        {/* Guests */}
-        <Text style={styles.sectionLabel}>Guests</Text>
-        <View style={styles.block}>
-          <Text style={styles.small}>
-            {p.adults > 0 ? `Adults: ${p.adults}   ` : ''}
-            {p.childrenPaid > 0 ? `Children (4–9): ${p.childrenPaid}   ` : ''}
-            {p.childrenFree > 0 ? `Children (<3, free): ${p.childrenFree}   ` : ''}
-            {p.drivers > 0 ? `Drivers: ${p.drivers}` : ''}
-            {(p.adults + p.childrenPaid + p.childrenFree + p.drivers === 0) ? 'No guests entered' : ''}
-          </Text>
+        {/* ── Document title + reference ────────────────────── */}
+        <View style={styles.titleBar}>
+          <View>
+            <Text style={styles.title}>{title}</Text>
+            {p.isDraftPreview && <Text style={styles.draft}>DRAFT — NOT YET CONFIRMED</Text>}
+          </View>
+          <View style={styles.titleMeta}>
+            {p.referenceNumber && <Text>No. {p.referenceNumber}</Text>}
+            {p.issuedDate && <Text>Issued {p.issuedDate}</Text>}
+          </View>
         </View>
 
-        {/* Rooms */}
-        <Text style={styles.sectionLabel}>Rooms</Text>
-        <View style={styles.block}>
-          {p.rooms.length === 0 ? (
-            <Text style={styles.small}>No rooms selected</Text>
-          ) : p.rooms.map((r, i) => {
-            const isComp = r.unit_price === 0
-            const nightFactor = r.nights ? ` × ${r.nights}n` : ''
-            const subtotal = r.qty * r.unit_price * (r.nights ?? 1)
-            const right = isComp
-              ? 'Complimentary'
-              : `${r.qty} × ${bdt(r.unit_price)}${nightFactor} = ${bdt(subtotal)}`
-            const evening = (r.evening_rooms ?? []).filter((n) => (r.room_numbers ?? []).includes(n))
-            const numbers = (r.room_numbers ?? []).map((n) => (evening.includes(n) ? `${n} from ${p.handoverLabel ?? '6:00 PM'}` : n))
-            return (
-              <View key={i} style={styles.inline}>
-                <Text style={styles.inlineLabel}>
-                  {r.display_name} × {r.qty}
-                  {numbers.length > 0 ? ` (${numbers.join(', ')})` : ''}
-                </Text>
-                <Text style={styles.inlineValue}>{right}</Text>
-              </View>
-            )
-          })}
-          {(() => {
-            // Which rooms the guests get on arrival and which in the evening,
-            // stated once and plainly — the same block the WhatsApp message has.
-            const evening = p.rooms.flatMap((r) => (r.evening_rooms ?? []).filter((n) => (r.room_numbers ?? []).includes(n)))
-            if (evening.length === 0) return null
-            const arrival = p.rooms.flatMap((r) => (r.room_numbers ?? []).filter((n) => !(r.evening_rooms ?? []).includes(n)))
-            return (
-              <View style={{ marginTop: 6, paddingTop: 6, borderTopWidth: 0.5, borderTopColor: '#d1d5db' }}>
-                <Text style={[styles.small, { fontWeight: 'bold' }]}>Room handover</Text>
-                {arrival.length > 0 && <Text style={styles.small}>On arrival: {arrival.join(', ')}</Text>}
-                <Text style={styles.small}>
-                  From {p.handoverLabel ?? '6:00 PM'}: {evening.join(', ')} (after the day's guests leave)
-                </Text>
-              </View>
-            )
-          })()}
+        {/* ── Guest + stay ──────────────────────────────────── */}
+        <View style={styles.twoColumns}>
+          <View style={styles.block}>
+            <Text style={styles.blockLabel}>{p.documentType === 'booking' ? 'Guest' : 'Prepared for'}</Text>
+            {p.companyName && <Text style={styles.blockStrong}>{p.companyName}</Text>}
+            <Text style={p.companyName ? styles.blockBody : styles.blockStrong}>{p.customerName}</Text>
+            <Text style={styles.blockBody}>{p.customerPhone || '—'}</Text>
+          </View>
+          <View style={styles.block}>
+            <Text style={styles.blockLabel}>Stay</Text>
+            <Text style={styles.blockStrong}>{p.visitDate}</Text>
+            <Text style={styles.blockBody}>
+              Check-in {formatTime12h(p.checkIn)} · Check-out {formatTime12h(p.checkOut)}
+            </Text>
+            <Text style={styles.blockBody}>{p.packageName}</Text>
+            {guestParts.length > 0 && <Text style={styles.blockBody}>{guestParts.join(', ')}</Text>}
+          </View>
         </View>
 
-        {/* Pricing breakdown */}
-        <Text style={styles.sectionLabel}>Pricing breakdown</Text>
-        <View style={styles.block}>
+        {/* ── Rooms ─────────────────────────────────────────── */}
+        {p.rooms.length > 0 && (
+          <>
+            <Text style={styles.sectionLabel}>Rooms</Text>
+            <View style={styles.table}>
+              <View style={styles.tableHeader}>
+                <Text style={styles.colDesc}>Room type</Text>
+                <Text style={styles.colRooms}>Room no.</Text>
+                <Text style={styles.colQty}>Qty</Text>
+                {showNights && <Text style={styles.colNights}>Nights</Text>}
+                <Text style={styles.colRate}>Rate</Text>
+                <Text style={styles.colAmt}>Amount</Text>
+              </View>
+              {[...paidRooms, ...compRooms].map((r, i) => {
+                const isComp = r.unit_price === 0
+                const nights = r.nights ?? 1
+                return (
+                  <View key={i} style={styles.tableRow}>
+                    <Text style={styles.colDesc}>{r.display_name}</Text>
+                    <Text style={styles.colRooms}>{roomNumbersCell(r)}</Text>
+                    <Text style={styles.colQty}>{r.qty}</Text>
+                    {showNights && <Text style={styles.colNights}>{isComp ? '—' : nights}</Text>}
+                    <Text style={styles.colRate}>{isComp ? '—' : money(r.unit_price)}</Text>
+                    {isComp
+                      ? <Text style={[styles.colAmt, styles.comp]}>Complimentary</Text>
+                      : <Text style={styles.colAmt}>{money(r.qty * r.unit_price * nights)}</Text>}
+                  </View>
+                )
+              })}
+            </View>
+            {eveningNumbers.length > 0 && (
+              <Text style={styles.tableNote}>
+                * Room{eveningNumbers.length === 1 ? '' : 's'} {eveningNumbers.join(', ')} handed over
+                from {p.handoverLabel ?? '7:00 PM'}, once that day&apos;s guests leave.
+                All other rooms are ready on arrival.
+              </Text>
+            )}
+          </>
+        )}
+
+        {/* ── Charges ───────────────────────────────────────── */}
+        <Text style={styles.sectionLabel}>Charges</Text>
+        <View style={styles.table}>
+          <View style={styles.tableHeader}>
+            <Text style={styles.colDesc}>Description</Text>
+            <Text style={styles.colQty}>Qty</Text>
+            <Text style={styles.colRate}>Rate</Text>
+            <Text style={styles.colAmt}>Amount</Text>
+          </View>
           {p.lineItems.length === 0 ? (
-            <Text style={styles.small}>No line items</Text>
-          ) : p.lineItems.map((li, i) => {
-            const nightFactor = li.nights ? ` × ${li.nights}n` : ''
-            const showFactors = li.qty > 1 || li.nights
-            const right = showFactors
-              ? `${li.qty} × ${bdt(li.unit_price)}${nightFactor} = ${bdt(li.subtotal)}`
-              : bdt(li.subtotal)
-            return (
-              <View key={i} style={styles.inline}>
-                <Text style={styles.inlineLabel}>{li.label}</Text>
-                <Text style={styles.inlineValue}>{right}</Text>
-              </View>
-            )
-          })}
+            <View style={styles.tableRow}>
+              <Text style={styles.colDesc}>No charges recorded</Text>
+            </View>
+          ) : p.lineItems.map((li, i) => (
+            <View key={i} style={styles.tableRow}>
+              <Text style={styles.colDesc}>
+                {li.label.trim()}{li.nights ? ` · ${li.nights} night${li.nights === 1 ? '' : 's'}` : ''}
+              </Text>
+              <Text style={styles.colQty}>{li.qty}</Text>
+              <Text style={styles.colRate}>{money(li.unit_price)}</Text>
+              <Text style={styles.colAmt}>{money(li.subtotal)}</Text>
+            </View>
+          ))}
         </View>
 
-        {/* Totals */}
-        <View style={styles.totalsBlock}>
+        {/* ── Totals ────────────────────────────────────────── */}
+        <View style={styles.totals}>
           <View style={styles.totalRow}>
-            <Text style={styles.inlineLabel}>Subtotal</Text>
-            <Text style={styles.inlineValue}>{bdt(p.subtotal)}</Text>
+            <Text style={styles.totalLabel}>Subtotal</Text>
+            <Text>{bdt(p.subtotal)}</Text>
           </View>
           {p.discount > 0 && (
             <View style={styles.totalRow}>
-              <Text style={[styles.inlineLabel, { color: '#047857' }]}>
+              <Text style={[styles.totalLabel, { color: '#047857' }]}>
                 Discount{p.discountPct && p.discountPct > 0 ? ` (${p.discountPct}%)` : ''}
               </Text>
-              <Text style={[styles.inlineValue, { color: '#047857' }]}>− {bdt(p.discount)}</Text>
+              <Text style={{ color: '#047857' }}>- {bdt(p.discount)}</Text>
             </View>
           )}
-          <View style={styles.totalRow}>
-            <Text style={styles.grandTotalLabel}>Total</Text>
-            <Text style={styles.grandTotalValue}>{bdt(p.total)}</Text>
+          <View style={styles.bigRow}>
+            <Text>Total</Text>
+            <Text>{bdt(p.total)}</Text>
           </View>
+
           {(p.advanceRequired > 0 || p.advancePaid > 0) && (
             <>
+              <View style={styles.divider} />
               <View style={styles.totalRow}>
-                <Text style={styles.inlineLabel}>Advance required</Text>
-                <Text style={styles.inlineValue}>{bdt(p.advanceRequired)}</Text>
+                <Text style={styles.totalLabel}>Advance required</Text>
+                <Text>{bdt(p.advanceRequired)}</Text>
               </View>
               <View style={styles.totalRow}>
-                <Text style={styles.inlineLabel}>Advance paid</Text>
-                <Text style={styles.inlineValue}>{bdt(p.advancePaid)}</Text>
+                <Text style={styles.totalLabel}>Advance paid</Text>
+                <Text>{bdt(p.advancePaid)}</Text>
               </View>
-              <View style={styles.totalRow}>
-                <Text style={styles.grandTotalLabel}>Remaining</Text>
-                <Text style={styles.grandTotalValue}>{bdt(p.remaining)}</Text>
+              <View style={[styles.bigRow, styles.dueRow]}>
+                <Text>Balance due</Text>
+                <Text>{bdt(p.remaining)}</Text>
               </View>
             </>
           )}
         </View>
 
-        {/* Meals */}
-        {p.meals && (
-          <>
-            <Text style={styles.sectionLabel}>Meals</Text>
-            <Text style={styles.small}>{p.meals}</Text>
-          </>
-        )}
-
-        {/* Notes */}
-        {p.notes && (
-          <View style={styles.notes}>
-            <Text style={[styles.label, { color: '#92400e' }]}>Notes</Text>
-            <Text style={[styles.small, { color: '#7c2d12' }]}>{p.notes}</Text>
+        {/* ── Inclusions and terms ──────────────────────────── */}
+        {(p.meals || p.notes || p.paymentInstructions) && (
+          <View style={styles.panel}>
+            {[
+              p.meals              ? { label: 'Meals included', body: p.meals.trim() } : null,
+              p.notes              ? { label: 'Notes',          body: p.notes.trim() } : null,
+              p.paymentInstructions? { label: 'Payment',        body: p.paymentInstructions.trim() } : null,
+            ].filter(Boolean).map((row, i) => (
+              <View key={i} style={i === 0 ? styles.panelRow : [styles.panelRow, styles.panelDivide]}>
+                <Text style={styles.panelLabel}>{row!.label}</Text>
+                <Text style={styles.panelBody}>{row!.body}</Text>
+              </View>
+            ))}
           </View>
         )}
-
-        {/* Payment instructions */}
-        {p.paymentInstructions && (
-          <>
-            <Text style={styles.sectionLabel}>Payment</Text>
-            <Text style={styles.small}>{p.paymentInstructions}</Text>
-          </>
-        )}
-
         <Text style={styles.footer} fixed render={({ pageNumber, totalPages }) =>
-          `${p.resortPhone ? p.resortPhone + ' · ' : ''}Generated ${p.generatedAt.toLocaleString('en-GB')} · Page ${pageNumber}/${totalPages}`
+          `${p.resortName ?? 'Garden Centre Resort'}${p.resortPhone ? ` · ${p.resortPhone}` : ''}` +
+          ` · Generated ${p.generatedAt.toLocaleString('en-GB')} · Page ${pageNumber} of ${totalPages}`
         } />
       </Page>
     </Document>

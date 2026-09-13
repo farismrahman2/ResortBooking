@@ -14,8 +14,9 @@ export function buildQuotationPdfInput(args: {
   isDraftPreview?: boolean
   settings:  SettingsMap
   inventory: RoomInventoryRow[]
+  logo?:     Buffer | string | null
 }): QuotationPdfInput {
-  const { source, kind, isDraftPreview, settings, inventory } = args
+  const { source, kind, isDraftPreview, settings, inventory, logo } = args
   const snap: any = source.package_snapshot ?? {}  // eslint-disable-line @typescript-eslint/no-explicit-any
   const isBooking = 'booking_number' in source
   const referenceNumber =
@@ -26,13 +27,19 @@ export function buildQuotationPdfInput(args: {
   const isNight      = source.package_type === 'night'
   const checkIn      = String(snap.check_in ?? '14:00')
   const checkOut     = String(snap.check_out ?? '12:00')
-  const dateLine     = isNight && checkOutDate ? `${visitDate} → ${checkOutDate}` : visitDate
+  const nights       = Number(source.nights ?? 0)
+  const dateLine     = isNight && checkOutDate
+    ? `${visitDate} to ${checkOutDate}${nights > 0 ? ` (${nights} night${nights === 1 ? '' : 's'})` : ''}`
+    : visitDate
 
   // Map rooms (booking_rooms[] / quote_rooms[]) into display rows. Reuse the
   // inventory to look up display names where the row only has the slug.
   const rooms = (source.rooms ?? []).map((r: any) => {  // eslint-disable-line @typescript-eslint/no-explicit-any
     const inv = inventory.find((i) => i.room_type === r.room_type)
-    const unit_price = Number(snap.room_prices?.[r.room_type] ?? 0)
+    // The row's own price is the one that was billed. Reading the package's
+    // list price instead printed complimentary rooms (unit_price 0) as if the
+    // guest were paying for them.
+    const unit_price = Number(r.unit_price ?? snap.room_prices?.[r.room_type] ?? 0)
     return {
       display_name: inv?.display_name ?? String(r.room_type).replace(/_/g, ' '),
       qty:          Number(r.qty),
@@ -62,10 +69,12 @@ export function buildQuotationPdfInput(args: {
     documentType:   kind,
     isDraftPreview,
     referenceNumber,
-    customerName:   source.customer_name,
+    customerName:   String(source.customer_name ?? '').trim(),
     customerPhone:  source.customer_phone,
-    packageName:    String(snap.name ?? 'Package'),
+    companyName:    (source as any).is_corporate ? ((source as any).company_name ?? null) : null,  // eslint-disable-line @typescript-eslint/no-explicit-any
+    packageName:    String(snap.name ?? 'Package').trim(),
     visitDate:      dateLine,
+    issuedDate:     source.created_at ? formatDate(String(source.created_at).slice(0, 10)) : undefined,
     checkIn,
     checkOut,
     adults:        Number(source.adults ?? 0),
@@ -88,6 +97,7 @@ export function buildQuotationPdfInput(args: {
     resortName:    settings.resort_name    ?? 'Garden Centre Resort',
     resortAddress: settings.resort_address ?? 'Kaliganj, Gazipur, Bangladesh',
     resortPhone:   settings.contact_numbers ?? '',
+    logo:          logo ?? null,
     generatedAt:   new Date(),
   }
 }

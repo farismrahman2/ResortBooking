@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server'
-import { readFile } from 'node:fs/promises'
-import path from 'node:path'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { Invoice } from '@/lib/pdf/invoice'
+import { loadResortLogo } from '@/lib/pdf/logo'
 import { createClient } from '@/lib/supabase/server'
 import { getSettings } from '@/lib/queries/settings'
 import { listAdvancePayments } from '@/lib/queries/advance-payments'
@@ -12,17 +11,6 @@ import {
   getChargesByCheckout,
   getPaymentsByCheckout,
 } from '@/lib/queries/checkout'
-
-/** Best-effort filesystem logo load. Falls back to text-only header if missing. */
-async function loadLogo(): Promise<Buffer | null> {
-  for (const filename of ['logo.png', 'logo.jpg', 'logo.jpeg']) {
-    try {
-      const buf = await readFile(path.join(process.cwd(), 'public', filename))
-      return buf
-    } catch { /* try next extension */ }
-  }
-  return null
-}
 
 interface RouteParams {
   params: { id: string }
@@ -60,7 +48,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
   const [settings, ctx, logo, advancePayments] = await Promise.all([
     getSettings(),
     getCurrentUserContext(),
-    loadLogo(),
+    loadResortLogo(),
     // Instalment ledger — lets the invoice show the advance split by method.
     listAdvancePayments(bookingId).catch(() => []),
   ])
