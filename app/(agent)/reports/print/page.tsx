@@ -7,6 +7,7 @@ import { getIncomeByMethodRange, METHOD_LABEL, PAYMENT_METHODS } from '@/lib/que
 import { getPaymentTransactions, SOURCE_LABEL } from '@/lib/queries/reports/payment-transactions'
 import { getOutstandingDues } from '@/lib/queries/reports/dues'
 import { getCashCheckoutReport } from '@/lib/queries/reports/cash-checkout'
+import { getAdvancePaymentsReport } from '@/lib/queries/reports/advance-payments'
 import { getGuestReport } from '@/lib/queries/reports/guests'
 import { getOccupancyByDay } from '@/lib/queries/reports/operations'
 import { getCategoryBreakdownReports, getTopVendors } from '@/lib/queries/reports/expenses'
@@ -22,6 +23,7 @@ import { todayDhaka } from '@/lib/dates'
 export const dynamic = 'force-dynamic'
 
 const nf = (n: number) => n.toLocaleString('en-IN')
+const PACKAGE_LABELS: Record<string, string> = { daylong: 'DAYLONG', night: 'NIGHT STAY', group: 'GROUP' }
 const monthLabel = (iso: string) =>
   new Date(iso + (iso.length === 7 ? '-01' : '') + 'T12:00:00Z')
     .toLocaleString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })
@@ -33,6 +35,7 @@ const ALL_SECTIONS = [
   { id: 'transactions',  label: 'Transaction detail' },
   { id: 'dues',          label: 'Outstanding dues' },
   { id: 'cash',          label: 'Cash checkout' },
+  { id: 'advance',       label: 'Advance payments' },
   { id: 'guests',        label: 'Guests' },
   { id: 'operations',    label: 'Occupancy' },
   { id: 'expenses',      label: 'Expenses' },
@@ -92,7 +95,7 @@ export default async function PrintableReportPage({ searchParams }: PageProps) {
   const [
     hub, packages, dailyIncome, industry, guests, occupancy,
     catBreakdown, vendors, pnl, salary, attendance, extras, topCharges, coffee, money, txns, dues,
-    cash,
+    cash, advance,
   ] = await Promise.all([
     has('summary')                          ? soft(getHubTotals(period))                : null,
     has('income')                           ? soft(getPackageRevenue(period))           : null,
@@ -114,6 +117,7 @@ export default async function PrintableReportPage({ searchParams }: PageProps) {
     // the report's range — so this one section ignores from/to by design.
     has('dues')                             ? soft(getOutstandingDues(duesMinDays))      : null,
     has('cash')                             ? soft(getCashCheckoutReport(fromIso, toIso)) : null,
+    has('advance')                          ? soft(getAdvancePaymentsReport(fromIso, toIso)) : null,
   ])
 
   const days = Math.max(1, Math.round((period.to.getTime() - period.from.getTime()) / 86400_000) + 1)
@@ -183,6 +187,20 @@ export default async function PrintableReportPage({ searchParams }: PageProps) {
           margin-top: 3mm; border: 0.5pt dashed #d1d5db; border-radius: 6px;
           padding: 2.5mm 3mm; font-size: 8.5pt; color: #6b7280;
         }
+        /* A busy day can run past a page. Let its rows flow (the header row
+           repeats) rather than forcing the whole block over and leaving half
+           a page blank — only the day bar is glued to its first rows. */
+        .rpt-day { margin-top: 5mm; }
+        .rpt-day-bar {
+          break-after: avoid;
+          display: flex; justify-content: space-between; align-items: baseline;
+          background: #2f5d4f; color: white; padding: 1.4mm 2mm;
+          font-size: 8.5pt; font-weight: 700;
+        }
+        .rpt-day-bar span { font-weight: 500; font-size: 7.5pt; }
+        .rpt-day table { margin-top: 0; }
+        .rpt-day th { background: #f3f4f6; border-bottom: 0.5pt solid #d1d5db; }
+        .rpt-day tr.total td { background: #f3f4f6; border-top: 0.5pt solid #d1d5db; }
         .rpt-cover { border-bottom: 2pt solid #166534; padding-bottom: 4mm; }
         .rpt-cover h1 { margin: 0; font-size: 19pt; font-weight: 800; letter-spacing: 0.01em; }
         .rpt-cover .sub { color: #374151; font-size: 10pt; }
@@ -501,6 +519,117 @@ export default async function PrintableReportPage({ searchParams }: PageProps) {
                     <tr className="total">
                       <td colSpan={3}>{nf(cash.rows.length)} payment{cash.rows.length === 1 ? '' : 's'}</td>
                       <td className="num">{formatBDT(cash.total)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </>
+            )}
+          </section>
+        )}
+
+        {/* ── Advance payments ──────────────────────────────────────── */}
+        {has('advance') && (
+          <section className="rpt-section">
+            <h2>Advance payments</h2>
+            {!advance ? <Failed what="advance payment" /> : advance.rows.length === 0 ? (
+              <p className="rpt-note">No advance payments were received in this period.</p>
+            ) : (
+              <>
+                <p className="rpt-note">
+                  Advance money received between {formatDate(fromIso)} and {formatDate(toIso)},
+                  grouped by the day it arrived — the sheet that reconciles against the bKash and
+                  bank statements. A guest paying in two instalments appears on both days.
+                  {advance.voidTotal > 0 && (
+                    <> {formatBDT(advance.voidTotal)} of it sits against bookings later cancelled
+                    or marked no-show, flagged in the rows.</>
+                  )}
+                </p>
+
+                {advance.days.map((day) => (
+                  <div className="rpt-day" key={day.date}>
+                    <div className="rpt-day-bar">
+                      <strong>{formatDate(day.date)}</strong>
+                      <span>{day.rows.length} payment{day.rows.length === 1 ? '' : 's'}</span>
+                    </div>
+                    <table className="dense">
+                      <thead><tr>
+                        <th>#</th><th>Customer / group</th><th>Booking</th><th>Visit date</th>
+                        <th>Package</th><th className="num">Amount</th><th>Method</th>
+                      </tr></thead>
+                      <tbody>
+                        {day.rows.map((r, i) => (
+                          <tr key={r.id}>
+                            <td className="nowrap">{i + 1}</td>
+                            <td>
+                              {r.company_name ? `${r.company_name} — ${r.customer_name}` : r.customer_name}
+                              {(r.status === 'cancelled' || r.status === 'no_show') && (
+                                <strong> ({r.status === 'cancelled' ? 'cancelled' : 'no-show'})</strong>
+                              )}
+                            </td>
+                            <td className="nowrap">{r.booking_number}</td>
+                            <td className="nowrap">{r.visit_date ? formatDateShort(r.visit_date) : '—'}</td>
+                            <td className="nowrap">{PACKAGE_LABELS[r.package_type ?? 'daylong']}</td>
+                            <td className="num nowrap"><strong>{formatBDT(r.amount)}</strong></td>
+                            <td className="nowrap">{r.method_label}</td>
+                          </tr>
+                        ))}
+                        <tr className="total">
+                          <td colSpan={5}>Day total</td>
+                          <td className="num nowrap">{formatBDT(day.total)}</td>
+                          <td className="nowrap">
+                            {day.byMethod.map((m) => `${m.label} ${nf(m.amount)}`).join(' | ')}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                ))}
+
+                <h2 style={{ marginTop: '8mm' }}>Advance summary</h2>
+                <table>
+                  <thead><tr>
+                    <th>Payment method</th><th className="num">Payments</th><th className="num">Total</th>
+                  </tr></thead>
+                  <tbody>
+                    {advance.byMethod.map((m) => (
+                      <tr key={m.method}>
+                        <td>{m.label}</td>
+                        <td className="num">{nf(m.count)}</td>
+                        <td className="num nowrap">{formatBDT(m.amount)}</td>
+                      </tr>
+                    ))}
+                    <tr className="total">
+                      <td>Grand total</td>
+                      <td className="num">{nf(advance.count)}</td>
+                      <td className="num nowrap">{formatBDT(advance.total)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                <table className="dense" style={{ marginTop: '6mm' }}>
+                  <thead><tr>
+                    <th>Date</th><th className="num">Entries</th>
+                    {advance.byMethod.map((m) => <th key={m.method} className="num">{m.label}</th>)}
+                    <th className="num">Total</th>
+                  </tr></thead>
+                  <tbody>
+                    {advance.days.map((day) => (
+                      <tr key={day.date}>
+                        <td className="nowrap">{formatDateShort(day.date)}</td>
+                        <td className="num">{nf(day.rows.length)}</td>
+                        {advance.byMethod.map((m) => (
+                          <td key={m.method} className="num nowrap">
+                            {nf(day.byMethod.find((x) => x.method === m.method)?.amount ?? 0)}
+                          </td>
+                        ))}
+                        <td className="num nowrap"><strong>{nf(day.total)}</strong></td>
+                      </tr>
+                    ))}
+                    <tr className="total">
+                      <td>Total</td>
+                      <td className="num">{nf(advance.count)}</td>
+                      {advance.byMethod.map((m) => <td key={m.method} className="num nowrap">{nf(m.amount)}</td>)}
+                      <td className="num nowrap">{nf(advance.total)}</td>
                     </tr>
                   </tbody>
                 </table>
