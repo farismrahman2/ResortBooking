@@ -1,23 +1,25 @@
 import Link from 'next/link'
-import { Users, ShieldCheck, ListChecks, Settings as SettingsIcon, Calendar, ArrowRight, Copy, Bell, Building2, Phone, Download } from 'lucide-react'
+import { Users, ShieldCheck, ListChecks, Settings as SettingsIcon, Calendar, ArrowRight, Copy, Bell, Building2, Phone, Download, Sparkles } from 'lucide-react'
 import { getSettings, getHolidayDates } from '@/lib/queries/settings'
 import { getUnreadAlertCount } from '@/lib/auth/alerts'
 import { Topbar } from '@/components/layout/Topbar'
 import { SettingsForm } from '@/components/settings/SettingsForm'
 import { HolidayManager } from '@/components/settings/HolidayManager'
+import { BusinessDataExport } from '@/components/settings/BusinessDataExport'
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
-import { requirePermission, getCurrentUserContext } from '@/lib/auth/permissions'
+import { requirePermission, getCurrentUserContext, hasPermission } from '@/lib/auth/permissions'
 
 export const dynamic = 'force-dynamic'
 
 export default async function SettingsPage() {
   await requirePermission('settings', 'read')
 
-  const [settings, holidays, unreadAlerts, ctx] = await Promise.all([
+  const [settings, holidays, unreadAlerts, ctx, canReadReports] = await Promise.all([
     getSettings(),
     getHolidayDates(),
     getUnreadAlertCount(),
     getCurrentUserContext(),
+    hasPermission('reports', 'read'),
   ])
   const isAdmin = ctx?.profile.role.slug === 'admin'
 
@@ -123,6 +125,21 @@ export default async function SettingsPage() {
             </CardHeader>
             <HolidayManager initialHolidays={holidays} />
           </Card>
+
+          {/* Whole-business JSON, for thinking the business through with an AI. */}
+          {canReadReports && (
+            <Card className="lg:col-span-2">
+              <CardHeader>
+                <CardTitle>
+                  <span className="inline-flex items-center gap-2">
+                    <Sparkles size={14} className="text-slate-500" />
+                    Business data for AI
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <BusinessDataExport />
+            </Card>
+          )}
         </div>
       </div>
     </div>
