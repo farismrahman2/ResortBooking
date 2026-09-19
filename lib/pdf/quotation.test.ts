@@ -72,9 +72,13 @@ describe('the quotation PDF', () => {
     expect(parts()).toContain('BDT 1,62,800')
   })
 
-  it('marks evening-handover rooms and explains the marker once', () => {
-    expect(parts()).toContain('301, 302*')
-    expect(flat()).toMatch(/handed over from 7:00 PM/)
+  it('names evening-handover rooms by count, never by number', () => {
+    // No physical room number anywhere on a guest document.
+    for (const num of ['103', '104', '107', '207', '204', '301', '302']) {
+      expect(flat()).not.toMatch(new RegExp(`\\b${num}\\b`))
+    }
+    expect(flat()).toContain('1 of 2 from 7:00 PM')
+    expect(flat()).toMatch(/handed over once that day.s guests leave/)
   })
 
   it('keeps the page-number footer', () => {

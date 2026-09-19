@@ -11,6 +11,9 @@ import { formatTime12h } from '@/lib/formatters/dates'
  *     wrong one — every amount came out as "ó5,000". Same for emoji.
  *  2. A room row priced at 0 is complimentary. It still gets a line (the guest
  *     needs to know which rooms are theirs) but never a rate or an amount.
+ *  3. No room numbers. Which physical room a guest gets is decided at the desk
+ *     and printed nowhere on a guest document; only how many rooms of each
+ *     type, and whether any of them come in the evening.
  *
  * The layout deliberately matches lib/pdf/invoice.tsx so the three documents a
  * guest receives look like one set.
@@ -58,7 +61,6 @@ const styles = StyleSheet.create({
   },
   tableRow:    { flexDirection: 'row', borderTop: '0.5pt solid #e5e7eb', paddingVertical: 4, paddingHorizontal: 4 },
   colDesc:     { flexGrow: 1, flexShrink: 1, flexBasis: 0, paddingRight: 6 },
-  colRooms:    { width: 104, paddingRight: 6 },
   colQty:      { width: 28, textAlign: 'right' },
   colNights:   { width: 38, textAlign: 'right' },
   colRate:     { width: 62, textAlign: 'right' },
@@ -164,11 +166,12 @@ export function QuotationPdfDocument(p: QuotationPdfInput) {
   const compRooms = p.rooms.filter((r) => r.unit_price === 0)
   const showNights = p.rooms.some((r) => (r.nights ?? 0) > 1)
 
-  // Rooms handed over in the evening carry a marker and one footnote, rather
-  // than a parenthesis inside the column that would wrap the row.
-  const eveningNumbers = p.rooms.flatMap((r) =>
-    (r.evening_rooms ?? []).filter((n) => (r.room_numbers ?? []).includes(n)),
-  )
+  // Evening-handover rooms are named by count on the room-type line, with one
+  // footnote — never by number.
+  const eveningCount = (r: QuotationPdfInput['rooms'][number]) =>
+    (r.evening_rooms ?? []).filter((n) => (r.room_numbers ?? []).includes(n)).length
+  const anyEvening = p.rooms.some((r) => eveningCount(r) > 0)
+  const handover   = p.handoverLabel ?? '7:00 PM'
 
   const guestParts = [
     p.adults > 0       ? `${p.adults} adult${p.adults === 1 ? '' : 's'}` : null,
@@ -176,13 +179,6 @@ export function QuotationPdfDocument(p: QuotationPdfInput) {
     p.childrenFree > 0 ? `${p.childrenFree} infant${p.childrenFree === 1 ? '' : 's'} (free)` : null,
     p.drivers > 0      ? `${p.drivers} driver${p.drivers === 1 ? '' : 's'}` : null,
   ].filter(Boolean)
-
-  function roomNumbersCell(r: QuotationPdfInput['rooms'][number]): string {
-    const nums = r.room_numbers ?? []
-    if (nums.length === 0) return '—'
-    const evening = r.evening_rooms ?? []
-    return nums.map((n) => (evening.includes(n) ? `${n}*` : n)).join(', ')
-  }
 
   return (
     <Document
@@ -242,7 +238,6 @@ export function QuotationPdfDocument(p: QuotationPdfInput) {
             <View style={styles.table}>
               <View style={styles.tableHeader}>
                 <Text style={styles.colDesc}>Room type</Text>
-                <Text style={styles.colRooms}>Room no.</Text>
                 <Text style={styles.colQty}>Qty</Text>
                 {showNights && <Text style={styles.colNights}>Nights</Text>}
                 <Text style={styles.colRate}>Rate</Text>
@@ -251,10 +246,16 @@ export function QuotationPdfDocument(p: QuotationPdfInput) {
               {[...paidRooms, ...compRooms].map((r, i) => {
                 const isComp = r.unit_price === 0
                 const nights = r.nights ?? 1
+                const evening = eveningCount(r)
+                const eveningNote = evening === 0 ? ''
+                  : evening >= r.qty ? ` — from ${handover}`
+                  : ` — ${evening} of ${r.qty} from ${handover}`
                 return (
                   <View key={i} style={styles.tableRow}>
-                    <Text style={styles.colDesc}>{r.display_name}</Text>
-                    <Text style={styles.colRooms}>{roomNumbersCell(r)}</Text>
+                    <Text style={styles.colDesc}>
+                      {r.display_name}
+                      {eveningNote && <Text style={{ color: '#6b7280', fontSize: 8 }}>{eveningNote}</Text>}
+                    </Text>
                     <Text style={styles.colQty}>{r.qty}</Text>
                     {showNights && <Text style={styles.colNights}>{isComp ? '—' : nights}</Text>}
                     <Text style={styles.colRate}>{isComp ? '—' : money(r.unit_price)}</Text>
@@ -265,11 +266,10 @@ export function QuotationPdfDocument(p: QuotationPdfInput) {
                 )
               })}
             </View>
-            {eveningNumbers.length > 0 && (
+            {anyEvening && (
               <Text style={styles.tableNote}>
-                * Room{eveningNumbers.length === 1 ? '' : 's'} {eveningNumbers.join(', ')} handed over
-                from {p.handoverLabel ?? '7:00 PM'}, once that day&apos;s guests leave.
-                All other rooms are ready on arrival.
+                Rooms marked &quot;from {handover}&quot; are handed over once that day&apos;s guests
+                leave. All other rooms are ready on arrival.
               </Text>
             )}
           </>

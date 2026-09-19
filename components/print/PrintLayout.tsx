@@ -2,7 +2,7 @@ import { formatBDT } from '@/lib/formatters/currency'
 import { formatDate, formatDateRange } from '@/lib/formatters/dates'
 import type { QuoteWithRooms, BookingWithRooms, SettingsMap, RoomType } from '@/lib/supabase/types'
 import { rowsToSegments, sortSegments, shortDayLabel } from '@/lib/bookings/group-itinerary'
-import { describeRoom } from '@/lib/bookings/itinerary-lines'
+import { describeRoomCount } from '@/lib/bookings/itinerary-lines'
 import { to12Hour } from '@/lib/formatters/whatsapp'
 import { guestHandoverLabel } from '@/lib/settings/handover'
 
@@ -120,8 +120,8 @@ export function PrintLayout({ quote, booking, settings }: PrintLayoutProps) {
             <tbody>
               {sortSegments(rowsToSegments(record.days ?? [])).map((s) => {
                 const guests = s.adults + s.children_paid + s.children_free
-                const paid = s.rooms.filter((r) => r.unit_price > 0).map((r) => describeRoom(r, handoverLabel))
-                const comp = s.rooms.filter((r) => r.unit_price === 0).map((r) => describeRoom(r, handoverLabel))
+                const paid = s.rooms.filter((r) => r.unit_price > 0).map((r) => describeRoomCount(r, handoverLabel))
+                const comp = s.rooms.filter((r) => r.unit_price === 0).map((r) => describeRoomCount(r, handoverLabel))
                 return (
                   <tr key={`${s.day_date}-${s.stay_kind}`} className="border-b border-gray-100 align-top print:break-inside-avoid">
                     <Td className="whitespace-nowrap">{shortDayLabel(s.day_date)}</Td>
@@ -153,7 +153,6 @@ export function PrintLayout({ quote, booking, settings }: PrintLayoutProps) {
               <tr className="border-b border-gray-300 bg-gray-100 text-left">
                 <Th>Room Type</Th>
                 <Th className="text-center">Qty</Th>
-                <Th>Rooms</Th>
                 <Th className="text-right">Unit Price</Th>
                 {record.package_type === 'night' && <Th className="text-center">Nights</Th>}
                 <Th className="text-right">Subtotal</Th>
@@ -166,21 +165,20 @@ export function PrintLayout({ quote, booking, settings }: PrintLayoutProps) {
                   record.package_type === 'night'
                     ? room.qty * room.unit_price * nights
                     : room.qty * room.unit_price
+                // Room numbers stay off guest documents: say how many rooms come
+                // in the evening, not which ones.
+                const evening = (room.evening_rooms ?? []).filter((n) => (room.room_numbers ?? []).includes(n)).length
                 return (
                   <tr key={room.id} className="border-b border-gray-100 print:break-inside-avoid">
-                    <Td>{ROOM_LABELS[room.room_type] ?? room.room_type}</Td>
-                    <Td className="text-center">{room.qty}</Td>
                     <Td>
-                      {(room.room_numbers ?? []).length === 0 ? '—' : (room.room_numbers ?? []).map((num, i) => {
-                        const evening = (room.evening_rooms ?? []).includes(num)
-                        return (
-                          <span key={num}>
-                            {i > 0 ? ', ' : ''}{num}
-                            {evening && <span className="text-xs text-gray-500"> (from {handoverLabel})</span>}
-                          </span>
-                        )
-                      })}
+                      {ROOM_LABELS[room.room_type] ?? room.room_type}
+                      {evening > 0 && (
+                        <span className="text-xs text-gray-500">
+                          {evening >= room.qty ? ` (from ${handoverLabel})` : ` (${evening} of ${room.qty} from ${handoverLabel})`}
+                        </span>
+                      )}
                     </Td>
+                    <Td className="text-center">{room.qty}</Td>
                     <Td className="text-right font-mono">{formatBDT(room.unit_price)}</Td>
                     {record.package_type === 'night' && (
                       <Td className="text-center">{nights}</Td>

@@ -22,6 +22,20 @@ export function describeRoom(
   return evening.length ? `${base} (${evening.join(', ')} from ${handoverLabel})` : base
 }
 
+/** "Deluxe ×2", or "Deluxe ×2 (1 from 7:00 PM)" — the guest-document form,
+ *  which never carries a room number. */
+export function describeRoomCount(
+  r: { room_type: string; display_name?: string; qty: number; room_numbers: string[]; evening_rooms?: string[] },
+  handoverLabel = '6 PM',
+): string {
+  const name = r.display_name ?? roomTypeLabel(r.room_type)
+  const evening = (r.evening_rooms ?? []).filter((n) => r.room_numbers.includes(n)).length
+  if (evening === 0) return `${name} ×${r.qty}`
+  return evening >= r.qty
+    ? `${name} ×${r.qty} (from ${handoverLabel})`
+    : `${name} ×${r.qty} (${evening} from ${handoverLabel})`
+}
+
 export function itineraryLinesFor(segments: GroupSegment[], handoverLabel = '6 PM'): ItineraryLine[] {
   return sortSegments(segments).map((s) => ({
     dateLabel:  shortDayLabel(s.day_date),
