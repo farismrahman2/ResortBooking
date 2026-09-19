@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { requiredRoomNumbers } from '@/lib/config/rooms'
+import { requiredRoomNumbers, COMPOSITE_ROOMS } from '@/lib/config/rooms'
 import { deriveGroupHeader, roomNumberClashesOnDate, distinctDates } from '@/lib/bookings/group-itinerary'
 import type { RoomType } from '@/lib/supabase/types'
 
@@ -262,6 +262,25 @@ export const CreateQuoteSchema = BaseQuoteSchema
       }
       if (data.package_type === 'daylong' && r.evening_rooms.length) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['rooms', idx, 'evening_rooms'], message: 'Evening handover applies to night stays only' })
+      }
+    })
+    // One physical room, one row. A composite (the villa) stands on its
+    // component rooms, so Deluxe 301 and the villa cannot both be on a quote.
+    const seen = new Map<string, string>()
+    data.rooms.forEach((r, idx) => {
+      const nums = r.room_numbers.length ? r.room_numbers : (COMPOSITE_ROOMS[r.room_type as RoomType]?.room_numbers ?? [])
+      for (const n of nums) {
+        const prev = seen.get(n)
+        if (prev) {
+          const name = r.display_name ?? r.room_type.replace(/_/g, ' ')
+          ctx.addIssue({
+            code:    z.ZodIssueCode.custom,
+            path:    ['rooms', idx, 'room_numbers'],
+            message: `Room ${n} is already on this quote under ${prev} — it cannot also be part of ${name}.`,
+          })
+        } else {
+          seen.set(n, r.display_name ?? r.room_type.replace(/_/g, ' '))
+        }
       }
     })
     // Every selected room type with fixed room numbers must have exactly qty

@@ -126,6 +126,14 @@ export function RoomSelector({
 
       {visibleRooms.map((room) => {
         const qty          = getQty(room.room_type)
+        // Rooms already picked on another row of THIS form are taken too —
+        // the villa cannot be sold alongside Deluxe 301 or 302, and vice versa.
+        const localTaken   = value
+          .filter((r) => r.room_type !== room.room_type)
+          .flatMap((r) => (r.room_numbers ?? []).length
+            ? (r.room_numbers as string[])
+            : (COMPOSITE_ROOMS[r.room_type as RoomType]?.room_numbers ?? []))
+        const booked       = [...bookedRoomNumbers, ...localTaken]
         const price        = getUnitPrice(room.room_type)
         const isSelected   = qty > 0
         const comp         = COMPOSITE_ROOMS[room.room_type as RoomType]
@@ -138,11 +146,11 @@ export function RoomSelector({
         // A composite is one unit that needs every component room, so any one
         // of them taken (or held until noon / the evening) counts for the whole.
         const countIn = (list: string[]) => comp
-          ? (fixedNums.some((n) => list.includes(n) && !bookedRoomNumbers.includes(n)) ? 1 : 0)
-          : fixedNums.filter((n) => list.includes(n) && !bookedRoomNumbers.includes(n)).length
+          ? (fixedNums.some((n) => list.includes(n) && !booked.includes(n)) ? 1 : 0)
+          : fixedNums.filter((n) => list.includes(n) && !booked.includes(n)).length
         const takenCount     = comp
-          ? (fixedNums.some((n) => bookedRoomNumbers.includes(n)) ? 1 : 0)
-          : fixedNums.filter((n) => bookedRoomNumbers.includes(n)).length
+          ? (fixedNums.some((n) => booked.includes(n)) ? 1 : 0)
+          : fixedNums.filter((n) => booked.includes(n)).length
         const availableUnits = Math.max(0, room.total_units - takenCount)
         const isFullyBooked  = fixedNums.length > 0 && availableUnits === 0
         const maxSelectable  = fixedNums.length > 0 ? availableUnits : room.total_units
@@ -236,7 +244,7 @@ export function RoomSelector({
                 <div className="flex flex-wrap gap-1.5">
                   {fixedNums.map((num) => {
                     const isPicked      = selectedNums.includes(num)
-                    const isTaken       = bookedRoomNumbers.includes(num) && !isPicked
+                    const isTaken       = booked.includes(num) && !isPicked
                     const isNoon        = !isTaken && noonRoomNumbers.includes(num)
                     const isEveningOnly = !isTaken && eveningOnlyRoomNumbers.includes(num)
                     const isUntilEve    = !isTaken && untilEveningRoomNumbers.includes(num)

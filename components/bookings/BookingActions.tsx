@@ -525,6 +525,11 @@ export function BookingActions({
             <div className="space-y-3">
               {availableRooms.map((inv) => {
                 const price      = (snap.room_prices as any)[inv.room_type] ?? 0
+                // Rooms held by another row of this booking count as taken here.
+                const localTaken = Object.entries(roomNums)
+                  .filter(([t]) => t !== inv.room_type)
+                  .flatMap(([t, nums]) => nums.length ? nums : (COMPOSITE_ROOMS[t as RoomType]?.room_numbers ?? []))
+                const booked     = [...bookedRoomNumbers, ...localTaken]
                 const current    = roomQtys[inv.room_type]?.qty ?? 0
                 const comp       = COMPOSITE_ROOMS[inv.room_type as RoomType]
                 const fixedNums  = comp ? comp.room_numbers : (ROOM_NUMBERS[inv.room_type as RoomType] ?? [])
@@ -565,7 +570,7 @@ export function BookingActions({
                         </p>
                         <div className="flex flex-wrap gap-1.5">
                           {fixedNums.map((num) => {
-                            const isTaken       = bookedRoomNumbers.includes(num) && !selected.includes(num)
+                            const isTaken       = booked.includes(num) && !selected.includes(num)
                             const isSelected    = selected.includes(num)
                             const isEveningOnly = !isTaken && isNightBooking && eveningOnlyRoomNumbers.includes(num)
                             const isEvening     = isSelected && (roomEvening[inv.room_type] ?? []).includes(num)
