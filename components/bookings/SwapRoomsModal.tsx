@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { formatBDT } from '@/lib/formatters/currency'
 import { swapRoomAssignment } from '@/lib/actions/bookings'
-import { ROOM_NUMBERS } from '@/lib/config/rooms'
+import { ROOM_NUMBERS, isComposite } from '@/lib/config/rooms'
 import type { BookingWithRooms, RoomInventoryRow, RoomType } from '@/lib/supabase/types'
 
 const ROOM_LABELS: Record<RoomType, string> = {
@@ -19,6 +19,7 @@ const ROOM_LABELS: Record<RoomType, string> = {
   premium:        'Premium',
   super_premium:  'Super Premium',
   tree_house:     'Tree House',
+  villa_2br:     'Two-bedroom Villa',
 }
 
 type TabMode = 'reassign' | 'swap' | 'type_change'
@@ -204,7 +205,8 @@ function ReassignTab({
     finally { setSaving(false) }
   }
 
-  const rowsWithNumbers = booking.rooms.filter((r) => (ROOM_NUMBERS[r.room_type] ?? []).length > 0)
+  // A composite's rooms are fixed by definition — nothing to swap.
+  const rowsWithNumbers = booking.rooms.filter((r) => (ROOM_NUMBERS[r.room_type] ?? []).length > 0 && !isComposite(r.room_type))
 
   if (rowsWithNumbers.length === 0) {
     return <p className="text-sm text-gray-400 italic py-4 text-center">No rooms with assignable numbers in this booking.</p>

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { isComposite } from '@/lib/config/rooms'
 import { Download, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { AvailabilityGrid } from './AvailabilityGrid'
@@ -186,7 +187,7 @@ export function AvailabilityCalendar({ inventory, handoverLabel = '6:00 PM' }: A
 
   const totalAvailable    = result?.reduce((sum, r) => sum + r.available, 0) ?? 0
   const totalAfterEvening = packageType === 'all'
-    ? (result?.reduce((sum, r) => sum + (r.available_after_evening ?? 0), 0) ?? 0)
+    ? (result?.filter((r) => !isComposite(r.room_type)).reduce((sum, r) => sum + (r.available_after_evening ?? 0), 0) ?? 0)
     : 0
 
   const formattedDate = selectedDate

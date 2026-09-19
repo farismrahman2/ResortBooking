@@ -131,3 +131,18 @@ describe('calculateGroup', () => {
     expect(() => calculateGroup({ segments: [ITINERARY[0]], nightRates: null, dayRates: DAY, ...base })).toThrow()
   })
 })
+
+describe('the two-bedroom villa', () => {
+  it('includes four guests before extra persons are charged', () => {
+    const result = calculateNight({
+      checkInDate: new Date('2026-10-10T00:00:00'), checkOutDate: new Date('2026-10-11T00:00:00'),
+      packageRates: NIGHT,
+      rooms: [{ room_type: 'villa_2br', display_name: 'Two-bedroom Villa', qty: 1, unit_price: 27000, room_numbers: ['301', '302'] }],
+      adults: 6, children_paid: 0, children_free: 0, drivers: 0, extra_beds: 0, ...base,
+    })
+    const extra = result.line_items.find((li) => li.kind === 'extra_person')!
+    expect(extra.label).toContain('beyond 4 included')
+    expect(extra.qty).toBe(2)
+    expect(result.line_items.find((li) => li.kind === 'room')).toMatchObject({ label: 'Two-bedroom Villa × 1', subtotal: 27000 })
+  })
+})

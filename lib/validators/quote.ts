@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { ROOM_NUMBERS } from '@/lib/config/rooms'
+import { requiredRoomNumbers } from '@/lib/config/rooms'
 import { deriveGroupHeader, roomNumberClashesOnDate, distinctDates } from '@/lib/bookings/group-itinerary'
 import type { RoomType } from '@/lib/supabase/types'
 
@@ -51,11 +51,11 @@ export function findUnassignedRoomNumbersError(
   rooms: { room_type: string; display_name?: string; qty: number; room_numbers: string[] }[],
 ): string | null {
   for (const r of rooms) {
-    const fixed = ROOM_NUMBERS[r.room_type as RoomType] ?? []
-    if (fixed.length === 0) continue
-    if (r.room_numbers.length !== r.qty) {
+    const need = requiredRoomNumbers(r.room_type, r.qty)
+    if (need === 0) continue
+    if (r.room_numbers.length !== need) {
       const name = r.display_name ?? r.room_type.replace(/_/g, ' ')
-      return `Pick ${r.qty} room number${r.qty > 1 ? 's' : ''} for ${name} (picked ${r.room_numbers.length}).`
+      return `Pick ${need} room number${need > 1 ? 's' : ''} for ${name} (picked ${r.room_numbers.length}).`
     }
   }
   return null
@@ -230,13 +230,13 @@ export const CreateQuoteSchema = BaseQuoteSchema
           if (d.stay_kind === 'daylong' && r.evening_rooms.length) {
             ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['days', i, 'rooms', ri, 'evening_rooms'], message: `${d.day_date}: evening handover applies to overnight rooms only` })
           }
-          const fixed = ROOM_NUMBERS[r.room_type as RoomType] ?? []
-          if (fixed.length === 0) return
-          if (r.room_numbers.length !== r.qty) {
+          const need = requiredRoomNumbers(r.room_type, r.qty)
+          if (need === 0) return
+          if (r.room_numbers.length !== need) {
             const name = r.display_name ?? r.room_type.replace(/_/g, ' ')
             ctx.addIssue({
               code: z.ZodIssueCode.custom, path: ['days', i, 'rooms', ri, 'room_numbers'],
-              message: `${d.day_date}: pick ${r.qty} room number${r.qty > 1 ? 's' : ''} for ${name} (picked ${r.room_numbers.length}).`,
+              message: `${d.day_date}: pick ${need} room number${need > 1 ? 's' : ''} for ${name} (picked ${r.room_numbers.length}).`,
             })
           }
         })
@@ -268,14 +268,14 @@ export const CreateQuoteSchema = BaseQuoteSchema
     // specific room numbers picked. Prevents "ghost" rooms where the booking
     // has a room type but no physical room assigned.
     data.rooms.forEach((r, idx) => {
-      const fixed = ROOM_NUMBERS[r.room_type as RoomType] ?? []
-      if (fixed.length === 0) return
-      if (r.room_numbers.length !== r.qty) {
+      const need = requiredRoomNumbers(r.room_type, r.qty)
+      if (need === 0) return
+      if (r.room_numbers.length !== need) {
         const name = r.display_name ?? r.room_type.replace(/_/g, ' ')
         ctx.addIssue({
           code:    z.ZodIssueCode.custom,
           path:    ['rooms', idx, 'room_numbers'],
-          message: `Pick ${r.qty} room number${r.qty > 1 ? 's' : ''} for ${name} (picked ${r.room_numbers.length}).`,
+          message: `Pick ${need} room number${need > 1 ? 's' : ''} for ${name} (picked ${r.room_numbers.length}).`,
         })
       }
     })

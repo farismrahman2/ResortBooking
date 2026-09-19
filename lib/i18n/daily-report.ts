@@ -150,6 +150,7 @@ const ROOM_TYPE_BN: Record<RoomType, string> = {
   eco_deluxe:      'ইকো ডিলাক্স',
   cottage:         'কটেজ',
   tree_house:      'ট্রি হাউজ',
+  villa_2br:       'দুই বেডরুমের ভিলা',
 }
 
 export function roomTypeLabel(type: RoomType, fallbackEn: string, lang: Lang): string {

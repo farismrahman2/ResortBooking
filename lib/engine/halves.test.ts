@@ -109,3 +109,53 @@ describe('roomNumberBuckets', () => {
     expect(b.eveningOnly).toEqual(['301'])
   })
 })
+
+describe('the two-bedroom villa (Deluxe 301 + 302 sold as one unit)', () => {
+  const INV_WITH_VILLA = [{ room_type: 'deluxe', total_units: 4 }, { room_type: 'villa_2br', total_units: 1 }]
+  const villaNight: StayLike = {
+    package_type: 'night', visit_date: '2026-10-10', check_out_date: '2026-10-11',
+    rooms: [{ room_type: 'villa_2br', qty: 1, room_numbers: ['301', '302'] }],
+  }
+  const deluxe301: StayLike = {
+    package_type: 'night', visit_date: '2026-10-10', check_out_date: '2026-10-11',
+    rooms: [{ room_type: 'deluxe', qty: 1, room_numbers: ['301'] }],
+  }
+
+  it('a villa booking occupies both Deluxe rooms', () => {
+    const occ = occupancyOnDate(villaNight, '2026-10-10')
+    expect(occ).toHaveLength(1)
+    expect(occ[0]).toMatchObject({ room_type: 'deluxe', qty: 2, room_numbers: ['301', '302'], day: true, night: true })
+    const avail = Object.fromEntries(availabilityByHalves(INV_WITH_VILLA, occ).map((h) => [h.room_type, h]))
+    expect(avail.deluxe.available_both).toBe(2)     // 202 and 205 remain
+    expect(avail.villa_2br.available_both).toBe(0)
+    expect(findHalvesConflict(INV, occ, [{ room_type: 'deluxe', qty: 1, room_numbers: ['301'] }], 'night', true, '2026-10-10'))
+      .toMatch(/Room 301/)
+  })
+
+  it('one Deluxe room taken makes the villa unavailable, and the request says which room', () => {
+    const occ = occupancyOnDate(deluxe301, '2026-10-10')
+    const avail = Object.fromEntries(availabilityByHalves(INV_WITH_VILLA, occ).map((h) => [h.room_type, h]))
+    expect(avail.villa_2br.available_both).toBe(0)
+    expect(avail.deluxe.available_both).toBe(3)
+    // A villa request with no numbers named still means 301 + 302.
+    expect(findHalvesConflict(INV, occ, [{ room_type: 'villa_2br', qty: 1 }], 'night', true, '2026-10-10'))
+      .toMatch(/Room 301/)
+  })
+
+  it('a Deluxe booking elsewhere leaves the villa free', () => {
+    const occ = occupancyOnDate({ ...deluxe301, rooms: [{ room_type: 'deluxe', qty: 1, room_numbers: ['202'] }] }, '2026-10-10')
+    const avail = Object.fromEntries(availabilityByHalves(INV_WITH_VILLA, occ).map((h) => [h.room_type, h]))
+    expect(avail.villa_2br.available_both).toBe(1)
+    expect(findHalvesConflict(INV, occ, [{ room_type: 'villa_2br', qty: 1 }], 'night', true, '2026-10-10')).toBeNull()
+  })
+
+  it('a day guest in 301 means the villa is an evening handover, not a clash', () => {
+    const dayOcc = occupancyOnDate({ package_type: 'daylong', visit_date: '2026-10-10', check_out_date: null,
+      rooms: [{ room_type: 'deluxe', qty: 1, room_numbers: ['301'] }] }, '2026-10-10')
+    expect(findHalvesConflict(INV, dayOcc, [{ room_type: 'villa_2br', qty: 1 }], 'night', true, '2026-10-10'))
+      .toMatch(/Room 301 is taken by day guests/)
+    expect(findHalvesConflict(INV, dayOcc,
+      [{ room_type: 'villa_2br', qty: 1, room_numbers: ['301', '302'], evening_rooms: ['301', '302'] }], 'night', true, '2026-10-10'))
+      .toBeNull()
+  })
+})

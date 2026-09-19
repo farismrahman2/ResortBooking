@@ -2,7 +2,7 @@
 
 import { cn } from '@/lib/utils'
 import { formatBDT } from '@/lib/formatters/currency'
-import { ROOM_NUMBERS } from '@/lib/config/rooms'
+import { ROOM_NUMBERS, COMPOSITE_ROOMS, requiredRoomNumbers } from '@/lib/config/rooms'
 import type { RoomInventoryRow, PackageWithPrices, RoomType } from '@/lib/supabase/types'
 import type { RoomSelection } from '@/lib/engine/calculator'
 
@@ -56,8 +56,14 @@ export function RoomSelector({
     selectedPackage?.room_prices.find((r) => r.room_type === roomType)?.price ?? 0
 
   function setQty(room: RoomInventoryRow, qty: number) {
+    const comp        = COMPOSITE_ROOMS[room.room_type as RoomType]
     const currentNums = getSelectedNums(room.room_type)
-    const nextNums    = currentNums.slice(0, qty)   // trim if qty decreased
+    // A composite (the villa) is its component rooms — they come with it,
+    // and if a day guest holds one of them it is an evening handover as a whole.
+    const nextNums    = comp ? (qty > 0 ? comp.room_numbers : []) : currentNums.slice(0, qty)   // trim if qty decreased
+    const nextEvening = comp
+      ? (qty > 0 && isNight && comp.room_numbers.some((n) => eveningOnlyRoomNumbers.includes(n)) ? comp.room_numbers : [])
+      : getEvening(room.room_type).filter((n) => nextNums.includes(n))
     const next        = value.filter((r) => r.room_type !== room.room_type)
     if (qty > 0) {
       next.push({
@@ -66,13 +72,14 @@ export function RoomSelector({
         qty,
         unit_price:    getUnitPrice(room.room_type),
         room_numbers:  nextNums,
-        evening_rooms: getEvening(room.room_type).filter((n) => nextNums.includes(n)),
+        evening_rooms: nextEvening,
       })
     }
     onChange(next)
   }
 
   function toggleRoomNumber(roomType: string, roomNum: string, maxQty: number, eveningOnly: boolean) {
+    if (COMPOSITE_ROOMS[roomType as RoomType]) return   // fixed by definition
     const current = getSelectedNums(roomType)
     const evening = getEvening(roomType)
     let newNums: string[]
@@ -93,6 +100,13 @@ export function RoomSelector({
 
   function toggleEvening(roomType: string, roomNum: string) {
     const evening = getEvening(roomType)
+    const comp = COMPOSITE_ROOMS[roomType as RoomType]
+    if (comp) {
+      // The villa is handed over as a whole — both rooms now, or both in the evening.
+      if (evening.length && comp.room_numbers.some((n) => eveningOnlyRoomNumbers.includes(n))) return
+      onChange(value.map((r) => (r.room_type === roomType ? { ...r, evening_rooms: evening.length ? [] : comp.room_numbers } : r)))
+      return
+    }
     const isEveningOnly = eveningOnlyRoomNumbers.includes(roomNum)
     // A day-held room cannot be switched back to an instant room.
     if (evening.includes(roomNum) && isEveningOnly) return
@@ -114,19 +128,27 @@ export function RoomSelector({
         const qty          = getQty(room.room_type)
         const price        = getUnitPrice(room.room_type)
         const isSelected   = qty > 0
-        const fixedNums    = ROOM_NUMBERS[room.room_type as RoomType] ?? []
+        const comp         = COMPOSITE_ROOMS[room.room_type as RoomType]
+        const fixedNums    = comp ? comp.room_numbers : (ROOM_NUMBERS[room.room_type as RoomType] ?? [])
         const selectedNums = getSelectedNums(room.room_type)
         const eveningNums  = getEvening(room.room_type)
 
         // Per-category availability. Only room types with fixed numbers can be
         // classified per-room; others (e.g. tree_house) fall back to total_units.
-        const takenCount     = fixedNums.filter((n) => bookedRoomNumbers.includes(n)).length
+        // A composite is one unit that needs every component room, so any one
+        // of them taken (or held until noon / the evening) counts for the whole.
+        const countIn = (list: string[]) => comp
+          ? (fixedNums.some((n) => list.includes(n) && !bookedRoomNumbers.includes(n)) ? 1 : 0)
+          : fixedNums.filter((n) => list.includes(n) && !bookedRoomNumbers.includes(n)).length
+        const takenCount     = comp
+          ? (fixedNums.some((n) => bookedRoomNumbers.includes(n)) ? 1 : 0)
+          : fixedNums.filter((n) => bookedRoomNumbers.includes(n)).length
         const availableUnits = Math.max(0, room.total_units - takenCount)
         const isFullyBooked  = fixedNums.length > 0 && availableUnits === 0
         const maxSelectable  = fixedNums.length > 0 ? availableUnits : room.total_units
-        const noonCount      = fixedNums.filter((n) => noonRoomNumbers.includes(n) && !bookedRoomNumbers.includes(n)).length
-        const eveningOnlyCount = fixedNums.filter((n) => eveningOnlyRoomNumbers.includes(n) && !bookedRoomNumbers.includes(n)).length
-        const untilEveningCount = fixedNums.filter((n) => untilEveningRoomNumbers.includes(n) && !bookedRoomNumbers.includes(n)).length
+        const noonCount      = countIn(noonRoomNumbers)
+        const eveningOnlyCount = countIn(eveningOnlyRoomNumbers)
+        const untilEveningCount = countIn(untilEveningRoomNumbers)
         const availableNow   = Math.max(0, availableUnits - noonCount - eveningOnlyCount)
 
         return (
@@ -209,7 +231,7 @@ export function RoomSelector({
             {qty > 0 && fixedNums.length > 0 && (
               <div className="mt-3 pt-2 border-t border-forest-200">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-2">
-                  Room Numbers — select {qty}
+                  {comp ? `Rooms ${fixedNums.join(' + ')} — sold together` : `Room Numbers — select ${qty}`}
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {fixedNums.map((num) => {
@@ -229,7 +251,7 @@ export function RoomSelector({
                         <button
                           type="button"
                           onClick={() => !isTaken && toggleRoomNumber(room.room_type, num, qty, isEveningOnly)}
-                          disabled={isTaken}
+                          disabled={isTaken || !!comp}
                           title={title}
                           className={cn(
                             'rounded-md border px-2.5 py-1 text-xs font-mono font-semibold transition-colors',
@@ -276,9 +298,9 @@ export function RoomSelector({
                     {isNight && selectedNums.length > 0 && <span>Tap “now / 6PM” on a picked room to hand it over on arrival or at {handoverLabel} — an evening room’s day stays sellable.</span>}
                   </p>
                 )}
-                {selectedNums.length < qty && (
+                {selectedNums.length < requiredRoomNumbers(room.room_type, qty) && (
                   <p className="mt-1.5 text-[10px] text-amber-600">
-                    Select {qty - selectedNums.length} more room{qty - selectedNums.length !== 1 ? 's' : ''}
+                    Select {requiredRoomNumbers(room.room_type, qty) - selectedNums.length} more room{requiredRoomNumbers(room.room_type, qty) - selectedNums.length !== 1 ? 's' : ''}
                   </p>
                 )}
               </div>

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { isComposite } from '@/lib/config/rooms'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { AvailabilityResult, RoomInventoryRow } from '@/lib/supabase/types'
 
@@ -119,8 +120,10 @@ export function MonthCalendar({ selectedDate, onDateClick, inventory }: MonthCal
         for (const d of data.dates ?? []) {
           const rooms = (d.rooms as AvailabilityResult[]).filter((r) => !r.daylong_only)
           const totalUnits     = rooms.reduce((s, r) => s + r.total_units, 0)
-          const totalAvailable    = rooms.reduce((s, r) => s + (r.available_both ?? r.available), 0)
-          const totalAfterEvening = rooms.reduce((s, r) => s + (r.available_after_evening ?? 0), 0)
+          // The villa stands on two Deluxe rooms already counted — it adds no unit.
+          const physical = rooms.filter((r) => !isComposite(r.room_type))
+          const totalAvailable    = physical.reduce((s, r) => s + (r.available_both ?? r.available), 0)
+          const totalAfterEvening = physical.reduce((s, r) => s + (r.available_after_evening ?? 0), 0)
           map.set(d.date, { date: d.date, rooms, totalUnits, totalAvailable, totalAfterEvening })
         }
         setDays(map)

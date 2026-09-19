@@ -28,7 +28,7 @@ import { PricingBreakdown } from '@/components/quotes/PricingBreakdown'
 import { DuplicateConfirmModal } from '@/components/quotes/DuplicateConfirmModal'
 import { CorporateBookingFields, type CorporateAccountOption } from '@/components/quotes/CorporateBookingFields'
 import { ReturningGuestBadge } from '@/components/qa/ReturningGuestBadge'
-import { ROOM_NUMBERS } from '@/lib/config/rooms'
+import { ROOM_NUMBERS, isComposite } from '@/lib/config/rooms'
 import type { PackageWithPrices, RoomInventoryRow, SettingsMap, ExtraItem, RoomType } from '@/lib/supabase/types'
 import type { DuplicateMatch } from '@/lib/queries/duplicate-bookings'
 import type { SalesEmployee } from '@/lib/supabase/types'
@@ -726,6 +726,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
               <div className="space-y-2">
                 {rooms
                   .filter((inv) => {
+                    if (isComposite(inv.room_type)) return false   // the villa is sold, not gifted by the room
                     const price = selectedPackage.room_prices.find((p) => p.room_type === inv.room_type)?.price
                     return price !== undefined
                   })

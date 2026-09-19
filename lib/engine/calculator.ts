@@ -12,6 +12,7 @@
  * - Friday rate takes priority over holiday rate if both match
  */
 
+import { includedPersons } from '@/lib/config/rooms'
 import type { LineItem, ExtraItem } from '@/lib/supabase/types'
 import { sortSegments, shortDayLabel, type GroupSegment, type GroupSegmentRoom } from '@/lib/bookings/group-itinerary'
 
@@ -289,8 +290,8 @@ export function calculateNight(inputs: NightInputs): CalculationResult {
   // For night stays, adult rate is based on check-in date
   const { used: adultRateUsed } = resolveAdultRate(checkInDate, packageRates, holidayDates)
 
-  const totalRoomQty = rooms.reduce((sum, r) => sum + r.qty, 0)
-  const basePersons  = 2 * totalRoomQty
+  // 2 per room, or what a composite room includes (the villa: 4).
+  const basePersons  = rooms.reduce((sum, r) => sum + r.qty * includedPersons(r.room_type), 0)
   const extraPersons = Math.max(0, adults - basePersons)
 
   const lineItems: LineItem[] = []
@@ -475,8 +476,7 @@ export function calculateGroup(inputs: GroupInputs): CalculationResult {
           unit_price: room.unit_price, nights: 1, subtotal: room.qty * room.unit_price, kind: 'room',
         })
       }
-      const totalRoomQty = seg.rooms.reduce((n, r) => n + r.qty, 0)
-      const basePersons  = 2 * totalRoomQty
+      const basePersons  = seg.rooms.reduce((n, r) => n + r.qty * includedPersons(r.room_type), 0)
       const extraPersons = Math.max(0, billable - basePersons)
       if (extraPersons > 0 && nightRates.extra_person > 0) {
         lineItems.push({

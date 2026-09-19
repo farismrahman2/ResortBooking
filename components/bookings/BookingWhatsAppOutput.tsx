@@ -26,6 +26,7 @@ const ROOM_LABELS: Record<RoomType, string> = {
   premium:        'Premium',
   super_premium:  'Super Premium',
   tree_house:     'Tree House',
+  villa_2br:     'Two-bedroom Villa',
 }
 
 export function BookingWhatsAppOutput({ booking, settings, salesRepName, roomAvailableAfterNoon }: BookingWhatsAppOutputProps) {

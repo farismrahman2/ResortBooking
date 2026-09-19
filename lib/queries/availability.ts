@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { COMPOSITE_ROOMS } from '@/lib/config/rooms'
 import { addDaysIso } from '@/lib/dates'
 import {
   occupancyOnDate, findHalvesConflict, availabilityByHalves, roomNumberBuckets,
@@ -216,23 +217,27 @@ export async function getRoomAvailability(
   return toResults(inventory, occupancyFor(stays, date), packageType)
 }
 
-/** Availability over a range, from the SQL function the calendar uses. */
+/**
+ * Availability over a range, date by date, from the same engine as the
+ * single-date check. Counts alone (the old SQL function) cannot say whether
+ * the villa is free — that needs to know which two Deluxe rooms are taken —
+ * so the calendar reads the stays and lets the engine answer per date.
+ */
 export async function getAvailabilityRange(
   from: string,
   to: string,
   inventory: RoomInventoryRow[],
   packageType?: 'daylong' | 'night',
 ): Promise<Map<string, AvailabilityResult[]>> {
-  const supabase = createClient()
-  const { data, error } = await supabase.rpc('get_availability_range', { p_from: from, p_to: to })
-  if (error) {
-    console.error('get_availability_range RPC error:', error)
-    return new Map()
+  const stays = await fetchStays(from, addDaysIso(to, 1))
+  const out = new Map<string, AvailabilityResult[]>()
+  for (let d = from; d <= to; d = addDaysIso(d, 1)) {
+    out.set(d, toResults(inventory, occupancyFor(stays, d), packageType))
   }
-  return rangeRowsToResults((data ?? []) as any[], inventory, packageType)   // eslint-disable-line @typescript-eslint/no-explicit-any
+  return out
 }
 
-/** Shared by the query above and the availability API's range path. */
+/** Kept for callers that still hold rows from the SQL range function. */
 export function rangeRowsToResults(
   rows: Array<{ check_date: string; check_room_type: string; qty_day?: number | string; qty_night?: number | string; qty_booked?: number | string }>,
   inventory: RoomInventoryRow[],
@@ -344,7 +349,9 @@ export async function findRoomNumberConflicts(
   const out: string[] = []
   for (const r of rooms) {
     const evening = new Set(r.evening_rooms ?? [])
-    for (const n of r.room_numbers ?? []) {
+    // A composite with no numbers named still means its component rooms.
+    const nums = (r.room_numbers ?? []).length ? (r.room_numbers as string[]) : (COMPOSITE_ROOMS[r.room_type as RoomType]?.room_numbers ?? [])
+    for (const n of nums) {
       if (taken.has(n)) { out.push(n); continue }
       if (checkOutDate && eveningOnly.has(n) && !evening.has(n)) out.push(n)
     }

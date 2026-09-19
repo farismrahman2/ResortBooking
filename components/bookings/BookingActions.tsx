@@ -20,7 +20,7 @@ import { GroupItineraryEditor } from '@/components/quotes/GroupItineraryEditor'
 import { updateAdvancePaid, cancelBooking, updateBooking } from '@/lib/actions/bookings'
 import { AdvancePaymentsPanel } from '@/components/bookings/AdvancePaymentsPanel'
 import type { AdvancePaymentRow } from '@/lib/bookings/advance-methods'
-import { ROOM_NUMBERS } from '@/lib/config/rooms'
+import { ROOM_NUMBERS, COMPOSITE_ROOMS, isComposite, requiredRoomNumbers } from '@/lib/config/rooms'
 import type { BookingWithRooms, RoomInventoryRow, RoomType, ExtraItem } from '@/lib/supabase/types'
 
 const ROOM_LABELS: Record<RoomType, string> = {
@@ -32,6 +32,7 @@ const ROOM_LABELS: Record<RoomType, string> = {
   premium:        'Premium',
   super_premium:  'Super Premium',
   tree_house:     'Tree House',
+  villa_2br:     'Two-bedroom Villa',
 }
 
 interface RoomQty { qty: number; unit_price: number; display_name: string }
@@ -166,7 +167,9 @@ export function BookingActions({
   function setRoomQty(roomType: string, delta: number) {
     const price   = (snap.room_prices as any)[roomType] ?? 0
     const current = roomQtys[roomType]?.qty ?? 0
-    const newQty  = Math.max(0, current + delta)
+    const comp    = COMPOSITE_ROOMS[roomType as RoomType]
+    // A composite (the villa) is one unit and always carries its component rooms.
+    const newQty  = comp ? Math.min(1, Math.max(0, current + delta)) : Math.max(0, current + delta)
 
     if (newQty === 0) {
       setRoomQtys((prev) => { const next = { ...prev }; delete next[roomType]; return next })
@@ -183,12 +186,18 @@ export function BookingActions({
       // Trim room numbers if qty decreased
       setRoomNums((prev) => ({
         ...prev,
-        [roomType]: (prev[roomType] ?? []).slice(0, newQty),
+        [roomType]: comp ? comp.room_numbers : (prev[roomType] ?? []).slice(0, newQty),
       }))
+      if (comp) {
+        // If a day guest holds either room, the villa comes in the evening as a whole.
+        const evening = isNightBooking && comp.room_numbers.some((n) => eveningOnlyRoomNumbers.includes(n))
+        setRoomEvening((prev) => ({ ...prev, [roomType]: evening ? comp.room_numbers : [] }))
+      }
     }
   }
 
   function toggleRoomNumber(roomType: string, roomNum: string) {
+    if (isComposite(roomType)) return   // fixed by definition
     const current = roomNums[roomType] ?? []
     const maxQty  = roomQtys[roomType]?.qty ?? 0
     if (current.includes(roomNum)) {
@@ -517,8 +526,10 @@ export function BookingActions({
               {availableRooms.map((inv) => {
                 const price      = (snap.room_prices as any)[inv.room_type] ?? 0
                 const current    = roomQtys[inv.room_type]?.qty ?? 0
-                const fixedNums  = ROOM_NUMBERS[inv.room_type as RoomType] ?? []
+                const comp       = COMPOSITE_ROOMS[inv.room_type as RoomType]
+                const fixedNums  = comp ? comp.room_numbers : (ROOM_NUMBERS[inv.room_type as RoomType] ?? [])
                 const selected   = roomNums[inv.room_type] ?? []
+                const needNums   = requiredRoomNumbers(inv.room_type, current)
 
                 return (
                   <div key={inv.room_type} className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
@@ -550,7 +561,7 @@ export function BookingActions({
                     {current > 0 && fixedNums.length > 0 && (
                       <div className="mt-3 pt-2 border-t border-gray-200">
                         <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-2">
-                          Room Numbers — select {current}
+                          {comp ? `Rooms ${fixedNums.join(' + ')} — sold together` : `Room Numbers — select ${current}`}
                         </p>
                         <div className="flex flex-wrap gap-1.5">
                           {fixedNums.map((num) => {
@@ -562,7 +573,7 @@ export function BookingActions({
                               <span key={num} className="inline-flex items-stretch">
                                 <button
                                   onClick={() => !isTaken && toggleRoomNumber(inv.room_type, num)}
-                                  disabled={isTaken}
+                                  disabled={isTaken || !!comp}
                                   title={isTaken ? `Room ${num} is booked`
                                     : isEveningOnly ? `Room ${num} is with day guests until ${handoverLabel} — available for the night from then`
                                     : undefined}
@@ -602,9 +613,9 @@ export function BookingActions({
                             “now” = handed over on arrival · “6PM” = handed over at {handoverLabel}, after that day’s day guests leave; the day on that room stays sellable.
                           </p>
                         )}
-                        {selected.length < current && (
+                        {selected.length < needNums && (
                           <p className="mt-1.5 text-[10px] text-amber-600">
-                            Select {current - selected.length} more room{current - selected.length !== 1 ? 's' : ''}
+                            Select {needNums - selected.length} more room{needNums - selected.length !== 1 ? 's' : ''}
                           </p>
                         )}
                       </div>
@@ -627,7 +638,7 @@ export function BookingActions({
                 <h5 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-3">Complimentary Rooms</h5>
                 <p className="text-xs text-gray-400 italic mb-2">Rooms at no charge — won't affect totals.</p>
                 <div className="space-y-2">
-                  {availableRooms.map((inv) => {
+                  {availableRooms.filter((inv) => !isComposite(inv.room_type)).map((inv) => {
                     const row = compRoomData[inv.room_type] ?? { qty: 0, room_numbers: [] }
                     const qty = row.qty
                     const fixedNums = ROOM_NUMBERS[inv.room_type as RoomType] ?? []

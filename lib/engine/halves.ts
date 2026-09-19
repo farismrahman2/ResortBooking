@@ -21,9 +21,26 @@
  * availability system is this table applied per room type (counts) and per
  * physical room number (exact).
  *
+ * A COMPOSITE room type (the two-bedroom villa: Deluxe 301 + 302 sold as one
+ * unit) is expanded into its physical component rooms before any of this
+ * runs, so a villa and the two Deluxe rooms it stands on can never be sold
+ * to different people on the same date. Its own availability is then read
+ * back from its components: free only when every one of them is.
+ *
  * Pure functions, no I/O. The database layer builds StayLike records; the
  * tests pin the resort's own scenario.
  */
+
+import { COMPOSITE_ROOMS } from '@/lib/config/rooms'
+import type { RoomType } from '@/lib/supabase/types'
+
+/** A composite room as the physical rooms it occupies; anything else as is. */
+function expandComposite<T extends { room_type: string; qty: number; room_numbers?: string[]; evening_rooms?: string[] }>(r: T): T {
+  const comp = COMPOSITE_ROOMS[r.room_type as RoomType]
+  if (!comp) return r
+  const nums = (r.room_numbers ?? []).length ? (r.room_numbers as string[]) : comp.room_numbers
+  return { ...r, room_type: comp.component_type, qty: r.qty * comp.room_numbers.length, room_numbers: nums }
+}
 
 export interface StayRoom {
   room_type:      string
@@ -52,9 +69,10 @@ export interface OccupancyRecord {
 /** What a stay occupies on one date, split into halves. */
 export function occupancyOnDate(stay: StayLike, date: string): OccupancyRecord[] {
   const out: OccupancyRecord[] = []
+  const rooms = stay.rooms.map(expandComposite)
   if (stay.package_type === 'daylong') {
     if (stay.visit_date !== date) return out
-    for (const r of stay.rooms) {
+    for (const r of rooms) {
       if (r.qty > 0) out.push({ room_type: r.room_type, qty: r.qty, room_numbers: r.room_numbers ?? [], day: true, night: false })
     }
     return out
@@ -62,7 +80,7 @@ export function occupancyOnDate(stay: StayLike, date: string): OccupancyRecord[]
   const checkOut = stay.check_out_date
   if (!checkOut || date < stay.visit_date || date >= checkOut) return out
   const isCheckIn = date === stay.visit_date
-  for (const r of stay.rooms) {
+  for (const r of rooms) {
     if (r.qty <= 0) continue
     const nums    = r.room_numbers ?? []
     const evening = isCheckIn ? (r.evening_rooms ?? []).filter((n) => nums.includes(n)) : []
@@ -139,7 +157,7 @@ export function findHalvesConflict(
 ): string | null {
   const totals = totalsByType(occupancy)
 
-  for (const req of requested) {
+  for (const req of requested.map(expandComposite)) {
     if (req.qty <= 0) continue
     const total = inventory.get(req.room_type) ?? 0
     const t = totals.get(req.room_type) ?? { day: 0, night: 0, either: 0, dayNums: new Set<string>(), nightNums: new Set<string>() }
@@ -202,6 +220,18 @@ export function availabilityByHalves(
 ): HalfAvailability[] {
   const totals = totalsByType(occupancy)
   return inventory.map((inv) => {
+    // A composite is free only when every physical room it stands on is.
+    const comp = COMPOSITE_ROOMS[inv.room_type as RoomType]
+    if (comp) {
+      const c = totals.get(comp.component_type)
+      const dayTaken   = comp.room_numbers.some((n) => c?.dayNums.has(n))
+      const nightTaken = comp.room_numbers.some((n) => c?.nightNums.has(n))
+      const bd = dayTaken ? 1 : 0, bn = nightTaken ? 1 : 0, ba = dayTaken || nightTaken ? 1 : 0
+      return {
+        room_type: inv.room_type, booked_day: bd, booked_night: bn, booked_any: ba,
+        available_day: 1 - bd, available_night: 1 - bn, available_both: 1 - ba,
+      }
+    }
     const t = totals.get(inv.room_type)
     const bd = t?.day ?? 0
     const bn = t?.night ?? 0

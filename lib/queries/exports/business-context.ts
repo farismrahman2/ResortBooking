@@ -1,6 +1,7 @@
 import { createServiceClient } from '@/lib/supabase/server'
 import { bookingRevenue, occupiesRoom } from '@/lib/reports/booking-revenue'
 import { todayDhaka } from '@/lib/dates'
+import { isComposite } from '@/lib/config/rooms'
 
 /**
  * One JSON pack with everything needed to reason about the business —
@@ -106,7 +107,8 @@ export async function buildBusinessContext(opts: BusinessContextOptions): Promis
     ])
 
   const settings   = Object.fromEntries(settingsRows.map((r) => [r.key, r.value]))
-  const totalUnits = inv.reduce((s, r) => s + Number(r.total_units ?? 0), 0)
+  // A composite (the villa) stands on rooms already counted.
+  const totalUnits = inv.filter((r) => !isComposite(r.room_type)).reduce((s, r) => s + Number(r.total_units ?? 0), 0)
   const holidaySet = new Set(holidayRows.map((h) => h.date))
 
   // ── Per-booking facts ─────────────────────────────────────────────────────

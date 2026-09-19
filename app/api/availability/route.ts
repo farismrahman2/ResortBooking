@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getRoomAvailability, rangeRowsToResults } from '@/lib/queries/availability'
+import { getRoomAvailability, getAvailabilityRange } from '@/lib/queries/availability'
 import type { RoomInventoryRow } from '@/lib/supabase/types'
 
 export const dynamic = 'force-dynamic'
@@ -43,13 +43,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ rooms, date })
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: rpcData, error: rpcError } = await (supabase as any).rpc('get_availability_range', {
-      p_from: from!, p_to: to!,
-    })
-    if (rpcError) return NextResponse.json({ error: rpcError.message }, { status: 500 })
-
-    const byDate = rangeRowsToResults(rpcData ?? [], inv, packageType)
+    const byDate = await getAvailabilityRange(from!, to!, inv, packageType)
     const dates = [...byDate.entries()]
       .map(([d, rooms]) => ({ date: d, rooms }))
       .sort((a, b) => a.date.localeCompare(b.date))
