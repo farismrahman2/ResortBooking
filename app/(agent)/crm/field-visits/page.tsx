@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { BookOpen } from 'lucide-react'
+import { BookOpen, FileText } from 'lucide-react'
 import { Topbar } from '@/components/layout/Topbar'
 import { requirePermission, hasPermission } from '@/lib/auth/permissions'
 import { listFieldVisits } from '@/lib/queries/field-visits'
@@ -50,12 +50,18 @@ export default async function FieldVisitsPage({ searchParams }: PageProps) {
           action={canWrite ? { label: 'New visit', href: '/crm/field-visits/new' } : undefined}
         />
         <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6">
-          <div className="mx-auto mb-3 max-w-5xl">
+          <div className="mx-auto mb-3 flex max-w-5xl flex-wrap gap-2">
             <Link
               href="/crm/field-visits/brochures"
               className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 text-xs font-medium text-gray-700 hover:border-forest-400 hover:text-forest-800"
             >
               <BookOpen size={13} /> Brochure recipients
+            </Link>
+            <Link
+              href="/crm/field-visits/report"
+              className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 text-xs font-medium text-gray-700 hover:border-forest-400 hover:text-forest-800"
+            >
+              <FileText size={13} /> Report &amp; PDF
             </Link>
           </div>
           <FieldVisitsClient
