@@ -45,12 +45,15 @@ function fmtWhen(iso: string): string {
  * and the money-received report can bucket each part on its own day.
  */
 export function AdvancePaymentsPanel({
-  bookingId, payments, advanceRequired, disabled, accounts = [],
+  bookingId, payments, advanceRequired, disabled, cancelled, accounts = [],
 }: {
   bookingId:       string
   payments:        AdvancePaymentRow[]
   advanceRequired: number
   disabled?:       boolean
+  /** The booking is cancelled. Its ledger stays editable — the money arrived
+   *  before the cancellation and can still be mis-keyed — but say so. */
+  cancelled?:      boolean
   /** Where the money lands — banks, wallets, terminals. */
   accounts?:       Array<{
     id: string; display_name: string; method: string; bank_name: string | null
@@ -184,9 +187,15 @@ export function AdvancePaymentsPanel({
         </ul>
       )}
 
-      {due > 0 && payments.length > 0 && (
+      {due > 0 && payments.length > 0 && !cancelled && (
         <p className="text-xs text-amber-700">
           {formatBDT(due)} of the required advance is still outstanding.
+        </p>
+      )}
+      {cancelled && (
+        <p className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
+          This booking is cancelled. Its advance can still be corrected here — every change is
+          recorded in the Audit Log.
         </p>
       )}
 

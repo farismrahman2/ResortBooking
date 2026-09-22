@@ -465,7 +465,7 @@ export function BookingActions({
           bookingId={booking.id}
           payments={advancePayments}
           advanceRequired={advanceRequired}
-          disabled={booking.status === 'cancelled'}
+          cancelled={booking.status === 'cancelled'}
           accounts={paymentAccounts}
         />
       </div>

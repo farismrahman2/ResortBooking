@@ -313,11 +313,10 @@ export async function updateAdvancePaid(
       .from('bookings')
       .update({ advance_paid, advance_required, ...(advance_method ? { advance_method } : {}) })
       .eq('id', bookingId)
-      .neq('status', 'cancelled')   // a cancelled booking's money must stay as it ended
       .select('id, booking_number, customer_name')
 
     if (error) return { success: false, error: error.message }
-    if (!updated?.length) return { success: false, error: 'Booking not found, or it is cancelled' }
+    if (!updated?.length) return { success: false, error: 'Booking not found' }
 
     await supabase.from('history_log').insert({
       entity_type: 'booking',
@@ -405,9 +404,8 @@ export async function addAdvancePayment(
     const { data: booking } = await db.from('bookings')
       .select('id, status, booking_number').eq('id', bookingId).maybeSingle()
     if (!booking) return { success: false, error: 'Booking not found' }
-    if (booking.status === 'cancelled') {
-      return { success: false, error: 'This booking is cancelled — its payments are closed.' }
-    }
+    // A cancelled booking's ledger stays open: the money arrived before the
+    // cancellation and can still be mis-keyed. Every change is audited.
 
     // A datetime-local value carries no zone; it is typed in Dhaka time.
     const paidAt = input.paid_at
