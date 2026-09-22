@@ -10,9 +10,16 @@
  *   - navigations  → network-first, falling back to the cached offline shell
  *   - static build assets (/_next/static) → cache-first, they're immutable
  *   - everything else → straight to network, untouched
+ *
+ * Only a successful response is ever cached. The first version cached
+ * whatever came back — and a stylesheet requested in the seconds a deploy
+ * was switching over returned a 404 that was then served from cache on
+ * every later visit, cache-first, forever: the whole app rendered as bare
+ * HTML on that one phone while everyone else saw it styled. Bumping CACHE
+ * makes every installed worker drop its old store on activation.
  */
 
-const CACHE = 'gcr-fv-v1'
+const CACHE = 'gcr-fv-v2'
 const SHELL = '/crm/field-visits/offline'
 
 const PRECACHE = [SHELL, '/manifest.json']
@@ -40,12 +47,15 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url)
   if (url.origin !== self.location.origin) return
 
-  // Immutable build output — safe to serve from cache indefinitely.
+  // Immutable build output — safe to serve from cache indefinitely, but only
+  // once it has actually arrived: a 404 or a 5xx is never kept.
   if (url.pathname.startsWith('/_next/static')) {
     event.respondWith(
       caches.match(req).then((hit) => hit || fetch(req).then((res) => {
-        const copy = res.clone()
-        caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => undefined)
+        if (res.ok) {
+          const copy = res.clone()
+          caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => undefined)
+        }
         return res
       })),
     )
@@ -57,8 +67,10 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          const copy = res.clone()
-          caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => undefined)
+          if (res.ok) {
+            const copy = res.clone()
+            caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => undefined)
+          }
           return res
         })
         .catch(() => caches.match(req).then((hit) => hit || caches.match(SHELL))),
