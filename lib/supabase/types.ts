@@ -681,6 +681,13 @@ export type AdminAlertEvent =
   | 'refund_recorded'  | 'booking_cancelled' | 'booking_no_show' | 'user_deactivated'
   /** A departed guest's balance has gone unpaid past the alert threshold. */
   | 'due_overdue'
+  /** A logged advance instalment was changed after the fact — amount, tender, date or account. */
+  | 'advance_corrected'
+  /** A logged advance instalment was deleted. */
+  | 'advance_removed'
+  /** A confirmed booking (or confirmed quote) was changed after submission — details,
+   *  rooms, dates, advance total, sales rep. */
+  | 'booking_edited'
 
 export interface AdminAlertRow {
   id: string

@@ -13,7 +13,8 @@ import type { GroupSegment } from '@/lib/bookings/group-itinerary'
 import type { PackageSnapshot } from '@/lib/supabase/types'
 import { findDuplicateBookings } from '@/lib/queries/duplicate-bookings'
 import { roomRowError } from '@/lib/supabase/errors'
-import { requirePermission } from '@/lib/auth/permissions'
+import { requirePermission, getCurrentUserContext } from '@/lib/auth/permissions'
+import { flagAlert } from '@/lib/auth/alerts'
 import type { ActionResult, ActionData } from './types'
 import type { BookingStatus, RoomType } from '@/lib/supabase/types'
 
@@ -239,7 +240,7 @@ export async function updateQuote(
     // fill everything in and then rejected the save at the last step.
     const { data: existing } = await supabase
       .from('quotes')
-      .select('status, converted_to_booking_id')
+      .select('status, converted_to_booking_id, quote_number, customer_name')
       .eq('id', id)
       .single()
 
@@ -404,6 +405,18 @@ export async function updateQuote(
       actor:       'system',
       payload:     { customer_name: validated.customer_name },
     })
+    // A confirmed quote is a submission too — a change to it goes to the Audit Log.
+    if (existing.status === 'confirmed') {
+      const who = await getCurrentUserContext()
+      await flagAlert({
+        event_type:  'booking_edited',
+        entity_type: 'quote',
+        entity_id:   id,
+        summary:     `Confirmed quote edited: total now ${calcResult.total.toLocaleString('en-IN')} — ${validated.customer_name} (${existing.quote_number ?? id})`,
+        payload:     { new_total: calcResult.total, adults: validated.adults, rooms: validated.rooms.length },
+        created_by:  who?.user_id ?? null,
+      })
+    }
 
     revalidatePath('/quotes')
     revalidatePath(`/quotes/${id}`)

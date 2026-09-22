@@ -27,6 +27,8 @@ const FILTERS: Array<{ value: 'unread' | 'all' | AdminAlertEvent; label: string 
   { value: 'checkout_voided',    label: 'Voids' },
   { value: 'refund_recorded',    label: 'Refunds' },
   { value: 'booking_cancelled',  label: 'Cancellations' },
+  { value: 'booking_edited',     label: 'Edits after submission' },
+  { value: 'advance_corrected',  label: 'Advance corrections' },
   { value: 'user_deactivated',   label: 'Deactivations' },
 ]
 
@@ -39,6 +41,9 @@ const EVENT_BADGE: Record<AdminAlertEvent, string> = {
   booking_no_show:   'bg-amber-50 text-amber-800 border-amber-200',
   user_deactivated:  'bg-gray-100 text-gray-700 border-gray-200',
   due_overdue:       'bg-red-50 text-red-800 border-red-200',
+  advance_corrected: 'bg-violet-50 text-violet-800 border-violet-200',
+  advance_removed:   'bg-violet-50 text-violet-800 border-violet-200',
+  booking_edited:    'bg-sky-50 text-sky-800 border-sky-200',
 }
 
 const EVENT_LABELS: Record<AdminAlertEvent, string> = {
@@ -50,6 +55,9 @@ const EVENT_LABELS: Record<AdminAlertEvent, string> = {
   booking_no_show:   'Booking No-Show',
   user_deactivated:  'User Deactivated',
   due_overdue:       'Payment Overdue',
+  advance_corrected: 'Advance Corrected',
+  advance_removed:   'Advance Removed',
+  booking_edited:    'Edited After Submission',
 }
 
 export function AuditLogClient({ alerts, filter }: Props) {
@@ -83,6 +91,7 @@ export function AuditLogClient({ alerts, filter }: Props) {
     // An overdue due opens where it can be SETTLED, not where it can be read.
     if (a.event_type === 'due_overdue') return `/checkout/${a.entity_id}`
     if (a.entity_type === 'booking') return `/bookings/${a.entity_id}`
+    if (a.entity_type === 'quote')   return `/quotes/${a.entity_id}`
     return null
   }
 

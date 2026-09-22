@@ -15,6 +15,8 @@ import { findDuplicateBookings } from '@/lib/queries/duplicate-bookings'
 import { ROOM_NUMBERS } from '@/lib/config/rooms'
 import { requirePermission, getCurrentUserContext } from '@/lib/auth/permissions'
 import { isMissingRelation, roomRowError } from '@/lib/supabase/errors'
+import { flagAlert } from '@/lib/auth/alerts'
+import { formatBDT } from '@/lib/formatters/currency'
 import { getAdvanceDefaultAccountId, listAccountsForMethod } from '@/lib/queries/payment-accounts'
 import { requiresAccount, missingAccountError } from '@/lib/payments/account-rules'
 import { findUnassignedRoomNumbersError } from '@/lib/validators/quote'
@@ -312,7 +314,7 @@ export async function updateAdvancePaid(
       .update({ advance_paid, advance_required, ...(advance_method ? { advance_method } : {}) })
       .eq('id', bookingId)
       .neq('status', 'cancelled')   // a cancelled booking's money must stay as it ended
-      .select('id')
+      .select('id, booking_number, customer_name')
 
     if (error) return { success: false, error: error.message }
     if (!updated?.length) return { success: false, error: 'Booking not found, or it is cancelled' }
@@ -323,6 +325,16 @@ export async function updateAdvancePaid(
       event:       'edited',
       actor:       'system',
       payload:     { field: 'advance', advance_paid, advance_required },
+    })
+    // Money on a confirmed booking changed by hand — the Audit Log must show it.
+    const who = await getCurrentUserContext()
+    await flagAlert({
+      event_type:  'booking_edited',
+      entity_type: 'booking',
+      entity_id:   bookingId,
+      summary:     `Advance set to ${formatBDT(advance_paid)} (required ${formatBDT(advance_required)}) — ${updated[0].customer_name} (${updated[0].booking_number})`,
+      payload:     { field: 'advance', advance_paid, advance_required, advance_method: advance_method ?? null },
+      created_by:  who?.user_id ?? null,
     })
 
     revalidatePath(`/bookings/${bookingId}`)
@@ -479,9 +491,10 @@ export async function updateAdvancePayment(
     const db = supabase as any
 
     const { data: row } = await db.from('booking_advance_payments')
-      .select('id, booking_id, amount, method, paid_at, reference, account_id')
+      .select('id, booking_id, amount, method, paid_at, reference, account_id, booking:bookings(booking_number, customer_name)')
       .eq('id', paymentId).maybeSingle()
     if (!row) return { success: false, error: 'Payment not found' }
+    const bk = Array.isArray(row.booking) ? row.booking[0] : row.booking
 
     const paidAt = input.paid_at
       ? new Date(input.paid_at.length === 16 ? `${input.paid_at}:00+06:00` : input.paid_at).toISOString()
@@ -516,6 +529,27 @@ export async function updateAdvancePayment(
         advance_paid: total,
       },
     })
+    const changes = [
+      Number(row.amount) !== amount ? `${formatBDT(Number(row.amount))} → ${formatBDT(amount)}` : null,
+      row.method !== input.method ? `${row.method} → ${input.method}` : null,
+      row.paid_at !== paidAt ? `date ${String(row.paid_at).slice(0, 10)} → ${paidAt.slice(0, 10)}` : null,
+      (row.account_id ?? null) !== (accountId ?? null) ? 'account changed' : null,
+      (row.reference ?? null) !== (input.reference?.trim() || null) ? 'reference changed' : null,
+    ].filter(Boolean).join(', ') || 'no visible change'
+    const who = await getCurrentUserContext()
+    await flagAlert({
+      event_type:  'advance_corrected',
+      entity_type: 'booking',
+      entity_id:   row.booking_id,
+      summary:     `Advance instalment corrected: ${changes} — ${bk?.customer_name ?? ''} (${bk?.booking_number ?? row.booking_id})`,
+      payload:     {
+        payment_id: paymentId,
+        before: { amount: Number(row.amount), method: row.method, paid_at: row.paid_at, reference: row.reference, account_id: row.account_id },
+        after:  { amount, method: input.method, paid_at: paidAt, reference: input.reference?.trim() || null, account_id: accountId },
+        advance_paid: total,
+      },
+      created_by:  who?.user_id ?? null,
+    })
 
     revalidatePath(`/bookings/${row.booking_id}`)
     revalidatePath('/bookings')
@@ -534,8 +568,10 @@ export async function deleteAdvancePayment(paymentId: string): Promise<ActionRes
     const db = supabase as any
 
     const { data: row } = await db.from('booking_advance_payments')
-      .select('id, booking_id, amount, method').eq('id', paymentId).maybeSingle()
+      .select('id, booking_id, amount, method, paid_at, booking:bookings(booking_number, customer_name)')
+      .eq('id', paymentId).maybeSingle()
     if (!row) return { success: false, error: 'Payment not found' }
+    const bk = Array.isArray(row.booking) ? row.booking[0] : row.booking
 
     const { error } = await db.from('booking_advance_payments').delete().eq('id', paymentId)
     if (error) return { success: false, error: error.message }
@@ -544,6 +580,15 @@ export async function deleteAdvancePayment(paymentId: string): Promise<ActionRes
     await db.from('history_log').insert({
       entity_type: 'booking', entity_id: row.booking_id, event: 'edited', actor: 'system',
       payload: { action: 'advance_payment_removed', amount: Number(row.amount), method: row.method, advance_paid: total },
+    })
+    const who = await getCurrentUserContext()
+    await flagAlert({
+      event_type:  'advance_removed',
+      entity_type: 'booking',
+      entity_id:   row.booking_id,
+      summary:     `Advance instalment removed: ${formatBDT(Number(row.amount))} ${row.method} of ${String(row.paid_at).slice(0, 10)} — ${bk?.customer_name ?? ''} (${bk?.booking_number ?? row.booking_id}); advance now ${formatBDT(total)}`,
+      payload:     { payment_id: paymentId, amount: Number(row.amount), method: row.method, paid_at: row.paid_at, advance_paid: total },
+      created_by:  who?.user_id ?? null,
     })
 
     revalidatePath(`/bookings/${row.booking_id}`)
@@ -901,6 +946,10 @@ export async function updateBooking(
       if (dayErr) return { success: false, error: dayErr }
     }
 
+    // What it was, for the audit entry below.
+    const { data: prior } = await supabase
+      .from('bookings').select('booking_number, total, adults, customer_name').eq('id', bookingId).maybeSingle()
+
     // Update the booking header AFTER the rooms landed, so a failure above
     // leaves the whole booking untouched rather than new totals on old rooms.
     const { error: bookingErr } = await supabase
@@ -936,6 +985,21 @@ export async function updateBooking(
       event:       'edited',
       actor:       'system',
       payload:     { adults: input.adults, children_paid: input.children_paid, rooms: activeRooms.length, new_total: calc.total },
+    })
+    // A confirmed booking changed after submission: what moved, in one line.
+    const who = await getCurrentUserContext()
+    const moved = [
+      prior && Number(prior.total) !== calc.total ? `total ${formatBDT(Number(prior.total))} → ${formatBDT(calc.total)}` : null,
+      prior && Number(prior.adults) !== (header?.adults ?? input.adults) ? `adults ${prior.adults} → ${header?.adults ?? input.adults}` : null,
+      `${activeRooms.length} room row${activeRooms.length === 1 ? '' : 's'}`,
+    ].filter(Boolean).join(', ')
+    await flagAlert({
+      event_type:  'booking_edited',
+      entity_type: 'booking',
+      entity_id:   bookingId,
+      summary:     `Booking edited after submission: ${moved} — ${input.customer_name} (${prior?.booking_number ?? bookingId})`,
+      payload:     { old_total: prior ? Number(prior.total) : null, new_total: calc.total, adults: header?.adults ?? input.adults, rooms: activeRooms.length },
+      created_by:  who?.user_id ?? null,
     })
 
     revalidatePath(`/bookings/${bookingId}`)
@@ -1095,6 +1159,17 @@ export async function confirmDateChange(
         new_total:          calc.total,
       },
     })
+    {
+      const who = await getCurrentUserContext()
+      await flagAlert({
+        event_type:  'booking_edited',
+        entity_type: 'booking',
+        entity_id:   bookingId,
+        summary:     `Dates changed: ${booking.visit_date}${booking.check_out_date ? ` → ${booking.check_out_date}` : ''} became ${input.new_visit_date}${input.new_check_out_date ? ` → ${input.new_check_out_date}` : ''} — ${booking.customer_name ?? ''} (${booking.booking_number ?? bookingId})`,
+        payload:     { action: 'dates_changed', old_visit_date: booking.visit_date, new_visit_date: input.new_visit_date, old_check_out_date: booking.check_out_date, new_check_out_date: input.new_check_out_date, old_total: booking.total, new_total: calc.total },
+        created_by:  who?.user_id ?? null,
+      })
+    }
 
     revalidatePath('/bookings')
     revalidatePath(`/bookings/${bookingId}`)
@@ -1212,6 +1287,14 @@ export async function swapRoomAssignment(
           new_room_numbers: input.new_room_numbers,
         },
       })
+      await flagAlert({
+        event_type:  'booking_edited',
+        entity_type: 'booking',
+        entity_id:   bookingId,
+        summary:     `Rooms reassigned (${roomRow.room_type}): ${(roomRow.room_numbers ?? []).join(', ') || '—'} → ${input.new_room_numbers.join(', ')} — ${booking.customer_name ?? ''} (${booking.booking_number ?? bookingId})`,
+        payload:     { action: 'rooms_swapped', mode: 'reassign', room_type: roomRow.room_type, old: roomRow.room_numbers, new: input.new_room_numbers },
+        created_by:  (await getCurrentUserContext())?.user_id ?? null,
+      })
 
       revalidatePath(`/bookings/${bookingId}`)
       return { success: true }
@@ -1295,6 +1378,23 @@ export async function swapRoomAssignment(
             new_numbers: input.target_new_numbers,
           } },
       ])
+      {
+        const who = await getCurrentUserContext()
+        const line = (mine: string, other: string, from: string[], to: string[]) =>
+          `Rooms swapped with ${other} (${sourceRow.room_type}): ${(from ?? []).join(', ') || '—'} → ${(to ?? []).join(', ')} — ${mine}`
+        await flagAlert({
+          event_type: 'booking_edited', entity_type: 'booking', entity_id: bookingId,
+          summary: line(`${booking.customer_name ?? ''} (${booking.booking_number})`, targetBooking.booking_number, sourceRow.room_numbers, input.source_new_numbers),
+          payload: { action: 'rooms_swapped', mode: 'swap', swapped_with: targetBooking.booking_number },
+          created_by: who?.user_id ?? null,
+        })
+        await flagAlert({
+          event_type: 'booking_edited', entity_type: 'booking', entity_id: input.target_booking_id,
+          summary: line(`${targetBooking.customer_name ?? ''} (${targetBooking.booking_number})`, booking.booking_number, targetRow.room_numbers, input.target_new_numbers),
+          payload: { action: 'rooms_swapped', mode: 'swap', swapped_with: booking.booking_number },
+          created_by: who?.user_id ?? null,
+        })
+      }
 
       revalidatePath(`/bookings/${bookingId}`)
       revalidatePath(`/bookings/${input.target_booking_id}`)
@@ -1448,6 +1548,14 @@ export async function swapRoomAssignment(
           new_total:        calc.total,
         },
       })
+      await flagAlert({
+        event_type:  'booking_edited',
+        entity_type: 'booking',
+        entity_id:   bookingId,
+        summary:     `Room type changed: ${oldRow.room_type} → ${input.to_room_type} (${input.to_charge_mode}) — ${booking.customer_name ?? ''} (${booking.booking_number ?? bookingId})`,
+        payload:     { action: 'rooms_swapped', mode: 'type_change', from: oldRow.room_type, to: input.to_room_type, to_charge_mode: input.to_charge_mode },
+        created_by:  (await getCurrentUserContext())?.user_id ?? null,
+      })
 
       revalidatePath(`/bookings/${bookingId}`)
       return { success: true }
@@ -1485,7 +1593,7 @@ export async function setBookingSalesRep(
     }
 
     const { data: prev } = await db
-      .from('bookings').select('sales_employee_id').eq('id', bookingId).maybeSingle()
+      .from('bookings').select('sales_employee_id, booking_number, customer_name').eq('id', bookingId).maybeSingle()
 
     const { error } = await db
       .from('bookings')
@@ -1505,6 +1613,14 @@ export async function setBookingSalesRep(
         by:     ctx?.user_id ?? null,
       },
     }).catch((e: any) => console.warn(`[history_log] non-fatal: ${e?.message ?? e}`))
+    await flagAlert({
+      event_type:  'booking_edited',
+      entity_type: 'booking',
+      entity_id:   bookingId,
+      summary:     `Sales rep changed — ${prev?.customer_name ?? ''} (${prev?.booking_number ?? bookingId})`,
+      payload:     { action: 'sales_rep_changed', from: prev?.sales_employee_id ?? null, to: employeeId },
+      created_by:  ctx?.user_id ?? null,
+    })
 
     revalidatePath(`/bookings/${bookingId}`)
     revalidatePath('/hr/sales')

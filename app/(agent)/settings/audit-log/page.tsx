@@ -12,6 +12,7 @@ const VALID_FILTERS = [
   'due_overdue',
   'discount_applied', 'guest_reduced', 'checkout_voided',
   'refund_recorded', 'booking_cancelled', 'user_deactivated',
+  'booking_edited', 'advance_corrected', 'advance_removed',
 ] as const
 
 interface PageProps {
