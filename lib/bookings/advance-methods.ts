@@ -24,5 +24,7 @@ export interface AdvancePaymentRow {
   paid_at:    string
   reference:  string | null
   notes:      string | null
+  /** Which account/wallet received it — null on rows older than the accounts. */
+  account_id?: string | null
   created_at: string
 }

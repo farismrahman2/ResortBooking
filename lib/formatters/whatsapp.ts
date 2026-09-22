@@ -20,6 +20,10 @@ export interface ItineraryLine {
   dateLabel:  string           // "Sat 4 Oct"
   kind:       'night' | 'daylong'
   guests:     number
+  /** Adults and children spelled out — a night's bill turns on the adult
+   *  count, so the message never leaves it to be inferred. */
+  adults?:    number
+  children?:  number
   adultsComp: number
   drivers:    number
   rooms:      string[]         // "Super Premium 101", "Deluxe 202, 205"
@@ -238,7 +242,10 @@ export function itineraryLines(lines: ItineraryLine[]): string[] {
     const who = l.kind === 'night' ? '🛏 Overnight' : '☀️ Day guests'
     const comp = l.adultsComp > 0 ? ` (${l.adultsComp} continuing, not charged)` : ''
     const drv  = l.drivers > 0 ? ` · ${l.drivers} driver${l.drivers === 1 ? '' : 's'}` : ''
-    out.push(`  ${who}: ${l.guests} guest${l.guests === 1 ? '' : 's'}${comp}${drv}`)
+    const count = l.adults === undefined
+      ? `${l.guests} guest${l.guests === 1 ? '' : 's'}`
+      : `${l.adults} adult${l.adults === 1 ? '' : 's'}${l.children ? `, ${l.children} child${l.children === 1 ? '' : 'ren'}` : ''}`
+    out.push(`  ${who}: ${count}${comp}${drv}`)
     if (l.rooms.length)     out.push(`    Rooms: ${l.rooms.join(', ')}`)
     if (l.compRooms.length) out.push(`    🎁 Complimentary: ${l.compRooms.join(', ')}`)
     if (l.note)             out.push(`    ${l.note}`)

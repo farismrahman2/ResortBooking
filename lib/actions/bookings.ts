@@ -450,6 +450,81 @@ export async function addAdvancePayment(
   }
 }
 
+/**
+ * Correct a mis-keyed instalment in place — the wrong amount, bKash logged as
+ * a bank transfer, the wrong day. Every field can change; the booking's
+ * advance total re-derives, and the history keeps what it was before.
+ */
+export async function updateAdvancePayment(
+  paymentId: string,
+  input: {
+    amount:     number
+    method:     string
+    paid_at?:   string | null
+    reference?: string | null
+    account_id?: string | null
+  },
+): Promise<ActionData<{ advance_paid: number }>> {
+  await requirePermission('bookings', 'write')
+  try {
+    const amount = Number(input.amount)
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 10_000_000) {
+      return { success: false, error: 'Enter the amount received' }
+    }
+    const METHODS = ['bkash', 'bank_transfer', 'cash', 'nagad', 'rocket', 'card', 'other']
+    if (!METHODS.includes(input.method)) return { success: false, error: 'Pick how it was received' }
+
+    const supabase = createClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = supabase as any
+
+    const { data: row } = await db.from('booking_advance_payments')
+      .select('id, booking_id, amount, method, paid_at, reference, account_id')
+      .eq('id', paymentId).maybeSingle()
+    if (!row) return { success: false, error: 'Payment not found' }
+
+    const paidAt = input.paid_at
+      ? new Date(input.paid_at.length === 16 ? `${input.paid_at}:00+06:00` : input.paid_at).toISOString()
+      : row.paid_at
+
+    // A changed tender lands somewhere else: re-resolve the destination unless
+    // one was named. Same tender keeps its account.
+    const methodChanged = input.method !== row.method
+    const accountId = input.account_id
+      ?? (methodChanged ? await getAdvanceDefaultAccountId(input.method).catch(() => null) : row.account_id)
+    if (requiresAccount(input.method) && !accountId) {
+      const options = await listAccountsForMethod(input.method).catch(() => [])
+      if (options.length > 0) return { success: false, error: missingAccountError(input.method) }
+    }
+
+    const { error } = await db.from('booking_advance_payments').update({
+      amount,
+      method:     input.method,
+      paid_at:    paidAt,
+      reference:  input.reference?.trim() || null,
+      account_id: accountId,
+    }).eq('id', paymentId)
+    if (error) return { success: false, error: error.message }
+
+    const total = await syncAdvanceTotal(db, row.booking_id)
+    await db.from('history_log').insert({
+      entity_type: 'booking', entity_id: row.booking_id, event: 'edited', actor: 'system',
+      payload: {
+        action: 'advance_payment_corrected',
+        before: { amount: Number(row.amount), method: row.method, paid_at: row.paid_at, reference: row.reference, account_id: row.account_id },
+        after:  { amount, method: input.method, paid_at: paidAt, reference: input.reference?.trim() || null, account_id: accountId },
+        advance_paid: total,
+      },
+    })
+
+    revalidatePath(`/bookings/${row.booking_id}`)
+    revalidatePath('/bookings')
+    return { success: true, data: { advance_paid: total } }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
 /** Remove a mis-keyed instalment. The total re-derives from what's left. */
 export async function deleteAdvancePayment(paymentId: string): Promise<ActionResult> {
   await requirePermission('bookings', 'write')

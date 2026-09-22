@@ -2,11 +2,11 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Trash2, AlertCircle, Banknote } from 'lucide-react'
+import { Plus, Trash2, Pencil, AlertCircle, Banknote } from 'lucide-react'
 import { NumberInput } from '@/components/ui/NumberInput'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
-import { addAdvancePayment, deleteAdvancePayment } from '@/lib/actions/bookings'
+import { addAdvancePayment, updateAdvancePayment, deleteAdvancePayment } from '@/lib/actions/bookings'
 import { safeCall } from '@/lib/actions/safe-call'
 import { toast } from '@/lib/toast'
 import { formatBDT } from '@/lib/formatters/currency'
@@ -19,14 +19,15 @@ import {
 } from '@/lib/payments/account-rules'
 
 /** 'YYYY-MM-DDTHH:mm' in Dhaka time — what a datetime-local input expects. */
-function nowDhakaLocal(): string {
+function dhakaLocal(at: Date): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Dhaka', year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', hour12: false,
-  }).formatToParts(new Date())
+  }).formatToParts(at)
   const g = (t: string) => parts.find((p) => p.type === t)?.value ?? '00'
   return `${g('year')}-${g('month')}-${g('day')}T${g('hour')}:${g('minute')}`
 }
+const nowDhakaLocal = () => dhakaLocal(new Date())
 
 function fmtWhen(iso: string): string {
   return new Date(iso).toLocaleString('en-GB', {
@@ -60,6 +61,8 @@ export function AdvancePaymentsPanel({
   const [pending, start] = useTransition()
   const [open, setOpen]  = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** The instalment being corrected, or null when logging a new one. */
+  const [editing, setEditing] = useState<AdvancePaymentRow | null>(null)
 
   const [amount, setAmount] = useState(0)
   const [method, setMethod] = useState<AdvanceMethod>('bkash')
@@ -80,18 +83,41 @@ export function AdvancePaymentsPanel({
   const total = payments.reduce((s, p) => s + p.amount, 0)
   const due   = Math.max(0, advanceRequired - total)
 
+  function reset() {
+    setAmount(0); setReference(''); setAccountId(''); setPaidAt(nowDhakaLocal())
+    setEditing(null); setOpen(false); setError(null)
+  }
+
+  /** Open the form on an existing instalment — a wrong amount, a bKash logged
+   *  as a bank transfer, the wrong day — with its values filled in. */
+  function startEdit(p: AdvancePaymentRow) {
+    setEditing(p)
+    setAmount(p.amount)
+    setMethod(p.method)
+    setPaidAt(dhakaLocal(new Date(p.paid_at)))
+    setReference(p.reference ?? '')
+    setAccountId(p.account_id ?? '')
+    setError(null)
+    setOpen(true)
+  }
+
   function submit() {
     if (amount <= 0) { setError('Enter the amount received'); return }
     if (blocked) { setError(missingAccountError(method)); return }
     setError(null)
     start(async () => {
-      const r = await safeCall(() => addAdvancePayment(bookingId, {
+      const payload = {
         amount, method, paid_at: paidAt, reference: reference || null,
         account_id: effectiveAccountId || null,
-      }))
+      }
+      const r = await safeCall(() => editing
+        ? updateAdvancePayment(editing.id, payload)
+        : addAdvancePayment(bookingId, payload))
       if (!r.success) { setError(r.error); return }
-      toast.success(`${formatBDT(amount)} logged — ${ADVANCE_METHOD_LABEL[method]}`)
-      setAmount(0); setReference(''); setAccountId(''); setPaidAt(nowDhakaLocal()); setOpen(false)
+      toast.success(editing
+        ? `Instalment corrected — ${formatBDT(amount)} ${ADVANCE_METHOD_LABEL[method]}`
+        : `${formatBDT(amount)} logged — ${ADVANCE_METHOD_LABEL[method]}`)
+      reset()
       router.refresh()
     })
   }
@@ -136,13 +162,22 @@ export function AdvancePaymentsPanel({
                 </span>
               </span>
               {!disabled && (
-                <button
-                  type="button" onClick={() => remove(p.id)} disabled={pending}
-                  aria-label="Remove instalment"
-                  className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-red-500 disabled:opacity-40"
-                >
-                  <Trash2 size={13} />
-                </button>
+                <>
+                  <button
+                    type="button" onClick={() => startEdit(p)} disabled={pending}
+                    aria-label="Correct instalment" title="Correct amount, method or date"
+                    className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-gray-500 hover:text-forest-700 disabled:opacity-40"
+                  >
+                    <Pencil size={13} />
+                  </button>
+                  <button
+                    type="button" onClick={() => remove(p.id)} disabled={pending}
+                    aria-label="Remove instalment"
+                    className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-red-500 disabled:opacity-40"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </>
               )}
             </li>
           ))}
@@ -163,6 +198,12 @@ export function AdvancePaymentsPanel({
 
       {!disabled && (open ? (
         <div className="space-y-2 rounded-lg border border-forest-200 bg-forest-50/40 p-3">
+          {editing && (
+            <p className="text-xs font-medium text-forest-800">
+              Correcting the {formatBDT(editing.amount)} {ADVANCE_METHOD_LABEL[editing.method] ?? editing.method} instalment
+              of {fmtWhen(editing.paid_at)} — the previous values stay in the booking history.
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-2">
             <NumberInput label="Amount received" prefix="৳" value={amount} onChange={setAmount} />
             <div>
@@ -225,12 +266,12 @@ export function AdvancePaymentsPanel({
           ))}
           <div className="flex gap-2">
             <Button type="button" variant="outline" size="md" className="flex-1"
-              onClick={() => { setOpen(false); setError(null) }}>
+              onClick={reset}>
               Cancel
             </Button>
             <Button type="button" variant="primary" size="md" className="flex-1"
               loading={pending} disabled={blocked} onClick={submit}>
-              Log payment
+              {editing ? 'Save correction' : 'Log payment'}
             </Button>
           </div>
         </div>

@@ -36,15 +36,19 @@ export function describeRoomCount(
     : `${name} ×${r.qty} (${evening} from ${handoverLabel})`
 }
 
+/** The lines the guest reads — the WhatsApp message. Room types by count,
+ *  never by number; the desk assigns numbers and they stay off guest text. */
 export function itineraryLinesFor(segments: GroupSegment[], handoverLabel = '6 PM'): ItineraryLine[] {
   return sortSegments(segments).map((s) => ({
     dateLabel:  shortDayLabel(s.day_date),
     kind:       s.stay_kind,
     guests:     s.adults + s.children_paid + s.children_free,
+    adults:     s.adults,
+    children:   s.children_paid + s.children_free,
     adultsComp: s.adults_comp,
     drivers:    s.drivers,
-    rooms:      s.rooms.filter((r) => r.unit_price > 0).map((r) => describeRoom(r, handoverLabel)),
-    compRooms:  s.rooms.filter((r) => r.unit_price === 0).map((r) => describeRoom(r, handoverLabel)),
+    rooms:      s.rooms.filter((r) => r.unit_price > 0).map((r) => describeRoomCount(r, handoverLabel)),
+    compRooms:  s.rooms.filter((r) => r.unit_price === 0).map((r) => describeRoomCount(r, handoverLabel)),
     note:       s.notes ?? null,
   }))
 }
