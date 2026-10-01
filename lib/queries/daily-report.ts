@@ -173,6 +173,8 @@ export interface FreeRooms {
   /** Rooms a night guest takes over this evening and nobody has by day —
    *  sellable for a day visit until the handover. */
   free_until_6pm: string[]
+  /** Rooms off sale today (room blocks) — never free. */
+  blocked?: string[]
 }
 
 /**
@@ -185,8 +187,9 @@ export interface FreeRooms {
  * checkouts. The presentation layer chooses to hide those checkouts from the
  * main listing (they leave by noon) but they still inform "free after 12".
  */
-export function computeFreeRooms(rows: DailyReportRow[]): FreeRooms {
-  const allRoomNumbers: string[] = Object.values(ROOM_NUMBERS).flatMap((arr) => arr ?? [])
+export function computeFreeRooms(rows: DailyReportRow[], blockedToday: string[] = []): FreeRooms {
+  const blockedSet = new Set(blockedToday)
+  const allRoomNumbers: string[] = Object.values(ROOM_NUMBERS).flatMap((arr) => arr ?? []).filter((n) => !blockedSet.has(n))
 
   const occupiedAllDay     = new Set<string>()   // staying / arriving / daylong — visibly in-house today
   const nightCheckoutRooms = new Set<string>()   // night stays whose check_out_date is today
@@ -228,5 +231,6 @@ export function computeFreeRooms(rows: DailyReportRow[]): FreeRooms {
     free_after_12pm: free_after_12pm.sort(cmp),
     free_after_6pm:  free_after_6pm.sort(cmp),
     free_until_6pm:  free_until_6pm.sort(cmp),
+    blocked:         [...blockedSet].sort(cmp),
   }
 }

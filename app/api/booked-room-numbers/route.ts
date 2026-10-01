@@ -27,6 +27,8 @@ export async function GET(req: NextRequest) {
       noonRoomNumbers:         b.noon,
       eveningOnlyRoomNumbers:  b.eveningOnly,
       untilEveningRoomNumbers: b.untilEvening,
+      /** Room number → why it is blocked, for the picker's tooltip. */
+      blockedRoomReasons:      b.blocked ?? {},
     })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })

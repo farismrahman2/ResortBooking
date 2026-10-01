@@ -23,6 +23,8 @@ interface RoomSelectorProps {
   untilEveningRoomNumbers?: string[]
   /** "6:00 PM" — the resort's evening handover time, for labels. */
   handoverLabel?: string
+  /** Blocked room numbers → why, shown on the greyed-out chip. */
+  blockedReasons?: Record<string, string>
 }
 
 /**
@@ -44,6 +46,7 @@ export function RoomSelector({
   eveningOnlyRoomNumbers = [],
   untilEveningRoomNumbers = [],
   handoverLabel = '6:00 PM',
+  blockedReasons = {},
 }: RoomSelectorProps) {
   const isNight = packageType === 'night'
   const visibleRooms = rooms.filter((room) => !(isNight && room.room_type === 'tree_house'))
@@ -249,7 +252,8 @@ export function RoomSelector({
                     const isEveningOnly = !isTaken && eveningOnlyRoomNumbers.includes(num)
                     const isUntilEve    = !isTaken && untilEveningRoomNumbers.includes(num)
                     const isEvening     = isPicked && eveningNums.includes(num)
-                    const title = isTaken ? `Room ${num} is already booked`
+                    const title = isTaken && blockedReasons[num] ? `Room ${num} is blocked: ${blockedReasons[num]}`
+                      : isTaken ? `Room ${num} is already booked`
                       : isEveningOnly ? `Room ${num} is with day guests until ${handoverLabel} — available for the night from then`
                       : isNoon ? `Room ${num} is available after 12:00 PM (previous guest checking out)`
                       : isUntilEve ? `Room ${num} is free until ${handoverLabel} (a night guest arrives then)`

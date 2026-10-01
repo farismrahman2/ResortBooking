@@ -65,6 +65,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
   const [noonRoomNumbers,      setNoonRoomNumbers]      = useState<string[]>([])
   const [eveningOnlyRoomNumbers,  setEveningOnlyRoomNumbers]  = useState<string[]>([])
   const [untilEveningRoomNumbers, setUntilEveningRoomNumbers] = useState<string[]>([])
+  const [blockedReasons, setBlockedReasons] = useState<Record<string, string>>({})
   // Staff pickers show when the room really frees up; the WhatsApp draft
   // below shows the later time the guest is given.
   const handoverLabel      = internalHandoverLabel(settings)
@@ -350,6 +351,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
         setNoonRoomNumbers(d.noonRoomNumbers ?? [])
         setEveningOnlyRoomNumbers(d.eveningOnlyRoomNumbers ?? [])
         setUntilEveningRoomNumbers(d.untilEveningRoomNumbers ?? [])
+        setBlockedReasons(d.blockedRoomReasons ?? {})
       })
       .catch(() => { setBookedRoomNumbers([]); setNoonRoomNumbers([]); setEveningOnlyRoomNumbers([]); setUntilEveningRoomNumbers([]) })
   }, [visitDate, checkOutDate, quoteId])
@@ -680,6 +682,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
                 noonRoomNumbers={noonRoomNumbers}
                 eveningOnlyRoomNumbers={eveningOnlyRoomNumbers}
                 untilEveningRoomNumbers={untilEveningRoomNumbers}
+                blockedReasons={blockedReasons}
                 handoverLabel={handoverLabel}
               />
             )}

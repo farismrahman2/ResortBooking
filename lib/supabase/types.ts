@@ -690,6 +690,8 @@ export type AdminAlertEvent =
   /** A confirmed booking (or confirmed quote) was changed after submission — details,
    *  rooms, dates, advance total, sales rep. */
   | 'booking_edited'
+  /** Rooms taken off sale, a block's dates or rooms changed, or a block released. */
+  | 'room_block_created' | 'room_block_changed' | 'room_block_released'
 
 export interface AdminAlertRow {
   id: string
@@ -829,6 +831,9 @@ export interface AvailabilityResult {
   available_both?: number
   available_after_evening?: number
   available_until_evening?: number
+  /** Units taken off sale by a room block, and why. */
+  blocked?:      number
+  block_reason?: string | null
   daylong_only: boolean
 }
 

@@ -6,6 +6,8 @@ import {
   type StayLike, type OccupancyRecord, type RequestedRoom,
 } from '@/lib/engine/halves'
 import { distinctDates, type GroupSegment } from '@/lib/bookings/group-itinerary'
+import { blockStays, findBlockConflicts, type RoomBlock, type BlockConflict } from '@/lib/engine/blocks'
+import { listBlocksOverlapping } from '@/lib/queries/room-blocks'
 import type { AvailabilityResult, RoomInventoryRow, RoomType } from '@/lib/supabase/types'
 
 export type { RequestedRoom } from '@/lib/engine/halves'
@@ -21,14 +23,21 @@ export type { RequestedRoom } from '@/lib/engine/halves'
  * sold; a daylong occupies the day only, so its night still can. One model,
  * one fetch shape, no special cases downstream.
  *
- * Sources: booking_rooms, confirmed-but-unconverted quote_rooms, and group
- * itinerary segments (each one night or one day). Cancelled and no-show
+ * Sources: booking_rooms, confirmed-but-unconverted quote_rooms, group
+ * itinerary segments (each one night or one day), and room blocks (a whole
+ * day per blocked date — see lib/engine/blocks.ts). Cancelled and no-show
  * bookings occupy nothing — the room is back on the market.
  */
 
 // ─── Fetching stays ──────────────────────────────────────────────────────────
 
-interface FetchOpts { excludeBookingId?: string; excludeQuoteId?: string }
+interface FetchOpts {
+  excludeBookingId?: string
+  excludeQuoteId?:   string
+  /** Room blocks count as occupancy unless a block itself is being checked. */
+  includeBlocks?:    boolean
+  excludeBlockId?:   string
+}
 
 /**
  * Every stay overlapping [rangeStart, rangeEnd), as StayLike records.
@@ -44,7 +53,7 @@ async function fetchStays(rangeStart: string, rangeEnd: string, opts: FetchOpts 
 
   let bookingQ = db
     .from('booking_rooms')
-    .select('room_type, qty, room_numbers, evening_rooms, bookings!inner(id, package_type, visit_date, check_out_date, status)')
+    .select('room_type, qty, room_numbers, evening_rooms, bookings!inner(id, booking_number, package_type, visit_date, check_out_date, status)')
     .lt('bookings.visit_date', rangeEnd)
     .or(overlapOr, { foreignTable: 'bookings' })
     .neq('bookings.status', 'cancelled')
@@ -52,7 +61,7 @@ async function fetchStays(rangeStart: string, rangeEnd: string, opts: FetchOpts 
 
   let quoteQ = db
     .from('quote_rooms')
-    .select('room_type, qty, room_numbers, evening_rooms, quotes!inner(id, package_type, visit_date, check_out_date, status, converted_to_booking_id)')
+    .select('room_type, qty, room_numbers, evening_rooms, quotes!inner(id, quote_number, package_type, visit_date, check_out_date, status, converted_to_booking_id)')
     .lt('quotes.visit_date', rangeEnd)
     .or(overlapOr, { foreignTable: 'quotes' })
     .eq('quotes.status', 'confirmed')
@@ -62,20 +71,25 @@ async function fetchStays(rangeStart: string, rangeEnd: string, opts: FetchOpts 
   // Group itineraries keep their rooms one row per date.
   let dayQ = db
     .from('booking_day_rooms')
-    .select('room_type, qty, room_numbers, evening_rooms, booking_days!inner(day_date, stay_kind, booking_id, bookings!inner(status))')
+    .select('room_type, qty, room_numbers, evening_rooms, booking_days!inner(day_date, stay_kind, booking_id, bookings!inner(status, booking_number))')
     .gte('booking_days.day_date', addDaysIso(rangeStart, -1))   // a night segment the day before still covers the night
     .lt('booking_days.day_date', rangeEnd)
   if (opts.excludeBookingId) dayQ = dayQ.neq('booking_days.booking_id', opts.excludeBookingId)
 
   let quoteDayQ = db
     .from('quote_day_rooms')
-    .select('room_type, qty, room_numbers, evening_rooms, quote_days!inner(day_date, stay_kind, quote_id, quotes!inner(status, converted_to_booking_id))')
+    .select('room_type, qty, room_numbers, evening_rooms, quote_days!inner(day_date, stay_kind, quote_id, quotes!inner(status, converted_to_booking_id, quote_number))')
     .gte('quote_days.day_date', addDaysIso(rangeStart, -1))
     .lt('quote_days.day_date', rangeEnd)
   if (opts.excludeQuoteId) quoteDayQ = quoteDayQ.neq('quote_days.quote_id', opts.excludeQuoteId)
 
-  const [{ data: br }, { data: qr }, { data: bdr }, { data: qdr }] =
-    await Promise.all([bookingQ, quoteQ, dayQ, quoteDayQ])
+  const wantBlocks = opts.includeBlocks !== false
+  const [{ data: br }, { data: qr }, { data: bdr }, { data: qdr }, blocks, invRows] =
+    await Promise.all([
+      bookingQ, quoteQ, dayQ, quoteDayQ,
+      wantBlocks ? listBlocksOverlapping(rangeStart, rangeEnd, opts.excludeBlockId) : Promise.resolve([]),
+      wantBlocks ? db.from('room_inventory').select('room_type, total_units').then((r: { data: unknown }) => r.data ?? []) : Promise.resolve([]),
+    ])
 
   const stays: StayLike[] = []
   const room = (r: any) => ({   // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -91,35 +105,79 @@ async function fetchStays(rangeStart: string, rangeEnd: string, opts: FetchOpts 
     const b = r.bookings
     if (!b || b.status === 'cancelled' || b.status === 'no_show') continue
     const kind = kindOf(b.package_type); if (!kind) continue
-    stays.push({ package_type: kind, visit_date: b.visit_date, check_out_date: b.check_out_date, rooms: [room(r)] })
+    stays.push({ package_type: kind, visit_date: b.visit_date, check_out_date: b.check_out_date, rooms: [room(r)], ref: b.booking_number })
   }
   for (const r of (qr ?? []) as any[]) {   // eslint-disable-line @typescript-eslint/no-explicit-any
     const q = r.quotes
     if (!q || q.status !== 'confirmed' || q.converted_to_booking_id) continue
     const kind = kindOf(q.package_type); if (!kind) continue
-    stays.push({ package_type: kind, visit_date: q.visit_date, check_out_date: q.check_out_date, rooms: [room(r)] })
+    stays.push({ package_type: kind, visit_date: q.visit_date, check_out_date: q.check_out_date, rooms: [room(r)], ref: `quote ${q.quote_number}` })
   }
-  const segment = (d: any, r: any): StayLike | null => {   // eslint-disable-line @typescript-eslint/no-explicit-any
+  const segment = (d: any, r: any, ref?: string): StayLike | null => {   // eslint-disable-line @typescript-eslint/no-explicit-any
     if (!d) return null
     return d.stay_kind === 'night'
-      ? { package_type: 'night',   visit_date: d.day_date, check_out_date: addDaysIso(d.day_date, 1), rooms: [room(r)] }
-      : { package_type: 'daylong', visit_date: d.day_date, check_out_date: null, rooms: [room(r)] }
+      ? { package_type: 'night',   visit_date: d.day_date, check_out_date: addDaysIso(d.day_date, 1), rooms: [room(r)], ref }
+      : { package_type: 'daylong', visit_date: d.day_date, check_out_date: null, rooms: [room(r)], ref }
   }
   for (const r of (bdr ?? []) as any[]) {   // eslint-disable-line @typescript-eslint/no-explicit-any
     const b = r.booking_days?.bookings
     if (!b || b.status === 'cancelled' || b.status === 'no_show') continue
-    const s = segment(r.booking_days, r); if (s) stays.push(s)
+    const s = segment(r.booking_days, r, b.booking_number); if (s) stays.push(s)
   }
   for (const r of (qdr ?? []) as any[]) {   // eslint-disable-line @typescript-eslint/no-explicit-any
     const q = r.quote_days?.quotes
     if (!q || q.status !== 'confirmed' || q.converted_to_booking_id) continue
-    const s = segment(r.quote_days, r); if (s) stays.push(s)
+    const s = segment(r.quote_days, r, q.quote_number ? `quote ${q.quote_number}` : undefined); if (s) stays.push(s)
   }
+  stays.push(...blockStays(blocks as RoomBlock[], rangeStart, rangeEnd, invRows as Array<{ room_type: string; total_units: number }>))
   return stays
+}
+
+/**
+ * Bookings and confirmed quotes a block would collide with. A block is
+ * refused while any exist (lib/actions/room-blocks.ts). An open-ended block
+ * is checked against everything already on the books.
+ */
+export async function findBlockBookingConflicts(block: RoomBlock): Promise<BlockConflict[]> {
+  const end = block.end_date ? addDaysIso(block.end_date, 1) : '2999-12-31'
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = createClient() as any
+  const [stays, { data: inv }] = await Promise.all([
+    fetchStays(block.start_date, end, { includeBlocks: false }),
+    db.from('room_inventory').select('room_type, total_units'),
+  ])
+  return findBlockConflicts(block, stays, (inv ?? []) as Array<{ room_type: string; total_units: number }>)
+}
+
+/** "Room 113 is blocked on 2026-10-05 (Not yet open)" — said before the
+ *  engine's generic "already taken", so the agent knows why. */
+function blockMessage(stays: StayLike[], dates: string[], requested: RequestedRoom[]): string | null {
+  for (const date of dates) {
+    for (const s of stays) {
+      if (!s.block || s.visit_date !== date) continue
+      const held = new Set(s.rooms.flatMap((r) => r.room_numbers))
+      const heldTypes = new Set(s.rooms.filter((r) => r.room_numbers.length === 0).map((r) => r.room_type))
+      for (const req of requested) {
+        const nums = (req.room_numbers ?? []).length ? req.room_numbers! : (COMPOSITE_ROOMS[req.room_type as RoomType]?.room_numbers ?? [])
+        const n = nums.find((x) => held.has(x))
+        if (n) return `Room ${n} is blocked on ${date} (${s.block.reason})`
+        if (heldTypes.has(req.room_type)) return `${req.room_type.replace(/_/g, ' ')} is blocked on ${date} (${s.block.reason})`
+      }
+    }
+  }
+  return null
 }
 
 function occupancyFor(stays: StayLike[], date: string): OccupancyRecord[] {
   return stays.flatMap((s) => occupancyOnDate(s, date))
+}
+
+function blockOccOn(stays: StayLike[], date: string): { records: OccupancyRecord[]; reason: string | null } {
+  const blockStaysOn = stays.filter((s) => s.block && s.visit_date === date)
+  return {
+    records: blockStaysOn.flatMap((s) => occupancyOnDate(s, date)),
+    reason:  [...new Set(blockStaysOn.map((s) => s.block!.reason))].join('; ') || null,
+  }
 }
 
 async function inventoryTotals(): Promise<Map<string, number>> {
@@ -159,6 +217,8 @@ export async function checkAvailabilityConflict(
     fetchStays(visitDate, checkOutDate ?? addDaysIso(visitDate, 1), { excludeBookingId, excludeQuoteId }),
   ])
   const kind = checkOutDate ? 'night' : 'daylong'
+  const blocked = blockMessage(stays, dates, requestedRooms)
+  if (blocked) return blocked
   for (const date of dates) {
     const conflict = findHalvesConflict(inventory, occupancyFor(stays, date), requestedRooms, kind, date === visitDate, date)
     if (conflict) return conflict
@@ -172,8 +232,11 @@ function toResults(
   inventory: RoomInventoryRow[],
   occupancy: OccupancyRecord[],
   packageType?: 'daylong' | 'night',
+  /** The part of `occupancy` that is room blocks, with why. */
+  blockOcc: { records: OccupancyRecord[]; reason: string | null } = { records: [], reason: null },
 ): AvailabilityResult[] {
   const halves = new Map(availabilityByHalves(inventory, occupancy).map((h) => [h.room_type, h]))
+  const blockedBy = new Map(availabilityByHalves(inventory, blockOcc.records).map((h) => [h.room_type, h.booked_any]))
   return [...inventory]
     .sort((a, b) => a.display_order - b.display_order)
     // Daylong-only rooms aren't for night stays.
@@ -202,6 +265,8 @@ function toResults(
         available_both:  h.available_both,
         available_after_evening: Math.max(0, h.available_night - h.available_both),
         available_until_evening: Math.max(0, h.available_day - h.available_both),
+        blocked:         blockedBy.get(r.room_type) ?? 0,
+        block_reason:    (blockedBy.get(r.room_type) ?? 0) > 0 ? blockOcc.reason : null,
         daylong_only:    r.daylong_only,
       }
     })
@@ -214,7 +279,7 @@ export async function getRoomAvailability(
   packageType?: 'daylong' | 'night',
 ): Promise<AvailabilityResult[]> {
   const stays = await fetchStays(date, addDaysIso(date, 1))
-  return toResults(inventory, occupancyFor(stays, date), packageType)
+  return toResults(inventory, occupancyFor(stays, date), packageType, blockOccOn(stays, date))
 }
 
 /**
@@ -232,7 +297,7 @@ export async function getAvailabilityRange(
   const stays = await fetchStays(from, addDaysIso(to, 1))
   const out = new Map<string, AvailabilityResult[]>()
   for (let d = from; d <= to; d = addDaysIso(d, 1)) {
-    out.set(d, toResults(inventory, occupancyFor(stays, d), packageType))
+    out.set(d, toResults(inventory, occupancyFor(stays, d), packageType, blockOccOn(stays, d)))
   }
   return out
 }
@@ -275,6 +340,8 @@ export interface RoomNumberBuckets {
   /** Daylong only: a night guest arrives this evening — fine for a day
    *  visit; say so. */
   untilEvening: string[]
+  /** Blocked room numbers among `taken`, with why. */
+  blocked?:     Record<string, string>
 }
 
 /**
@@ -301,10 +368,11 @@ export async function getRoomNumberBuckets(
     const takenSet = new Set(b.taken)
     const noon = new Set<string>()
     for (const s of stays) {
-      if (s.package_type !== 'night' || s.check_out_date !== visitDate) continue
+      // A block ending yesterday frees its room at midnight, not at noon.
+      if (s.block || s.package_type !== 'night' || s.check_out_date !== visitDate) continue
       for (const r of s.rooms) for (const n of r.room_numbers) if (!takenSet.has(n)) noon.add(n)
     }
-    return { taken: b.taken, noon: [...noon], eveningOnly: [], untilEvening: b.untilEvening }
+    return { taken: b.taken, noon: [...noon], eveningOnly: [], untilEvening: b.untilEvening, blocked: blockedFrom(stays, [visitDate]) }
   }
 
   const taken = new Set<string>()
@@ -320,7 +388,17 @@ export async function getRoomNumberBuckets(
     noon:         [],
     eveningOnly:  eveningOnly.filter((n) => !taken.has(n)),
     untilEvening: [],
+    blocked:      blockedFrom(stays, dates),
   }
+}
+
+function blockedFrom(stays: StayLike[], dates: string[]): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const s of stays) {
+    if (!s.block || !dates.includes(s.visit_date)) continue
+    for (const r of s.rooms) for (const n of r.room_numbers) out[n] ??= s.block.reason
+  }
+  return out
 }
 
 /** Flat "cannot pick" list — kept for callers that only need that. */

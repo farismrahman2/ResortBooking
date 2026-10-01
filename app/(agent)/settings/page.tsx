@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Users, ShieldCheck, ListChecks, Settings as SettingsIcon, Calendar, ArrowRight, Copy, Bell, Building2, Phone, Download, Sparkles } from 'lucide-react'
+import { Users, ShieldCheck, ListChecks, Settings as SettingsIcon, Calendar, ArrowRight, Copy, Bell, Building2, Phone, Download, Sparkles, Ban } from 'lucide-react'
 import { getSettings, getHolidayDates } from '@/lib/queries/settings'
 import { getUnreadAlertCount } from '@/lib/auth/alerts'
 import { Topbar } from '@/components/layout/Topbar'
@@ -29,6 +29,14 @@ export default async function SettingsPage() {
       <div className="p-4 sm:p-6 space-y-6">
         {/* Hub tiles */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {isAdmin && (
+            <HubTile
+              href="/settings/room-blocks"
+              icon={<Ban size={18} />}
+              title="Room blocks"
+              description="Take rooms off sale — by room, by type or the whole property"
+            />
+          )}
           <HubTile
             href="/settings/users"
             icon={<Users size={18} />}

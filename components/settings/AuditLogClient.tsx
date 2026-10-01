@@ -29,6 +29,7 @@ const FILTERS: Array<{ value: 'unread' | 'all' | AdminAlertEvent; label: string 
   { value: 'booking_cancelled',  label: 'Cancellations' },
   { value: 'booking_edited',     label: 'Edits after submission' },
   { value: 'advance_corrected',  label: 'Advance corrections' },
+  { value: 'room_block_created', label: 'Room blocks' },
   { value: 'user_deactivated',   label: 'Deactivations' },
 ]
 
@@ -44,6 +45,9 @@ const EVENT_BADGE: Record<AdminAlertEvent, string> = {
   advance_corrected: 'bg-violet-50 text-violet-800 border-violet-200',
   advance_removed:   'bg-violet-50 text-violet-800 border-violet-200',
   booking_edited:    'bg-sky-50 text-sky-800 border-sky-200',
+  room_block_created:  'bg-slate-100 text-slate-800 border-slate-300',
+  room_block_changed:  'bg-slate-100 text-slate-800 border-slate-300',
+  room_block_released: 'bg-green-50 text-green-800 border-green-200',
 }
 
 const EVENT_LABELS: Record<AdminAlertEvent, string> = {
@@ -58,6 +62,9 @@ const EVENT_LABELS: Record<AdminAlertEvent, string> = {
   advance_corrected: 'Advance Corrected',
   advance_removed:   'Advance Removed',
   booking_edited:    'Edited After Submission',
+  room_block_created:  'Rooms Blocked',
+  room_block_changed:  'Room Block Changed',
+  room_block_released: 'Rooms Released',
 }
 
 export function AuditLogClient({ alerts, filter }: Props) {
@@ -92,6 +99,7 @@ export function AuditLogClient({ alerts, filter }: Props) {
     if (a.event_type === 'due_overdue') return `/checkout/${a.entity_id}`
     if (a.entity_type === 'booking') return `/bookings/${a.entity_id}`
     if (a.entity_type === 'quote')   return `/quotes/${a.entity_id}`
+    if (a.entity_type === 'room_block') return `/settings/room-blocks`
     return null
   }
 

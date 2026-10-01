@@ -250,6 +250,9 @@ function renderFreeRooms(free: FreeRooms, lang: Lang, t: typeof DICT['en']) {
   if ((free.free_until_6pm ?? []).length > 0) {
     lines.push(`${t.until_6pm} ${free.free_until_6pm.map((n) => fmtNum(n, lang)).join(', ')}`)
   }
+  if ((free.blocked ?? []).length > 0) {
+    lines.push(`${t.blocked}: ${free.blocked!.map((n) => fmtNum(n, lang)).join(', ')}`)
+  }
   if (lines.length === 0) return '—'
   return (
     <div className="leading-relaxed">

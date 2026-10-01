@@ -13,6 +13,7 @@ const VALID_FILTERS = [
   'discount_applied', 'guest_reduced', 'checkout_voided',
   'refund_recorded', 'booking_cancelled', 'user_deactivated',
   'booking_edited', 'advance_corrected', 'advance_removed',
+  'room_block_created', 'room_block_changed', 'room_block_released',
 ] as const
 
 interface PageProps {

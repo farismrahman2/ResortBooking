@@ -1,3 +1,6 @@
+import { listBlocksOverlapping } from '@/lib/queries/room-blocks'
+import { blockedUnitsOn } from '@/lib/engine/blocks'
+import { addDaysIso } from '@/lib/dates'
 import { createServiceClient } from '@/lib/supabase/server'
 import { selectWithOptionalEmbed } from '@/lib/supabase/optional-embed'
 import { unstable_cache } from 'next/cache'
@@ -15,19 +18,19 @@ export const getOccupancyByDay = (period: PeriodRange) => unstable_cache(
     const toIso   = toIsoDate(period.to)
     const { data, error } = await db().rpc('reports_daily_occupancy', { p_from: fromIso, p_to: toIso })
     if (!error && data && data.length > 0) {
-      return (data as OccupancyDay[]).map((r) => ({
+      return againstSellable((data as OccupancyDay[]).map((r) => ({
         date: r.date,
         rooms_occupied: Number(r.rooms_occupied ?? 0),
         total_rooms: Number(r.total_rooms ?? 0),
         occupancy_pct: r.occupancy_pct === null ? null : Number(r.occupancy_pct),
-      }))
+      })), fromIso, toIso)
     }
     // RPC missing / errored / empty — log it AND compute in JS so the report
     // doesn't go silently dark. The reports_daily_occupancy migration in
     // reports-module/000 needs to be applied for the fast path to work, but
     // the fallback keeps the page useful in the meantime.
     if (error) console.error('[reports.occupancy] RPC failed, falling back:', error.message)
-    return await fallbackOccupancy(fromIso, toIso)
+    return againstSellable(await fallbackOccupancy(fromIso, toIso), fromIso, toIso)
   },
   ['reports-occupancy', toIsoDate(period.from), toIsoDate(period.to)],
   { revalidate: 60, tags: ['reports'] },
@@ -150,3 +153,27 @@ export const getPickupPace = unstable_cache(
   ['reports-pickup-pace'],
   { revalidate: 60, tags: ['reports'] },
 )
+
+/**
+ * A blocked room is unavailable, not empty: occupancy is measured against the
+ * rooms that could actually be sold that day. Otherwise a building blocked
+ * before it opens drags every month's figure down.
+ */
+async function againstSellable(days: OccupancyDay[], fromIso: string, toIso: string): Promise<OccupancyDay[]> {
+  const [blocks, { data: inv }] = await Promise.all([
+    listBlocksOverlapping(fromIso, addDaysIso(toIso, 1)),
+    db().from('room_inventory').select('room_type, total_units'),
+  ])
+  if (blocks.length === 0) return days
+  const inventory = (inv ?? []) as Array<{ room_type: string; total_units: number }>
+  return days.map((d) => {
+    const blocked = blockedUnitsOn(blocks, d.date, inventory)
+    if (blocked === 0) return d
+    const sellable = Math.max(0, d.total_rooms - blocked)
+    return {
+      ...d,
+      total_rooms: sellable,
+      occupancy_pct: sellable === 0 ? null : Math.round((d.rooms_occupied / sellable) * 10000) / 100,
+    }
+  })
+}

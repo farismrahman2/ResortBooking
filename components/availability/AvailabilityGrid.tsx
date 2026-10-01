@@ -68,6 +68,11 @@ export function AvailabilityGrid({ rooms, handoverLabel = '6:00 PM' }: Availabil
               )}
               {/* A room with day guests counts as booked above. It is still
                   sellable for the night — say so underneath, not in the number. */}
+              {(room.blocked ?? 0) > 0 && (
+                <p className="mt-1 text-[11px] font-medium text-gray-500" title={room.block_reason ?? undefined}>
+                  {room.blocked} blocked{room.block_reason ? ` · ${room.block_reason}` : ''}
+                </p>
+              )}
               {(room.available_after_evening ?? 0) > 0 && (
                 <p className="mt-0.5 text-xs text-orange-700">
                   After {handoverLabel}: {room.available_after_evening} available

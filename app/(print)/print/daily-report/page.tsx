@@ -2,6 +2,10 @@ import { requirePermission } from '@/lib/auth/permissions'
 import { getDailyReport, computeFreeRooms } from '@/lib/queries/daily-report'
 import { DailyReportPrint } from '@/components/print/DailyReportPrint'
 import type { Lang } from '@/lib/i18n/daily-report'
+import { listBlocksOverlapping } from '@/lib/queries/room-blocks'
+import { blockedNumbersOn } from '@/lib/engine/blocks'
+import { getRoomInventory } from '@/lib/queries/settings'
+import { addDaysIso } from '@/lib/dates'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,8 +23,10 @@ export default async function DailyReportPrintPage({ searchParams }: PageProps) 
 
   const lang: Lang = searchParams.lang === 'bn' ? 'bn' : 'en'
 
-  const rows  = await getDailyReport(date)
-  const free  = computeFreeRooms(rows)
+  const [rows, blocks, inventory] = await Promise.all([
+    getDailyReport(date), listBlocksOverlapping(date, addDaysIso(date, 1)), getRoomInventory(),
+  ])
+  const free  = computeFreeRooms(rows, Object.keys(blockedNumbersOn(blocks, [date], inventory)))
 
   return <DailyReportPrint date={date} lang={lang} rows={rows} free={free} />
 }

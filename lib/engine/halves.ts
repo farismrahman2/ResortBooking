@@ -56,6 +56,10 @@ export interface StayLike {
   visit_date:     string
   check_out_date: string | null
   rooms:          StayRoom[]
+  /** Booking or quote number — names the stay in a conflict message. */
+  ref?:           string
+  /** Set when this "stay" is a room block standing in as occupancy. */
+  block?:         { id: string; reason: string }
 }
 
 export interface OccupancyRecord {

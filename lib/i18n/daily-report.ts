@@ -41,6 +41,7 @@ interface Dict {
   after_6pm:       string   // "৬ টার পর" / "After 6 PM"
   until_6pm:       string   // "৬ টা পর্যন্ত" / "Until 6 PM" — free for a day visit, night guest arrives in the evening
   from_6pm:        string   // "৬ টা থেকে" / "from 6 PM" — a room this guest gets in the evening
+  blocked:         string   // rooms off sale today
   noon_note:       string   // legend explaining the bold room numbers
   // totals row
   total:           string
@@ -77,6 +78,7 @@ export const DICT: Record<Lang, Dict> = {
     after_6pm:      'After 6 PM',
     until_6pm:      'Until 6 PM',
     from_6pm:       'from 6 PM',
+    blocked:        'Blocked (not for sale)',
     noon_note:      'Bold rooms are available only after 12:00 PM (the previous guest checks out at noon).',
     total:          'Total',
     adults_label:   'Adults',
@@ -109,6 +111,7 @@ export const DICT: Record<Lang, Dict> = {
     after_6pm:      '৬ টার পর',
     until_6pm:      '৬ টা পর্যন্ত',
     from_6pm:       '৬ টা থেকে',
+    blocked:        'বন্ধ (বিক্রি হবে না)',
     noon_note:      'বোল্ড রুমগুলো শুধু দুপুর ১২টার পর পাওয়া যাবে (আগের গেস্ট দুপুরে চেকআউট করবেন)।',
     total:          'মোট',
     adults_label:   'প্রাপ্তবয়স্ক',
