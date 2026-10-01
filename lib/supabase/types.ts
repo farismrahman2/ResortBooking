@@ -19,6 +19,8 @@ export type RoomType =
   | 'tree_house'
   /** Composite: Deluxe 301 + 302 sold as one unit. See lib/config/rooms.ts. */
   | 'villa_2br'
+  | 'premium_deluxe_canopy'
+  | 'deluxe_canopy'
 
 // ─── Tables ───────────────────────────────────────────────────────────────────
 

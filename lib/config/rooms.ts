@@ -15,6 +15,8 @@ export const ROOM_NUMBERS: Partial<Record<RoomType, string[]>> = {
   deluxe:          ['202', '205', '301', '302'],
   superior_deluxe: ['203', '206'],
   eco_deluxe:      ['204', '207'],
+  premium_deluxe_canopy: ['111', '112', '113', '114'],
+  deluxe_canopy:         ['115'],
   // tree_house: no fixed room numbers assigned
 }
 

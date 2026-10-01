@@ -20,6 +20,8 @@ const ROOM_LABELS: Record<RoomType, string> = {
   super_premium:  'Super Premium',
   tree_house:     'Tree House',
   villa_2br:     'Two-bedroom Villa',
+  premium_deluxe_canopy: 'Premium Deluxe Canopy',
+  deluxe_canopy: 'Deluxe Canopy',
 }
 
 type TabMode = 'reassign' | 'swap' | 'type_change'
