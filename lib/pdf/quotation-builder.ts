@@ -41,6 +41,7 @@ export function buildQuotationPdfInput(args: {
     // guest were paying for them.
     const unit_price = Number(r.unit_price ?? snap.room_prices?.[r.room_type] ?? 0)
     return {
+      room_type:    String(r.room_type),
       display_name: inv?.display_name ?? String(r.room_type).replace(/_/g, ' '),
       qty:          Number(r.qty),
       unit_price,

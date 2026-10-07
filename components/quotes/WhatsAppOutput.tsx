@@ -28,6 +28,7 @@ export function WhatsAppOutput({ quote, settings, roomAvailableAfterNoon }: What
       // display_name is not on QuoteRoomRow; derive it from room_type
       const displayName = roomTypeLabel(r.room_type)
       return {
+        room_type:    r.room_type,
         display_name: displayName,
         qty:          r.qty,
         unit_price:   r.unit_price ?? snapshotPrice,
@@ -185,6 +186,7 @@ function roomTypeLabel(roomType: string): string {
     villa_2br:      'Two-bedroom Villa',
     premium_deluxe_canopy: 'Premium Deluxe Canopy',
     deluxe_canopy: 'Deluxe Canopy',
+    conference_room: 'Conference Room',
   }
   return labels[roomType] ?? roomType
 }

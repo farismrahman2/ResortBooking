@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import { chargedNights, isWholeDay } from '@/lib/config/rooms'
 import Link from 'next/link'
 import { Printer } from 'lucide-react'
 import { Topbar } from '@/components/layout/Topbar'
@@ -44,6 +45,7 @@ const ROOM_LABELS: Record<RoomType, string> = {
   villa_2br:     'Two-bedroom Villa',
   premium_deluxe_canopy: 'Premium Deluxe Canopy',
   deluxe_canopy: 'Deluxe Canopy',
+  conference_room: 'Conference Room',
 }
 
 export default async function BookingDetailPage({ params }: PageProps) {
@@ -243,7 +245,7 @@ export default async function BookingDetailPage({ params }: PageProps) {
                 ) : (
                   booking.rooms.map((r) => {
                     const isComp = r.unit_price === 0
-                    const nights = booking.nights ?? 1
+                    const nights = chargedNights(r.room_type, booking.nights ?? 1)
                     const subtotal =
                       booking.package_type === 'night'
                         ? r.qty * r.unit_price * nights
@@ -274,7 +276,7 @@ export default async function BookingDetailPage({ params }: PageProps) {
                               <>
                                 <span className="font-mono">{formatBDT(r.unit_price)}/rm</span>
                                 {booking.nights && (
-                                  <span className="text-xs text-gray-400">×{booking.nights}N</span>
+                                  <span className="text-xs text-gray-400">{isWholeDay(r.room_type) ? 'per day' : `×${booking.nights}N`}</span>
                                 )}
                                 <span className="font-semibold text-gray-900 font-mono">
                                   {formatBDT(subtotal)}

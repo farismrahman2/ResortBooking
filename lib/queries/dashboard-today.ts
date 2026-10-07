@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { isGuestRoom, ROOM_NUMBER_TO_TYPE } from '@/lib/config/rooms'
 import { selectWithOptionalEmbed } from '@/lib/supabase/optional-embed'
 import { addDaysIso } from '@/lib/dates'
 import { bookingRevenue } from '@/lib/reports/booking-revenue'
@@ -92,10 +93,10 @@ export async function getTodaySnapshot(): Promise<TodaySnapshot> {
     // Groups are dropped in JS below and read from their itinerary instead —
     // the header's peak headcount would overstate a quiet night. (Filtering
     // on the enum value in SQL would error until the migration adds it.)
-    db().from('bookings').select('id, package_type, adults, children_paid, children_free, booking_rooms(qty)')
+    db().from('bookings').select('id, package_type, adults, children_paid, children_free, booking_rooms(qty, room_type)')
       .lte('visit_date', today).gt('check_out_date', today)
       .not('status', 'in', '("cancelled","no_show")'),
-    db().from('room_inventory').select('total_units'),
+    db().from('room_inventory').select('room_type, total_units'),
     db().from('settings').select('value').eq('key', 'total_rooms').maybeSingle(),
     // 7-day created-at trend
     db().from('bookings').select('created_at, total, advance_paid, status')
@@ -103,7 +104,7 @@ export async function getTodaySnapshot(): Promise<TodaySnapshot> {
       .not('status', 'in', '("cancelled")'),
     // Group itinerary segments sleeping here tonight
     db().from('booking_days')
-      .select('adults, children_paid, children_free, booking_day_rooms(qty), bookings!inner(status)')
+      .select('adults, children_paid, children_free, booking_day_rooms(qty, room_type), bookings!inner(status)')
       .eq('day_date', today).eq('stay_kind', 'night'),
   ])
 
@@ -124,18 +125,18 @@ export async function getTodaySnapshot(): Promise<TodaySnapshot> {
 
   // Rooms physically occupied tonight = staying over + arriving night stays
   const stayoverRooms = inHouseRows.reduce(
-    (s, b) => s + (b.booking_rooms ?? []).reduce((x: number, r: any) => x + (r.qty ?? 0), 0), 0,
+    (s, b) => s + (b.booking_rooms ?? []).reduce((x: number, r: any) => x + (isGuestRoom(r.room_type ?? '') ? (r.qty ?? 0) : 0), 0), 0,
   ) + groupTonight.reduce(
-    (s, d) => s + (d.booking_day_rooms ?? []).reduce((x: number, r: any) => x + (r.qty ?? 0), 0), 0,
+    (s, d) => s + (d.booking_day_rooms ?? []).reduce((x: number, r: any) => x + (isGuestRoom(r.room_type ?? '') ? (r.qty ?? 0) : 0), 0), 0,
   )
   const arrivingNightRooms = arrivals
     .filter((a) => a.package_type === 'night')
-    .reduce((s, a) => s + Math.max(a.room_numbers.length, 1), 0)
+    .reduce((s, a) => s + Math.max(a.room_numbers.filter((n: string) => isGuestRoom(ROOM_NUMBER_TO_TYPE[n] ?? '')).length, 1), 0)
   const roomsOccupied = stayoverRooms + arrivingNightRooms
 
   const settingN = Number((settingRes.data?.value ?? '').toString().trim() || NaN)
-  const invN = ((invRes.data ?? []) as { total_units: number }[])
-    .reduce((s, r) => s + Number(r.total_units ?? 0), 0)
+  const invN = ((invRes.data ?? []) as { room_type: string; total_units: number }[])
+    .reduce((s, r) => s + (isGuestRoom(r.room_type) ? Number(r.total_units ?? 0) : 0), 0)
   const totalRooms = Number.isFinite(settingN) && settingN > 0 ? settingN : invN
 
   // 7-day trend, bucketed by Dhaka calendar date

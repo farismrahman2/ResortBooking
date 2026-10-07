@@ -21,6 +21,7 @@ export type RoomType =
   | 'villa_2br'
   | 'premium_deluxe_canopy'
   | 'deluxe_canopy'
+  | 'conference_room'
 
 // ─── Tables ───────────────────────────────────────────────────────────────────
 

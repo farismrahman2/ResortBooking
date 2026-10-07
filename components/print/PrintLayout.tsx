@@ -1,4 +1,5 @@
 import { formatBDT } from '@/lib/formatters/currency'
+import { chargedNights, isWholeDay } from '@/lib/config/rooms'
 import { formatDate, formatDateRange } from '@/lib/formatters/dates'
 import type { QuoteWithRooms, BookingWithRooms, SettingsMap, RoomType } from '@/lib/supabase/types'
 import { rowsToSegments, sortSegments, shortDayLabel } from '@/lib/bookings/group-itinerary'
@@ -31,6 +32,7 @@ const ROOM_LABELS: Record<RoomType, string> = {
   villa_2br:     'Two-bedroom Villa',
   premium_deluxe_canopy: 'Premium Deluxe Canopy',
   deluxe_canopy: 'Deluxe Canopy',
+  conference_room: 'Conference Room',
 }
 
 export function PrintLayout({ quote, booking, settings }: PrintLayoutProps) {
@@ -163,7 +165,7 @@ export function PrintLayout({ quote, booking, settings }: PrintLayoutProps) {
             </thead>
             <tbody>
               {rooms.map((room) => {
-                const nights = record.nights ?? 1
+                const nights = chargedNights(room.room_type, record.nights ?? 1)
                 const subtotal =
                   record.package_type === 'night'
                     ? room.qty * room.unit_price * nights
@@ -184,7 +186,7 @@ export function PrintLayout({ quote, booking, settings }: PrintLayoutProps) {
                     <Td className="text-center">{room.qty}</Td>
                     <Td className="text-right font-mono">{formatBDT(room.unit_price)}</Td>
                     {record.package_type === 'night' && (
-                      <Td className="text-center">{nights}</Td>
+                      <Td className="text-center">{isWholeDay(room.room_type) ? 'per day' : nights}</Td>
                     )}
                     <Td className="text-right font-mono">{formatBDT(subtotal)}</Td>
                   </tr>

@@ -2,7 +2,7 @@
 
 import { cn } from '@/lib/utils'
 import { formatBDT } from '@/lib/formatters/currency'
-import { ROOM_NUMBERS, COMPOSITE_ROOMS, requiredRoomNumbers } from '@/lib/config/rooms'
+import { ROOM_NUMBERS, COMPOSITE_ROOMS, requiredRoomNumbers, isWholeDay } from '@/lib/config/rooms'
 import type { RoomInventoryRow, PackageWithPrices, RoomType } from '@/lib/supabase/types'
 import type { RoomSelection } from '@/lib/engine/calculator'
 
@@ -59,6 +59,20 @@ export function RoomSelector({
     selectedPackage?.room_prices.find((r) => r.room_type === roomType)?.price ?? 0
 
   function setQty(room: RoomInventoryRow, qty: number) {
+    // A whole-day room (the conference room): its own number, all day, at the
+    // price the agent types — the package has none for it.
+    if (isWholeDay(room.room_type)) {
+      const next = value.filter((r) => r.room_type !== room.room_type)
+      if (qty > 0) {
+        next.push({
+          room_type: room.room_type, display_name: room.display_name, qty,
+          unit_price: getRoom(room.room_type)?.unit_price ?? 0,
+          room_numbers: (ROOM_NUMBERS[room.room_type as RoomType] ?? []).slice(0, qty), evening_rooms: [],
+        })
+      }
+      onChange(next)
+      return
+    }
     const comp        = COMPOSITE_ROOMS[room.room_type as RoomType]
     const currentNums = getSelectedNums(room.room_type)
     // A composite (the villa) is its component rooms — they come with it,
@@ -81,8 +95,12 @@ export function RoomSelector({
     onChange(next)
   }
 
+  function setPrice(roomType: string, price: number) {
+    onChange(value.map((r) => (r.room_type === roomType ? { ...r, unit_price: price } : r)))
+  }
+
   function toggleRoomNumber(roomType: string, roomNum: string, maxQty: number, eveningOnly: boolean) {
-    if (COMPOSITE_ROOMS[roomType as RoomType]) return   // fixed by definition
+    if (COMPOSITE_ROOMS[roomType as RoomType] || isWholeDay(roomType)) return   // fixed by definition
     const current = getSelectedNums(roomType)
     const evening = getEvening(roomType)
     let newNums: string[]
@@ -140,6 +158,7 @@ export function RoomSelector({
         const price        = getUnitPrice(room.room_type)
         const isSelected   = qty > 0
         const comp         = COMPOSITE_ROOMS[room.room_type as RoomType]
+        const wholeDay     = isWholeDay(room.room_type)
         const fixedNums    = comp ? comp.room_numbers : (ROOM_NUMBERS[room.room_type as RoomType] ?? [])
         const selectedNums = getSelectedNums(room.room_type)
         const eveningNums  = getEvening(room.room_type)
@@ -204,7 +223,19 @@ export function RoomSelector({
               </div>
 
               <div className="flex items-center gap-4 flex-shrink-0">
-                {price > 0 ? (
+                {wholeDay ? (
+                  <label className="flex items-center gap-1 text-xs text-gray-500" title="Per day — type the agreed amount">
+                    <span>৳</span>
+                    <input
+                      type="number" min={0} inputMode="numeric" placeholder="Price"
+                      disabled={!isSelected}
+                      value={isSelected && (getRoom(room.room_type)?.unit_price ?? 0) > 0 ? getRoom(room.room_type)!.unit_price : ''}
+                      onChange={(e) => setPrice(room.room_type, Math.max(0, parseInt(e.target.value) || 0))}
+                      className="w-20 rounded border border-gray-300 px-1.5 py-0.5 text-right font-mono text-sm text-gray-800 disabled:bg-gray-50"
+                    />
+                    <span>/day</span>
+                  </label>
+                ) : price > 0 ? (
                   <span className="text-sm font-mono text-gray-700 w-20 text-right">{formatBDT(price)}/rm</span>
                 ) : (
                   <span className="text-xs text-gray-400 w-20 text-right">No price set</span>
@@ -242,7 +273,9 @@ export function RoomSelector({
             {qty > 0 && fixedNums.length > 0 && (
               <div className="mt-3 pt-2 border-t border-forest-200">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-2">
-                  {comp ? `Rooms ${fixedNums.join(' + ')} — sold together` : `Room Numbers — select ${qty}`}
+                  {comp ? `Rooms ${fixedNums.join(' + ')} — sold together`
+                    : wholeDay ? (isNight ? 'Held for the whole arrival day — not for later nights' : 'Held for the whole day')
+                    : `Room Numbers — select ${qty}`}
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {fixedNums.map((num) => {
@@ -263,11 +296,11 @@ export function RoomSelector({
                         <button
                           type="button"
                           onClick={() => !isTaken && toggleRoomNumber(room.room_type, num, qty, isEveningOnly)}
-                          disabled={isTaken || !!comp}
+                          disabled={isTaken || !!comp || wholeDay}
                           title={title}
                           className={cn(
                             'rounded-md border px-2.5 py-1 text-xs font-mono font-semibold transition-colors',
-                            isPicked && isNight ? 'rounded-r-none' : '',
+                            isPicked && isNight && !wholeDay ? 'rounded-r-none' : '',
                             isPicked
                               ? isEvening ? 'border-orange-500 bg-orange-600 text-white' : 'border-forest-500 bg-forest-600 text-white'
                               : isTaken
@@ -283,7 +316,7 @@ export function RoomSelector({
                         >
                           {num}
                         </button>
-                        {isPicked && isNight && (
+                        {isPicked && isNight && !wholeDay && (
                           <button
                             type="button"
                             onClick={() => toggleEvening(room.room_type, num)}
@@ -302,7 +335,7 @@ export function RoomSelector({
                     )
                   })}
                 </div>
-                {(noonCount > 0 || eveningOnlyCount > 0 || untilEveningCount > 0 || (isNight && selectedNums.length > 0)) && (
+                {!wholeDay && (noonCount > 0 || eveningOnlyCount > 0 || untilEveningCount > 0 || (isNight && selectedNums.length > 0)) && (
                   <p className="mt-1.5 text-[10px] text-gray-500 space-x-2">
                     {noonCount > 0 && <span className="text-amber-600">Yellow: free after 12:00 PM (previous guest checking out).</span>}
                     {eveningOnlyCount > 0 && <span className="text-orange-700">Orange: with day guests until {handoverLabel} — picked as an evening room.</span>}

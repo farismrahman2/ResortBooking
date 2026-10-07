@@ -27,11 +27,15 @@
  * to different people on the same date. Its own availability is then read
  * back from its components: free only when every one of them is.
  *
+ * A WHOLE-DAY room (the conference room) has no halves: it is held day and
+ * night on the stay's arrival date only — never on a night stay's later
+ * nights — and a request for it needs that whole date free.
+ *
  * Pure functions, no I/O. The database layer builds StayLike records; the
  * tests pin the resort's own scenario.
  */
 
-import { COMPOSITE_ROOMS } from '@/lib/config/rooms'
+import { COMPOSITE_ROOMS, isWholeDay } from '@/lib/config/rooms'
 import type { RoomType } from '@/lib/supabase/types'
 
 /** A composite room as the physical rooms it occupies; anything else as is. */
@@ -73,7 +77,14 @@ export interface OccupancyRecord {
 /** What a stay occupies on one date, split into halves. */
 export function occupancyOnDate(stay: StayLike, date: string): OccupancyRecord[] {
   const out: OccupancyRecord[] = []
-  const rooms = stay.rooms.map(expandComposite)
+  const all = stay.rooms.map(expandComposite)
+  // Whole-day rooms: both halves of the arrival date, nothing after.
+  if (stay.visit_date === date) {
+    for (const r of all) {
+      if (r.qty > 0 && isWholeDay(r.room_type)) out.push({ room_type: r.room_type, qty: r.qty, room_numbers: r.room_numbers ?? [], day: true, night: true })
+    }
+  }
+  const rooms = all.filter((r) => !isWholeDay(r.room_type))
   if (stay.package_type === 'daylong') {
     if (stay.visit_date !== date) return out
     for (const r of rooms) {
@@ -166,6 +177,18 @@ export function findHalvesConflict(
     const total = inventory.get(req.room_type) ?? 0
     const t = totals.get(req.room_type) ?? { day: 0, night: 0, either: 0, dayNums: new Set<string>(), nightNums: new Set<string>() }
     const nums    = req.room_numbers ?? []
+
+    // A whole-day room is wanted on the arrival date only, and all of it.
+    if (isWholeDay(req.room_type)) {
+      if (kind === 'night' && !isCheckIn) continue
+      for (const n of nums) {
+        if (t.dayNums.has(n) || t.nightNums.has(n)) return `${label(req.room_type)} is already booked on ${date}`
+      }
+      const free = total - t.either
+      if (req.qty > free) return `${label(req.room_type)} is already booked on ${date}`
+      continue
+    }
+
     const evening = kind === 'night' && isCheckIn ? (req.evening_rooms ?? []).filter((n) => nums.includes(n)) : []
     const instant = nums.filter((n) => !evening.includes(n))
 

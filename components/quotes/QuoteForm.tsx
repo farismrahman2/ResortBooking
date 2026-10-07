@@ -23,6 +23,7 @@ import { Badge } from '@/components/ui/Badge'
 import { WhatsAppLink } from '@/components/ui/WhatsAppLink'
 import { PackageSelector } from '@/components/quotes/PackageSelector'
 import { RoomSelector } from '@/components/quotes/RoomSelector'
+import { isWholeDay } from '@/lib/config/rooms'
 import { GuestInputs, type GuestValues } from '@/components/quotes/GuestInputs'
 import { PricingBreakdown } from '@/components/quotes/PricingBreakdown'
 import { DuplicateConfirmModal } from '@/components/quotes/DuplicateConfirmModal'
@@ -78,12 +79,13 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
 
   // Separate complimentary rooms (unit_price=0) from paid rooms in initialValues
   // so RoomSelector only sees paid rooms
-  const paidInitialRooms = ((initialValues?.rooms ?? []) as RoomSelection[]).filter((r) => r.unit_price > 0)
+  // (A whole-day room is priced by hand, so a blank price is not a comp.)
+  const paidInitialRooms = ((initialValues?.rooms ?? []) as RoomSelection[]).filter((r) => r.unit_price > 0 || isWholeDay(r.room_type))
   // Comp rooms track qty AND room_numbers (for fixed-number room types)
   type CompRoomRow = { qty: number; room_numbers: string[] }
   const compInitial: Record<string, CompRoomRow> = {}
   for (const r of (initialValues?.rooms ?? []) as RoomSelection[]) {
-    if (r.unit_price === 0) {
+    if (r.unit_price === 0 && !isWholeDay(r.room_type)) {
       compInitial[r.room_type] = {
         qty: (compInitial[r.room_type]?.qty ?? 0) + r.qty,
         room_numbers: [...(compInitial[r.room_type]?.room_numbers ?? []), ...(r.room_numbers ?? [])],
@@ -1278,6 +1280,7 @@ function WhatsAppPreview({
 
   const roomLines = paidRoomsPreview
     .map((r) => {
+      if (isWholeDay(r.room_type)) return `${r.display_name} × ${r.qty}: ${formatBDT(r.qty * r.unit_price)} (per day)`
       const n = calcResult.nights
       return n
         ? `${r.display_name} × ${r.qty}: ${formatBDT(r.unit_price)}/rm × ${n}N = ${formatBDT(r.qty * r.unit_price * n)}`

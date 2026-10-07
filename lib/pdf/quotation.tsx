@@ -1,4 +1,5 @@
 import { Document, Page, Text, View, Image, StyleSheet } from '@react-pdf/renderer'
+import { isWholeDay } from '@/lib/config/rooms'
 import { formatTime12h } from '@/lib/formatters/dates'
 
 /**
@@ -115,6 +116,8 @@ export interface QuotationPdfInput {
   childrenFree:  number
   drivers:       number
   rooms: Array<{
+    /** Set for a whole-day room (the conference room), charged per day. */
+    room_type?:   string
     display_name: string
     qty:          number
     /** 0 means complimentary — no rate, no amount. */
@@ -245,7 +248,8 @@ export function QuotationPdfDocument(p: QuotationPdfInput) {
               </View>
               {[...paidRooms, ...compRooms].map((r, i) => {
                 const isComp = r.unit_price === 0
-                const nights = r.nights ?? 1
+                const perDay = isWholeDay(r.room_type ?? '')
+                const nights = perDay ? 1 : (r.nights ?? 1)
                 const evening = eveningCount(r)
                 const eveningNote = evening === 0 ? ''
                   : evening >= r.qty ? ` — from ${handover}`
@@ -257,7 +261,7 @@ export function QuotationPdfDocument(p: QuotationPdfInput) {
                       {eveningNote && <Text style={{ color: '#6b7280', fontSize: 8 }}>{eveningNote}</Text>}
                     </Text>
                     <Text style={styles.colQty}>{r.qty}</Text>
-                    {showNights && <Text style={styles.colNights}>{isComp ? '—' : nights}</Text>}
+                    {showNights && <Text style={styles.colNights}>{isComp ? '—' : perDay ? 'per day' : nights}</Text>}
                     <Text style={styles.colRate}>{isComp ? '—' : money(r.unit_price)}</Text>
                     {isComp
                       ? <Text style={[styles.colAmt, styles.comp]}>Complimentary</Text>

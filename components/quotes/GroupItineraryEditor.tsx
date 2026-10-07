@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { NumberInput } from '@/components/ui/NumberInput'
 import { Input } from '@/components/ui/Input'
 import { RoomSelector } from '@/components/quotes/RoomSelector'
+import { isWholeDay } from '@/lib/config/rooms'
 import { GuestInputs, type GuestValues } from '@/components/quotes/GuestInputs'
 import { addDaysIso } from '@/lib/dates'
 import { formatBDT } from '@/lib/formatters/currency'
@@ -147,7 +148,7 @@ export function GroupItineraryEditor({
       const was = prev.find((p) => p.room_type === r.room_type)
       return {
         room_type: r.room_type, display_name: r.display_name, qty: r.qty,
-        unit_price: was && was.unit_price === 0 ? 0 : r.unit_price,
+        unit_price: was && was.unit_price === 0 && !isWholeDay(r.room_type) ? 0 : r.unit_price,
         room_numbers: r.room_numbers ?? [],
         evening_rooms: (r.evening_rooms ?? []).filter((n) => (r.room_numbers ?? []).includes(n)),
       }
@@ -331,7 +332,7 @@ function CompToggles({ seg, pkg, onToggle }: {
   if (seg.rooms.length === 0) return null
   return (
     <div className="flex flex-wrap gap-2">
-      {seg.rooms.map((r) => {
+      {seg.rooms.filter((r) => !isWholeDay(r.room_type)).map((r) => {   // a whole-day room is priced by hand
         const listPrice = pkg?.room_prices.find((p) => p.room_type === r.room_type)?.price ?? 0
         const comp = r.unit_price === 0
         return (

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { requiredRoomNumbers, COMPOSITE_ROOMS } from '@/lib/config/rooms'
+import { requiredRoomNumbers, COMPOSITE_ROOMS, isWholeDay } from '@/lib/config/rooms'
 import { deriveGroupHeader, roomNumberClashesOnDate, distinctDates } from '@/lib/bookings/group-itinerary'
 import type { RoomType } from '@/lib/supabase/types'
 
@@ -227,6 +227,9 @@ export const CreateQuoteSchema = BaseQuoteSchema
           if (stray.length) {
             ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['days', i, 'rooms', ri, 'evening_rooms'], message: `${d.day_date}: room ${stray.join(', ')} is marked for evening handover but not selected` })
           }
+          if (isWholeDay(r.room_type) && r.evening_rooms.length) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['days', i, 'rooms', ri, 'evening_rooms'], message: `${d.day_date}: the ${r.room_type.replace(/_/g, ' ')} is held for the whole day — it has no evening handover` })
+          }
           if (d.stay_kind === 'daylong' && r.evening_rooms.length) {
             ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['days', i, 'rooms', ri, 'evening_rooms'], message: `${d.day_date}: evening handover applies to overnight rooms only` })
           }
@@ -259,6 +262,9 @@ export const CreateQuoteSchema = BaseQuoteSchema
       const stray = r.evening_rooms.filter((n) => !r.room_numbers.includes(n))
       if (stray.length) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['rooms', idx, 'evening_rooms'], message: `Room ${stray.join(', ')} is marked for evening handover but not selected` })
+      }
+      if (isWholeDay(r.room_type) && r.evening_rooms.length) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['rooms', idx, 'evening_rooms'], message: `The ${r.room_type.replace(/_/g, ' ')} is held for the whole day — it has no evening handover` })
       }
       if (data.package_type === 'daylong' && r.evening_rooms.length) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['rooms', idx, 'evening_rooms'], message: 'Evening handover applies to night stays only' })

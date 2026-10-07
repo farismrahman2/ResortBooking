@@ -21,6 +21,7 @@ const ROOM_LABELS: Record<RoomType, string> = {
   villa_2br:     'Two-bedroom Villa',
   premium_deluxe_canopy: 'Premium Deluxe Canopy',
   deluxe_canopy: 'Deluxe Canopy',
+  conference_room: 'Conference Room',
 }
 
 interface ChangeDatesModalProps {

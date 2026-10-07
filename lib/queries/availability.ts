@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { COMPOSITE_ROOMS } from '@/lib/config/rooms'
+import { COMPOSITE_ROOMS, ROOM_NUMBERS, ROOM_NUMBER_TO_TYPE, isWholeDay } from '@/lib/config/rooms'
 import { addDaysIso } from '@/lib/dates'
 import {
   occupancyOnDate, findHalvesConflict, availabilityByHalves, roomNumberBuckets,
@@ -158,6 +158,7 @@ function blockMessage(stays: StayLike[], dates: string[], requested: RequestedRo
       const held = new Set(s.rooms.flatMap((r) => r.room_numbers))
       const heldTypes = new Set(s.rooms.filter((r) => r.room_numbers.length === 0).map((r) => r.room_type))
       for (const req of requested) {
+        if (isWholeDay(req.room_type) && date !== dates[0]) continue   // wanted on arrival only
         const nums = (req.room_numbers ?? []).length ? req.room_numbers! : (COMPOSITE_ROOMS[req.room_type as RoomType]?.room_numbers ?? [])
         const n = nums.find((x) => held.has(x))
         if (n) return `Room ${n} is blocked on ${date} (${s.block.reason})`
@@ -370,18 +371,32 @@ export async function getRoomNumberBuckets(
     for (const s of stays) {
       // A block ending yesterday frees its room at midnight, not at noon.
       if (s.block || s.package_type !== 'night' || s.check_out_date !== visitDate) continue
-      for (const r of s.rooms) for (const n of r.room_numbers) if (!takenSet.has(n)) noon.add(n)
+      for (const r of s.rooms) {
+        if (isWholeDay(r.room_type)) continue   // left on the stay's first day
+        for (const n of r.room_numbers) if (!takenSet.has(n)) noon.add(n)
+      }
     }
-    return { taken: b.taken, noon: [...noon], eveningOnly: [], untilEvening: b.untilEvening, blocked: blockedFrom(stays, [visitDate]) }
+    // A whole-day room a night guest holds this evening is not free for the day.
+    const wholeDay = b.untilEvening.filter((n) => isWholeDay(ROOM_NUMBER_TO_TYPE[n] ?? ''))
+    return {
+      taken: [...b.taken, ...wholeDay], noon: [...noon], eveningOnly: [],
+      untilEvening: b.untilEvening.filter((n) => !wholeDay.includes(n)), blocked: blockedFrom(stays, [visitDate]),
+    }
   }
 
   const taken = new Set<string>()
   let eveningOnly: string[] = []
+  // A whole-day room (the conference room) is wanted on the arrival date
+  // only, and the whole of it — day-held there means taken.
+  const wholeDayNums = new Set(Object.entries(ROOM_NUMBERS).filter(([t]) => isWholeDay(t)).flatMap(([, n]) => n ?? []))
   dates.forEach((date, i) => {
     const b = roomNumberBuckets(occupancyFor(stays, date), 'night')
-    for (const n of b.taken) taken.add(n)
-    if (i === 0) eveningOnly = b.eveningOnly
-    else for (const n of b.eveningOnly) taken.add(n)   // day-held on a later date = guest in house = taken
+    for (const n of b.taken) if (i === 0 || !wholeDayNums.has(n)) taken.add(n)
+    if (i === 0) {
+      eveningOnly = b.eveningOnly.filter((n) => !wholeDayNums.has(n))
+      for (const n of b.eveningOnly) if (wholeDayNums.has(n)) taken.add(n)
+    }
+    else for (const n of b.eveningOnly) if (!wholeDayNums.has(n)) taken.add(n)   // day-held on a later date = guest in house = taken
   })
   return {
     taken:        [...taken],

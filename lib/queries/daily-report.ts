@@ -4,7 +4,7 @@ import { rowsToSegments, expandGroupForOps } from '@/lib/bookings/group-itinerar
 import type { StayKind } from '@/lib/supabase/types'
 import { getMealsForBookingOnDate } from '@/lib/engine/meals'
 import type { MealAllocation } from '@/lib/engine/meals'
-import { ROOM_NUMBERS } from '@/lib/config/rooms'
+import { ROOM_NUMBERS, isWholeDay } from '@/lib/config/rooms'
 import type { PackageType, RoomType } from '@/lib/supabase/types'
 
 export interface DailyReportRoom {
@@ -90,7 +90,7 @@ export async function getDailyReport(date: string): Promise<DailyReportRow[]> {
           children_paid:  v.children_paid,
           children_free:  v.children_free,
           drivers:        v.drivers,
-          rooms:          v.rooms.map((r) => ({ room_type: r.room_type as RoomType, qty: r.qty, room_numbers: r.room_numbers ?? [], evening_rooms: r.evening_rooms ?? [] })),
+          rooms:          v.rooms.filter((r) => v.visit_date === date || !isWholeDay(r.room_type)).map((r) => ({ room_type: r.room_type as RoomType, qty: r.qty, room_numbers: r.room_numbers ?? [], evening_rooms: r.evening_rooms ?? [] })),
           meals:          getMealsForBookingOnDate({
             package_type: v.package_type, visit_date: v.visit_date, check_out_date: v.check_out_date,
             adults: v.adults, children_paid: v.children_paid, children_free: v.children_free,
@@ -134,7 +134,10 @@ export async function getDailyReport(date: string): Promise<DailyReportRow[]> {
       date,
     )
 
-    const rooms: DailyReportRoom[] = ((booking as any).booking_rooms ?? []).map((r: any) => ({
+    // A whole-day room (the conference room) is theirs on the arrival date only.
+    const rooms: DailyReportRoom[] = ((booking as any).booking_rooms ?? [])
+      .filter((r: any) => booking.visit_date === date || !isWholeDay(r.room_type))   // eslint-disable-line @typescript-eslint/no-explicit-any
+      .map((r: any) => ({
       room_type:    r.room_type as RoomType,
       qty:          r.qty,
       room_numbers: r.room_numbers ?? [],

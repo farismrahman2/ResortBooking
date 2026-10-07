@@ -12,7 +12,7 @@
  * - Friday rate takes priority over holiday rate if both match
  */
 
-import { includedPersons } from '@/lib/config/rooms'
+import { includedPersons, isWholeDay } from '@/lib/config/rooms'
 import type { LineItem, ExtraItem } from '@/lib/supabase/types'
 import { sortSegments, shortDayLabel, type GroupSegment, type GroupSegmentRoom } from '@/lib/bookings/group-itinerary'
 
@@ -300,12 +300,14 @@ export function calculateNight(inputs: NightInputs): CalculationResult {
   for (const room of rooms) {
     if (room.qty <= 0) continue
     if (room.unit_price === 0) continue  // complimentary — excluded from billing
+    // A whole-day room (the conference room) is charged per day, once.
+    const perDay = isWholeDay(room.room_type)
     lineItems.push({
-      label:      `${room.display_name} × ${room.qty}`,
+      label:      perDay ? `${room.display_name} × ${room.qty} (per day)` : `${room.display_name} × ${room.qty}`,
       qty:        room.qty,
       unit_price: room.unit_price,
-      nights,
-      subtotal:   room.qty * room.unit_price * nights,
+      nights:     perDay ? null : nights,
+      subtotal:   room.qty * room.unit_price * (perDay ? 1 : nights),
       kind:       'room',
     })
   }

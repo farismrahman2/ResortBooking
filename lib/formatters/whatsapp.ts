@@ -5,6 +5,7 @@
  * Uses the ━━━━━ separator style.
  */
 
+import { isWholeDay } from '@/lib/config/rooms'
 import { formatBDT } from './currency'
 import { formatDate, formatDateRange, formatTime12h } from './dates'
 
@@ -46,6 +47,7 @@ export interface WhatsAppParams {
   checkIn:             string        // HH:MM
   checkOut:            string        // HH:MM
   rooms: {
+    room_type?:   string
     display_name: string
     qty:          number
     unit_price:   number
@@ -105,6 +107,7 @@ export function formatWhatsApp(p: WhatsAppParams): string {
   // Paid room lines
   const roomLines = paidRooms
     .map((r) => {
+      if (isWholeDay(r.room_type ?? '')) return `${r.display_name} × ${r.qty}: ${formatBDT(r.qty * r.unit_price)} (per day)`
       const base = `${r.display_name} × ${r.qty}: ${formatBDT(r.unit_price)}/room`
       return r.nights ? `${base} × ${r.nights} nights = ${formatBDT(r.qty * r.unit_price * r.nights)}` : `${base} = ${formatBDT(r.qty * r.unit_price)}`
     })

@@ -1,4 +1,5 @@
 import { listBlocksOverlapping } from '@/lib/queries/room-blocks'
+import { isGuestRoom } from '@/lib/config/rooms'
 import { blockedUnitsOn } from '@/lib/engine/blocks'
 import { addDaysIso } from '@/lib/dates'
 import { createServiceClient } from '@/lib/supabase/server'
@@ -46,10 +47,10 @@ async function fallbackOccupancy(fromIso: string, toIso: string): Promise<Occupa
   // total_rooms — try the setting first, fall back to room_inventory total
   const [{ data: setting }, { data: inventory }] = await Promise.all([
     sb.from('settings').select('value').eq('key', 'total_rooms').maybeSingle(),
-    sb.from('room_inventory').select('total_units'),
+    sb.from('room_inventory').select('room_type, total_units'),
   ])
   const settingN = Number((setting?.value ?? '').toString().trim() || NaN)
-  const invN     = ((inventory ?? []) as { total_units: number }[]).reduce((s, r) => s + Number(r.total_units ?? 0), 0)
+  const invN     = ((inventory ?? []) as { room_type: string; total_units: number }[]).reduce((s, r) => s + (isGuestRoom(r.room_type) ? Number(r.total_units ?? 0) : 0), 0)
   const totalRooms = Number.isFinite(settingN) && settingN > 0 ? settingN : invN
 
   // Bookings that overlap the window. Excludes cancelled + no_show.
@@ -60,8 +61,8 @@ async function fallbackOccupancy(fromIso: string, toIso: string): Promise<Occupa
       .neq('status', 'no_show')
       .lte('visit_date', toIso)
       .or(`check_out_date.is.null,check_out_date.gte.${fromIso}`),
-    'id, package_type, visit_date, check_out_date, status, booking_rooms(qty), booking_days(day_date, booking_day_rooms(qty))',
-    'id, package_type, visit_date, check_out_date, status, booking_rooms(qty)',
+    'id, package_type, visit_date, check_out_date, status, booking_rooms(qty, room_type), booking_days(day_date, booking_day_rooms(qty, room_type))',
+    'id, package_type, visit_date, check_out_date, status, booking_rooms(qty, room_type)',
   )
 
   // Map: YYYY-MM-DD → rooms_occupied
@@ -73,12 +74,12 @@ async function fallbackOccupancy(fromIso: string, toIso: string): Promise<Occupa
     if (b.package_type === 'group') {
       for (const d of (b.booking_days ?? []) as any[]) {
         if (d.day_date < fromIso || d.day_date > toIso) continue
-        const q = (d.booking_day_rooms ?? []).reduce((s: number, r: { qty: number }) => s + Number(r.qty ?? 0), 0)
+        const q = (d.booking_day_rooms ?? []).reduce((s: number, r: { qty: number; room_type?: string }) => s + (isGuestRoom(r.room_type ?? '') ? Number(r.qty ?? 0) : 0), 0)
         if (q > 0) occupied.set(d.day_date, (occupied.get(d.day_date) ?? 0) + q)
       }
       continue
     }
-    const qty = (b.booking_rooms ?? []).reduce((s: number, br: { qty: number }) => s + Number(br.qty ?? 0), 0)
+    const qty = (b.booking_rooms ?? []).reduce((s: number, br: { qty: number; room_type?: string }) => s + (isGuestRoom(br.room_type ?? '') ? Number(br.qty ?? 0) : 0), 0)
     if (qty === 0) continue
     const start = b.visit_date as string
     if (b.package_type === 'daylong' || !b.check_out_date) {
@@ -165,7 +166,8 @@ async function againstSellable(days: OccupancyDay[], fromIso: string, toIso: str
     db().from('room_inventory').select('room_type, total_units'),
   ])
   if (blocks.length === 0) return days
-  const inventory = (inv ?? []) as Array<{ room_type: string; total_units: number }>
+  // Bedrooms only — a blocked conference room is no lost room-night.
+  const inventory = ((inv ?? []) as Array<{ room_type: string; total_units: number }>).filter((r) => isGuestRoom(r.room_type))
   return days.map((d) => {
     const blocked = blockedUnitsOn(blocks, d.date, inventory)
     if (blocked === 0) return d

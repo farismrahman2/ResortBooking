@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import { chargedNights, isWholeDay } from '@/lib/config/rooms'
 import { Topbar } from '@/components/layout/Topbar'
 import { StatusBadge } from '@/components/ui/Badge'
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -209,10 +210,10 @@ export default async function QuoteDetailPage({ params }: PageProps) {
                             <>
                               <span className="font-mono">{formatBDT(r.unit_price)}/rm</span>
                               {quote.nights && (
-                                <span className="text-xs text-gray-400">×{quote.nights}N</span>
+                                <span className="text-xs text-gray-400">{isWholeDay(r.room_type) ? 'per day' : `×${quote.nights}N`}</span>
                               )}
                               <span className="font-semibold text-gray-900 font-mono">
-                                {formatBDT(r.unit_price * r.qty * (quote.nights ?? 1))}
+                                {formatBDT(r.unit_price * r.qty * chargedNights(r.room_type, quote.nights ?? 1))}
                               </span>
                             </>
                           )}

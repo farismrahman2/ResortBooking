@@ -17,6 +17,7 @@ export const ROOM_NUMBERS: Partial<Record<RoomType, string[]>> = {
   eco_deluxe:      ['204', '207'],
   premium_deluxe_canopy: ['111', '112', '113', '114'],
   deluxe_canopy:         ['115'],
+  conference_room:       ['Conference'],
   // tree_house: no fixed room numbers assigned
 }
 
@@ -42,8 +43,29 @@ export const COMPOSITE_ROOMS: Partial<Record<RoomType, CompositeRoom>> = {
 
 export const isComposite = (roomType: string): boolean => roomType in COMPOSITE_ROOMS
 
+/**
+ * WHOLE-DAY rooms are sold by the day with a package, not as a bedroom: the
+ * conference room. It has no day/night halves and no evening handover — it
+ * is held for the whole of the guests' arrival date (a day visit's date, a
+ * night stay's check-in date) and for no later night. Priced per day at
+ * whatever the agent types in; it sleeps nobody, so it includes no guests
+ * and is not counted as a room in occupancy.
+ */
+export const WHOLE_DAY_ROOMS: ReadonlySet<string> = new Set(['conference_room'])
+
+export const isWholeDay = (roomType: string): boolean => WHOLE_DAY_ROOMS.has(roomType)
+
+/** A bedroom guests sleep in — what occupancy counts. */
+export const isGuestRoom = (roomType: string): boolean => !isWholeDay(roomType)
+
+/** Nights a room line is charged for: once, per day, for a whole-day room. */
+export function chargedNights(roomType: string, nights: number): number {
+  return isWholeDay(roomType) ? 1 : nights
+}
+
 /** Guests a room of this type includes before extra persons are charged. */
 export function includedPersons(roomType: string): number {
+  if (isWholeDay(roomType)) return 0
   return COMPOSITE_ROOMS[roomType as RoomType]?.included_persons ?? 2
 }
 

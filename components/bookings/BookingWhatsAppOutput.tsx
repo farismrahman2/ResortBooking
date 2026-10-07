@@ -29,6 +29,7 @@ const ROOM_LABELS: Record<RoomType, string> = {
   villa_2br:     'Two-bedroom Villa',
   premium_deluxe_canopy: 'Premium Deluxe Canopy',
   deluxe_canopy: 'Deluxe Canopy',
+  conference_room: 'Conference Room',
 }
 
 export function BookingWhatsAppOutput({ booking, settings, salesRepName, roomAvailableAfterNoon }: BookingWhatsAppOutputProps) {
@@ -39,6 +40,7 @@ export function BookingWhatsAppOutput({ booking, settings, salesRepName, roomAva
     const snap = booking.package_snapshot
 
     const rooms: WhatsAppParams['rooms'] = booking.rooms.map((r) => ({
+      room_type:    r.room_type,
       display_name: ROOM_LABELS[r.room_type] ?? r.room_type.replace(/_/g, ' '),
       qty:          r.qty,
       unit_price:   r.unit_price,
