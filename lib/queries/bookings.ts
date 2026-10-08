@@ -20,8 +20,10 @@ export interface BookingFilters {
  * Columns actually rendered by booking lists (`/bookings`, dashboard
  * "upcoming"). The big jsonb fields — `line_items`, `extra_items` — are
  * intentionally omitted because they're only needed on the detail page and
- * inflate the list payload significantly. `package_snapshot` is kept because
- * the list page reads `.name` for filtering. If you need a list helper that
+ * inflate the list payload significantly. Of `package_snapshot` only the
+ * name is fetched (the list filters and shows it) — the full snapshot, with
+ * every rate and room price, was most of each row's weight; getBookings
+ * hands it back as `{ name }`. If you need a list helper that
  * returns the full row, add a separate function rather than widening this.
  */
 const BOOKING_LIST_COLUMNS = `
@@ -31,7 +33,7 @@ const BOOKING_LIST_COLUMNS = `
   subtotal, discount, discount_pct, service_charge_pct,
   total, advance_required, advance_paid, due_advance, remaining,
   status, sales_employee_id, is_corporate, company_name, corporate_account_id,
-  package_snapshot,
+  package_name:package_snapshot->>name,
   created_at, updated_at,
   booking_rooms(*)
 `
@@ -63,7 +65,9 @@ export async function getBookings(filters: BookingFilters = {}): Promise<Booking
 
   const { data, error } = await query
   if (error) throw new Error(`getBookings: ${error.message}`)
-  return (data ?? []).map((b: any) => ({ ...b, rooms: b.booking_rooms ?? [] }))
+  return (data ?? []).map(({ package_name, ...b }: any) => ({   // eslint-disable-line @typescript-eslint/no-explicit-any
+    ...b, package_snapshot: { name: package_name ?? null }, rooms: b.booking_rooms ?? [],
+  }))
 }
 
 /** Fetch a single booking with its rooms */

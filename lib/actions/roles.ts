@@ -1,6 +1,6 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, revalidateTag } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { updateRolePermissionsSchema } from '@/lib/validators/roles'
 import { requirePermission, getCurrentUserContext } from '@/lib/auth/permissions'
@@ -88,6 +88,7 @@ export async function updateRolePermissions(
       permission_count: rows.length,
     })
 
+    revalidateTag('role-permissions')   // the cached permission map (lib/auth/permissions.ts)
     revalidatePath('/settings/roles')
     revalidatePath(`/settings/roles/${role.slug}`)
     return { success: true }

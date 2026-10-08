@@ -45,7 +45,7 @@ export function ReceiptThumbnailsClient({ items, editable }: Props) {
               <div className="aspect-[4/3] bg-white flex items-center justify-center">
                 {isImage && a.url ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={a.url} alt={a.file_name} className="max-h-full max-w-full object-contain" />
+                  <img loading="lazy" decoding="async" src={a.url} alt={a.file_name} className="max-h-full max-w-full object-contain" />
                 ) : (
                   <div className="flex flex-col items-center gap-1 text-gray-400">
                     <FileIcon size={28} />

@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useDeferredValue } from 'react'
+import { useShownRows, ShowMoreButton } from '@/components/ui/ShowMore'
 import { Search, ArrowUpDown, Building2 } from 'lucide-react'
 import { Tabs } from '@/components/ui/Tabs'
 import { BookingTable } from '@/components/bookings/BookingTable'
@@ -21,6 +22,9 @@ export function BookingsClient({ bookings }: BookingsClientProps) {
   const [dateFrom,       setDateFrom]       = useState('')
   const [dateTo,         setDateTo]         = useState('')
   const [corporateOnly,  setCorporateOnly]  = useState(false)
+  // Filtering 1000 rows per keystroke lagged the input on phones; the list
+  // now catches up a beat behind the typing instead.
+  const searchTerm = useDeferredValue(search)
 
   // Derive unique package names from snapshot
   const packageNames = useMemo(() => {
@@ -57,8 +61,8 @@ export function BookingsClient({ bookings }: BookingsClientProps) {
     if (dateTo)   list = list.filter((b) => b.visit_date <= dateTo)
 
     // Search
-    if (search.trim()) {
-      const term = search.trim().toLowerCase()
+    if (searchTerm.trim()) {
+      const term = searchTerm.trim().toLowerCase()
       list = list.filter(
         (b) =>
           b.customer_name.toLowerCase().includes(term) ||
@@ -75,7 +79,10 @@ export function BookingsClient({ bookings }: BookingsClientProps) {
     )
 
     return list
-  }, [bookings, activeTab, packageFilter, dateFrom, dateTo, search, sortDir, corporateOnly])
+  }, [bookings, activeTab, packageFilter, dateFrom, dateTo, searchTerm, sortDir, corporateOnly])
+
+  const page = useShownRows(filtered.length, [activeTab, packageFilter, dateFrom, dateTo, searchTerm, sortDir, corporateOnly].join('|'))
+  const visible = useMemo(() => filtered.slice(0, page.shown), [filtered, page.shown])
 
   return (
     <div className="flex flex-col gap-4">
@@ -162,7 +169,8 @@ export function BookingsClient({ bookings }: BookingsClientProps) {
       </div>
 
       {/* Table */}
-      <BookingTable bookings={filtered} />
+      <BookingTable bookings={visible} />
+      <ShowMoreButton shown={page.shown} total={filtered.length} onMore={page.more} onAll={page.all} />
     </div>
   )
 }

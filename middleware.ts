@@ -95,7 +95,9 @@ interface CachedProfile {
  * enforces access — so a role edit or a deactivation takes effect on the page
  * immediately, and only middleware's redirect lags by at most the TTL.
  */
-const PROFILE_TTL_MS = 30_000
+// 2 minutes: role edits and deactivations still take effect on the page at
+// once (requirePermission is uncached there); only this redirect can lag.
+const PROFILE_TTL_MS = 120_000
 const PROFILE_CACHE_MAX = 500
 const profileCache = new Map<string, { expires: number; value: CachedProfile | null }>()
 

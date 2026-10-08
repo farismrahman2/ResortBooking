@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { useForm, Controller } from 'react-hook-form'
+import { useForm, useWatch, Controller, type Control } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Plus, Trash2 } from 'lucide-react'
 import { CreateQuoteSchema, type CreateQuoteInput } from '@/lib/validators/quote'
@@ -98,7 +98,6 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
     register,
     handleSubmit,
     control,
-    watch,
     setValue,
     formState: { errors },
   } = useForm<CreateQuoteInput>({
@@ -134,7 +133,12 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
     },
   })
 
-  const watchedValues = watch()
+  // Only the fields the pricing, pickers and preview depend on. watch() of
+  // the whole form re-rendered all 1,400 lines on every keystroke — typing a
+  // name or a note now leaves the form alone (the name and phone are watched
+  // by the two small pieces that show them).
+  const watchedArr = useWatch({ control, name: WATCHED_FIELDS })
+  const watchedValues = Object.fromEntries(WATCHED_FIELDS.map((k, i) => [k, watchedArr[i]])) as Pick<CreateQuoteInput, WatchedField>
   const selectedPackageId = watchedValues.package_id
   const packageType = watchedValues.package_type
   const visitDate = watchedValues.visit_date
@@ -523,12 +527,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
                 error={errors.customer_phone?.message}
                 {...register('customer_phone')}
               />
-              {watchedValues.customer_phone && (
-                <div className="mt-1.5">
-                  <WhatsAppLink phone={watchedValues.customer_phone} />
-                </div>
-              )}
-              <ReturningGuestBadge phone={watchedValues.customer_phone} />
+              <PhoneExtras control={control} />
             </div>
           </div>
 
@@ -1158,10 +1157,9 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
 
           {/* WhatsApp output preview */}
           {calcResult && previewPackage && (
-            <WhatsAppPreview
+            <CustomerPreview
+              control={control}
               packageName={isGroup && nightPackage && dayPackage ? `${nightPackage.name} + ${dayPackage.name}` : previewPackage.name}
-              customerName={watchedValues.customer_name || '—'}
-              customerPhone={watchedValues.customer_phone || '—'}
               packageType={packageType}
               visitDate={visitDate}
               checkOutDate={checkOutDate ?? null}
@@ -1183,6 +1181,35 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
     </form>
     </>
   )
+}
+
+const WATCHED_FIELDS = [
+  'package_id', 'package_type', 'visit_date', 'check_out_date', 'days', 'day_package_id', 'rooms',
+  'adults', 'children_paid', 'children_free', 'drivers', 'extra_beds',
+  'discount', 'discount_pct', 'service_charge_pct', 'advance_required', 'advance_paid',
+  'is_corporate', 'company_name', 'corporate_account_id',
+] as const satisfies ReadonlyArray<keyof CreateQuoteInput>
+type WatchedField = typeof WATCHED_FIELDS[number]
+
+/** WhatsApp link + returning-guest badge under the phone field. */
+function PhoneExtras({ control }: { control: Control<CreateQuoteInput> }) {
+  const phone = useWatch({ control, name: 'customer_phone' })
+  return (
+    <>
+      {phone && (
+        <div className="mt-1.5">
+          <WhatsAppLink phone={phone} />
+        </div>
+      )}
+      <ReturningGuestBadge phone={phone} />
+    </>
+  )
+}
+
+/** The WhatsApp preview, reading the guest's name and phone itself. */
+function CustomerPreview({ control, ...props }: { control: Control<CreateQuoteInput> } & Omit<Parameters<typeof WhatsAppPreview>[0], 'customerName' | 'customerPhone'>) {
+  const [name, phone] = useWatch({ control, name: ['customer_name', 'customer_phone'] })
+  return <WhatsAppPreview {...props} customerName={name || '—'} customerPhone={phone || '—'} />
 }
 
 /** react-hook-form nests itinerary errors under days[i].rooms[j]…; surface the first one. */

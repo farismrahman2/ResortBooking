@@ -1,6 +1,7 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+// Also refreshes the cached reports — see lib/revalidate.ts.
+import { revalidateMoneyPath as revalidatePath } from '@/lib/revalidate'
 import { createClient } from '@/lib/supabase/server'
 import { computePayrollLine, type PayrollLine, type AttendanceCounts } from '@/lib/engine/payroll'
 import { summariseAttendanceForMonth } from '@/lib/queries/attendance'

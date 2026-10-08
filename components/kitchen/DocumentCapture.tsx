@@ -116,7 +116,7 @@ export function DocumentCapture({
                   </span>
                 ) : d.url ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={d.url} alt={d.file_name} className="h-full w-full object-cover" />
+                  <img loading="lazy" decoding="async" src={d.url} alt={d.file_name} className="h-full w-full object-cover" />
                 ) : (
                   <span className="flex h-full w-full items-center justify-center text-[10px] text-gray-400">
                     no preview

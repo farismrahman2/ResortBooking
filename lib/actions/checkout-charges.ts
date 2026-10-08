@@ -1,6 +1,7 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+// Also refreshes the cached reports — see lib/revalidate.ts.
+import { revalidateMoneyPath as revalidatePath } from '@/lib/revalidate'
 import { createClient } from '@/lib/supabase/server'
 import { addChargeSchema, updateChargeSchema } from '@/lib/validators/checkout'
 import { requirePermission, getCurrentUserContext } from '@/lib/auth/permissions'

@@ -24,6 +24,19 @@ const SHELL = '/crm/field-visits/offline'
 
 const PRECACHE = [SHELL, '/manifest.json']
 
+// Build chunks are immutable but every deploy brings new ones, and old ones
+// were never evicted — they piled up on staff phones. Keep the newest few
+// hundred (Cache Storage lists keys in insertion order, oldest first).
+const MAX_STATIC = 300
+
+function trimStatic(cache) {
+  return cache.keys().then((keys) => {
+    const statics = keys.filter((k) => new URL(k.url).pathname.startsWith('/_next/static'))
+    const extra = statics.length - MAX_STATIC
+    return extra > 0 ? Promise.all(statics.slice(0, extra).map((k) => cache.delete(k))) : undefined
+  })
+}
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE)
@@ -54,7 +67,7 @@ self.addEventListener('fetch', (event) => {
       caches.match(req).then((hit) => hit || fetch(req).then((res) => {
         if (res.ok) {
           const copy = res.clone()
-          caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => undefined)
+          caches.open(CACHE).then((c) => c.put(req, copy).then(() => trimStatic(c))).catch(() => undefined)
         }
         return res
       })),

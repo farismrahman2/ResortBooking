@@ -111,7 +111,7 @@ export function VisitCardCapture({
               >
                 {c.url ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={c.url} alt={c.contact_label ?? c.file_name}
+                  <img loading="lazy" decoding="async" src={c.url} alt={c.contact_label ?? c.file_name}
                        className="h-full w-full object-cover" />
                 ) : (
                   <span className="flex h-full items-center justify-center text-[10px] text-gray-400">

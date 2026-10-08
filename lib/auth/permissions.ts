@@ -1,6 +1,7 @@
 import { cache } from 'react'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { cachedRef } from '@/lib/cache'
 import type { ActionResult } from '@/lib/actions/types'
 import type {
   ModuleSlug,
@@ -34,6 +35,23 @@ function emptyPermissionMap(): Record<ModuleSlug, PermissionLevel> {
   return m
 }
 
+/** Module slug → level for one role. Shared across users and requests. */
+const rolePermissionMap = (roleId: string) => cachedRef<Record<string, PermissionLevel>>(
+  `role-permissions:${roleId}`,
+  async (db) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (db as any)
+      .from('role_permissions')
+      .select('level, module:modules!inner (slug)')
+      .eq('role_id', roleId)
+    if (error) throw new Error(`rolePermissionMap: ${error.message}`)
+    const out: Record<string, PermissionLevel> = {}
+    for (const r of (data ?? []) as Array<{ level: PermissionLevel; module: { slug: string } }>) out[r.module.slug] = r.level
+    return out
+  },
+  { tags: ['role-permissions'], revalidate: 300 },
+)()
+
 export const getCurrentUserContext = cache(async (): Promise<UserContext | null> => {
   const supabase = createClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -42,21 +60,17 @@ export const getCurrentUserContext = cache(async (): Promise<UserContext | null>
   if (!data?.user) return null
 
   try {
-    // Single round-trip: pull profile + role + role_permissions + module slugs
-    // in one nested select. Saves 1 round-trip per request vs. the previous
-    // two-query approach.
+    // The per-user part is one small row; the role's permission map is the
+    // same for everyone holding the role and changes a few times a year, so
+    // it comes from a shared cache (busted by updateRolePermissions). The old
+    // nested select joined role_permissions on every request — the most
+    // repeated query on the database.
     const { data: profile, error: profileErr } = await db
       .from('user_profiles')
       .select(`
         user_id, full_name, email, role_id, is_active, phone,
         created_by, created_at, updated_at, last_login_at,
-        role:roles!inner (
-          id, slug, display_name,
-          role_permissions (
-            level,
-            module:modules!inner (slug)
-          )
-        )
+        role:roles!inner ( id, slug, display_name )
       `)
       .eq('user_id', data.user.id)
       .maybeSingle()
@@ -74,11 +88,8 @@ export const getCurrentUserContext = cache(async (): Promise<UserContext | null>
     }
 
     const permissions = emptyPermissionMap()
-    const rolePerms = (profile.role?.role_permissions ?? []) as Array<{
-      level: PermissionLevel
-      module: { slug: ModuleSlug }
-    }>
-    for (const p of rolePerms) permissions[p.module.slug] = p.level
+    const levels = await rolePermissionMap(profile.role_id).catch(() => ({} as Record<string, PermissionLevel>))
+    for (const [slug, level] of Object.entries(levels)) permissions[slug as ModuleSlug] = level
 
     return {
       user_id: data.user.id,

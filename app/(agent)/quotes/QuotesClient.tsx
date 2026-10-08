@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useDeferredValue } from 'react'
+import { useShownRows, ShowMoreButton } from '@/components/ui/ShowMore'
 import { Search, Building2 } from 'lucide-react'
 import { Input } from '@/components/ui/Input'
 import { Tabs } from '@/components/ui/Tabs'
@@ -18,6 +19,7 @@ export function QuotesClient({ quotes, statusCounts }: QuotesClientProps) {
   const [activeTab, setActiveTab] = useState<TabId>('all')
   const [search, setSearch]       = useState('')
   const [corporateOnly, setCorporateOnly] = useState(false)
+  const searchTerm = useDeferredValue(search)   // keep typing smooth over 1000 rows
 
   const totalCount = Object.values(statusCounts).reduce((a, b) => a + b, 0)
 
@@ -41,8 +43,8 @@ export function QuotesClient({ quotes, statusCounts }: QuotesClientProps) {
     if (corporateOnly) list = list.filter((q) => (q as any).is_corporate === true)
 
     // Search filter (customer name, phone, or quote number)
-    if (search.trim()) {
-      const term = search.trim().toLowerCase()
+    if (searchTerm.trim()) {
+      const term = searchTerm.trim().toLowerCase()
       list = list.filter(
         (q) =>
           q.customer_name.toLowerCase().includes(term) ||
@@ -52,7 +54,10 @@ export function QuotesClient({ quotes, statusCounts }: QuotesClientProps) {
     }
 
     return list
-  }, [quotes, activeTab, search, corporateOnly])
+  }, [quotes, activeTab, searchTerm, corporateOnly])
+
+  const page = useShownRows(filtered.length, [activeTab, searchTerm, corporateOnly].join('|'))
+  const visible = useMemo(() => filtered.slice(0, page.shown), [filtered, page.shown])
 
   return (
     <div className="flex flex-col gap-4">
@@ -93,7 +98,8 @@ export function QuotesClient({ quotes, statusCounts }: QuotesClientProps) {
       </div>
 
       {/* Table */}
-      <QuoteTable quotes={filtered} />
+      <QuoteTable quotes={visible} />
+      <ShowMoreButton shown={page.shown} total={filtered.length} onMore={page.more} onAll={page.all} />
     </div>
   )
 }
