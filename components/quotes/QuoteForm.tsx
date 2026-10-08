@@ -346,16 +346,26 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
     if (checkOutDate) params.set('checkOutDate', checkOutDate)
     // Editing a confirmed quote: its own rooms are not "taken by someone else".
     if (quoteId) params.set('excludeQuoteId', quoteId)
-    fetch(`/api/booked-room-numbers?${params}`)
-      .then((r) => r.json())
-      .then((d) => {
-        setBookedRoomNumbers(d.takenRoomNumbers ?? [])
-        setNoonRoomNumbers(d.noonRoomNumbers ?? [])
-        setEveningOnlyRoomNumbers(d.eveningOnlyRoomNumbers ?? [])
-        setUntilEveningRoomNumbers(d.untilEveningRoomNumbers ?? [])
-        setBlockedReasons(d.blockedRoomReasons ?? {})
-      })
-      .catch(() => { setBookedRoomNumbers([]); setNoonRoomNumbers([]); setEveningOnlyRoomNumbers([]); setUntilEveningRoomNumbers([]) })
+    // Debounced, and the previous request aborted: typing a date passes
+    // through several valid dates, and a late answer for an earlier one
+    // used to overwrite the right one — showing the wrong rooms as taken.
+    const ctrl  = new AbortController()
+    const timer = setTimeout(() => {
+      fetch(`/api/booked-room-numbers?${params}`, { signal: ctrl.signal })
+        .then((r) => r.json())
+        .then((d) => {
+          setBookedRoomNumbers(d.takenRoomNumbers ?? [])
+          setNoonRoomNumbers(d.noonRoomNumbers ?? [])
+          setEveningOnlyRoomNumbers(d.eveningOnlyRoomNumbers ?? [])
+          setUntilEveningRoomNumbers(d.untilEveningRoomNumbers ?? [])
+          setBlockedReasons(d.blockedRoomReasons ?? {})
+        })
+        .catch((e) => {
+          if (e?.name === 'AbortError') return
+          setBookedRoomNumbers([]); setNoonRoomNumbers([]); setEveningOnlyRoomNumbers([]); setUntilEveningRoomNumbers([])
+        })
+    }, 250)
+    return () => { clearTimeout(timer); ctrl.abort() }
   }, [visitDate, checkOutDate, quoteId])
 
 
@@ -451,18 +461,23 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
   ]
 
   // Check if any selected rooms have a night stay checking out on the visit date (daylong only)
+  // Keyed on the set of room types, not the room array: a qty or room-number
+  // tweak used to re-fetch even though the answer cannot change.
+  const noonRoomTypes = [...new Set(allRoomsWithComp.map((r) => r.room_type))].sort().join(',')
   useEffect(() => {
-    if (packageType !== 'daylong' || !visitDate || allRoomsWithComp.length === 0) {
+    if (packageType !== 'daylong' || !visitDate || !noonRoomTypes) {
       setRoomAvailableAfterNoon(false)
       return
     }
-    const roomTypes = allRoomsWithComp.map((r) => r.room_type).join(',')
-    fetch(`/api/room-noon-notice?visitDate=${visitDate}&roomTypes=${roomTypes}`)
-      .then((r) => r.json())
-      .then((d) => setRoomAvailableAfterNoon(d.hasConflict ?? false))
-      .catch(() => setRoomAvailableAfterNoon(false))
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [packageType, visitDate, currentRooms, compRoomData])
+    const ctrl  = new AbortController()
+    const timer = setTimeout(() => {
+      fetch(`/api/room-noon-notice?visitDate=${visitDate}&roomTypes=${noonRoomTypes}`, { signal: ctrl.signal })
+        .then((r) => r.json())
+        .then((d) => setRoomAvailableAfterNoon(d.hasConflict ?? false))
+        .catch((e) => { if (e?.name !== 'AbortError') setRoomAvailableAfterNoon(false) })
+    }, 250)
+    return () => { clearTimeout(timer); ctrl.abort() }
+  }, [packageType, visitDate, noonRoomTypes])
 
   const dayBadge = dayType ? DAY_LABELS[dayType] : null
 

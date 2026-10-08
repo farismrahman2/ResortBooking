@@ -17,6 +17,10 @@ const notoSansBengali = Noto_Sans_Bengali({
   variable: '--font-bn',
   weight:   ['400', '500', '600', '700'],
   display:  'swap',
+  // Not preloaded: 107 KB that every page fetched up front. The font's
+  // unicode-range means the browser fetches it only once a page actually
+  // shows a Bengali glyph (৳ or a Bangla report), then keeps it cached.
+  preload:  false,
 })
 
 export const metadata: Metadata = {

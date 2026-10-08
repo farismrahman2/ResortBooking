@@ -140,8 +140,12 @@ export function Sidebar({ userEmail, permissions, roleLabel, roleSlug, unreadAle
             const showBadge = badgeCount > 0
             return (
               <li key={href}>
+                {/* No prefetch: the sidebar rendered 5–10 links at once, and their
+                    simultaneous prefetches raced each other to refresh an
+                    expired session — the cause of the middleware auth timeouts. */}
                 <Link
                   href={href}
+                  prefetch={false}
                   onClick={close}
                   className={cn(
                     'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',

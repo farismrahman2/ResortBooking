@@ -166,11 +166,21 @@ function overlayBookingOntoQuote(
 }
 
 /** Get quote count by status (for dashboard).
- *  Head-only count queries: no rows transferred, and immune to the PostgREST
- *  1000-row response cap (which silently undercounted past 1000 quotes). */
+ *  One GROUP BY round trip (quote_status_counts RPC, migrations/perf/001).
+ *  The four head-only counts it replaced were the most expensive query on
+ *  the database — they stay as the fallback until the migration is live. */
 export async function getQuoteStatusCounts(): Promise<Record<BookingStatus, number>> {
   const supabase = createClient()
   const statuses: BookingStatus[] = ['draft', 'sent', 'confirmed', 'cancelled']
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase as any).rpc('quote_status_counts')
+  if (!error && Array.isArray(data)) {
+    const counts = Object.fromEntries(statuses.map((s) => [s, 0])) as Record<BookingStatus, number>
+    for (const row of data as Array<{ status: string; n: number | string }>) {
+      if (row.status in counts) counts[row.status as BookingStatus] = Number(row.n ?? 0)
+    }
+    return counts
+  }
   const results = await Promise.all(
     statuses.map((status) =>
       supabase.from('quotes').select('id', { count: 'exact', head: true }).eq('status', status),

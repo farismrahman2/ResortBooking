@@ -313,8 +313,10 @@ export const config = {
      * Match all request paths except:
      * - _next/static (static files)
      * - _next/image (image optimization)
-     * - favicon.ico and common image extensions
+     * - favicon.ico, images, fonts, scripts, styles and data files in public/
+     *   (manifest.json, sw.js, fonts/…) — none needs a session, and each one
+     *   used to pay an auth round trip
      */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|fonts/|manifest\\.json|sw\\.js|robots\\.txt|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|woff2?|ttf|css|js|json|txt)$).*)',
   ],
 }
