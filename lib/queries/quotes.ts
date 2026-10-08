@@ -68,24 +68,17 @@ export async function getQuotes(filters: QuoteFilters = {}): Promise<QuoteRow[]>
 /** Fetch a single quote with its rooms */
 export async function getQuoteById(id: string): Promise<QuoteWithRooms | null> {
   const supabase = createClient()
-  const { data: quote, error } = await supabase
-    .from('quotes')
-    .select('*')
-    .eq('id', id)
-    .single()
+  // All three at once: the itinerary query is cheap and empty for a
+  // non-group, and running them in sequence cost two extra round trips.
+  const [{ data: quote, error }, { data: rooms }, { data: days }] = await Promise.all([
+    supabase.from('quotes').select('*').eq('id', id).single(),
+    supabase.from('quote_rooms').select('*').eq('quote_id', id),
+    (supabase as any).from('quote_days').select('*, rooms:quote_day_rooms(*)').eq('quote_id', id),   // eslint-disable-line @typescript-eslint/no-explicit-any
+  ])
   if (error || !quote) return null
-
-  const { data: rooms } = await supabase
-    .from('quote_rooms')
-    .select('*')
-    .eq('quote_id', id)
 
   // A group's rooms and guests live in its itinerary, not in quote_rooms.
   if ((quote as { package_type?: string }).package_type === 'group') {
-    const { data: days } = await (supabase as any)  // eslint-disable-line @typescript-eslint/no-explicit-any
-      .from('quote_days')
-      .select('*, rooms:quote_day_rooms(*)')
-      .eq('quote_id', id)
     return { ...quote, rooms: rooms ?? [], days: sortDays((days ?? []) as GroupDayWithRooms[]) }
   }
 

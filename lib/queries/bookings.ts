@@ -69,24 +69,17 @@ export async function getBookings(filters: BookingFilters = {}): Promise<Booking
 /** Fetch a single booking with its rooms */
 export async function getBookingById(id: string): Promise<BookingWithRooms | null> {
   const supabase = createClient()
-  const { data: booking, error } = await supabase
-    .from('bookings')
-    .select('*')
-    .eq('id', id)
-    .single()
+  // All three at once: the itinerary query is cheap and empty for a
+  // non-group, and running them in sequence cost two extra round trips.
+  const [{ data: booking, error }, { data: rooms }, { data: days }] = await Promise.all([
+    supabase.from('bookings').select('*').eq('id', id).single(),
+    supabase.from('booking_rooms').select('*').eq('booking_id', id),
+    (supabase as any).from('booking_days').select('*, rooms:booking_day_rooms(*)').eq('booking_id', id),   // eslint-disable-line @typescript-eslint/no-explicit-any
+  ])
   if (error || !booking) return null
-
-  const { data: rooms } = await supabase
-    .from('booking_rooms')
-    .select('*')
-    .eq('booking_id', id)
 
   // A group's rooms and guests live in its itinerary, not in booking_rooms.
   if ((booking as { package_type?: string }).package_type === 'group') {
-    const { data: days } = await (supabase as any)  // eslint-disable-line @typescript-eslint/no-explicit-any
-      .from('booking_days')
-      .select('*, rooms:booking_day_rooms(*)')
-      .eq('booking_id', id)
     return { ...booking, rooms: rooms ?? [], days: sortDays((days ?? []) as GroupDayWithRooms[]) }
   }
 

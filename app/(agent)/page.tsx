@@ -12,6 +12,7 @@ import { getCurrentUserContext } from '@/lib/auth/permissions'
 import { formatDate } from '@/lib/formatters/dates'
 import { formatBDT } from '@/lib/formatters/currency'
 import Link from 'next/link'
+import { Suspense } from 'react'
 import { TodayPanel } from '@/components/dashboard/TodayPanel'
 import { getTodaySnapshot } from '@/lib/queries/dashboard-today'
 
@@ -48,19 +49,24 @@ export default async function DashboardPage() {
     redirect('/403?from=dashboard')
   }
 
-  const today = await getTodaySnapshot().catch(() => null)
-
   // Booking-module widgets are a separate gate from the operational panel:
   // front desk sees today's arrivals but not the quote funnel.
+  // Today's snapshot and the widgets load together, in one round.
   const showBookingWidgets = canRead('bookings')
-  const [recentQuotes, statusCounts, upcomingBookings, bookingStats] = showBookingWidgets
-    ? await Promise.all([
-        getRecentQuotes(5),
-        getQuoteStatusCounts(),
-        getUpcomingBookings(5),
-        getBookingStats(),
-      ])
-    : [[], { draft: 0, sent: 0, confirmed: 0, cancelled: 0 } as any, [], { total_bookings: 0, total_revenue: 0, pending_advance: 0 }]
+  const [today, [recentQuotes, statusCounts, upcomingBookings, bookingStats]] = await Promise.all([
+    getTodaySnapshot().catch(() => null),
+    showBookingWidgets
+      ? Promise.all([
+          getRecentQuotes(5),
+          getQuoteStatusCounts(),
+          getUpcomingBookings(5),
+          getBookingStats(),
+        ])
+      : Promise.resolve([[], { draft: 0, sent: 0, confirmed: 0, cancelled: 0 }, [], { total_bookings: 0, total_revenue: 0, pending_advance: 0 }] as unknown as [
+          Awaited<ReturnType<typeof getRecentQuotes>>, Awaited<ReturnType<typeof getQuoteStatusCounts>>,
+          Awaited<ReturnType<typeof getUpcomingBookings>>, Awaited<ReturnType<typeof getBookingStats>>,
+        ]),
+  ])
 
   const subtitle = new Date().toLocaleDateString('en-GB', {
     weekday: 'long',
@@ -97,9 +103,11 @@ export default async function DashboardPage() {
           {/* Right: Quick actions + revenue + expenses + P&L + upcoming */}
           <div className="lg:col-span-2 space-y-6">
             <QuickActions />
+            {/* The server-rendered money widgets stream in on their own
+                instead of holding the whole page until they are ready. */}
             {canSeeRevenue && <RevenueWidget />}
-            {canSeeRevenue && <MonthlyPnLWidget />}
-            {canSeeRevenue && <ExpensesThisMonth />}
+            {canSeeRevenue && <Suspense fallback={<WidgetSkeleton />}><MonthlyPnLWidget /></Suspense>}
+            {canSeeRevenue && <Suspense fallback={<WidgetSkeleton />}><ExpensesThisMonth /></Suspense>}
 
             {/* Upcoming bookings mini list */}
             <div className="card p-5">
@@ -142,4 +150,8 @@ export default async function DashboardPage() {
       </div>
     </div>
   )
+}
+
+function WidgetSkeleton() {
+  return <div className="card h-40 animate-pulse bg-gray-50" />
 }

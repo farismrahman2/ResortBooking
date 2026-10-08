@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { checkAvailabilityConflict, findRoomNumberConflicts } from '@/lib/queries/availability'
+import { checkAvailabilityConflict, findRoomNumberConflicts, loadStaySnapshot, stayWindow } from '@/lib/queries/availability'
 import { calculateDaylong, calculateNight } from '@/lib/engine/calculator'
 import { getHolidayDateStrings } from '@/lib/queries/settings'
 import type { RoomType } from '@/lib/supabase/types'
@@ -50,11 +50,15 @@ export async function GET(req: NextRequest) {
     //    the room numbers are checked separately so the UI can offer to
     //    clear just the ones that clash.
     const requestedRooms = bookingRooms.map((r) => ({ room_type: r.room_type, qty: r.qty }))
+    // One fetch of the stays around the new dates serves both checks.
+    const staySnap = await loadStaySnapshot(...stayWindow(visitDate, checkOutDate), { excludeBookingId: bookingId })
     const conflictMessage = await checkAvailabilityConflict(
       visitDate,
       checkOutDate,
       requestedRooms,
       bookingId,
+      undefined,
+      staySnap,
     )
 
     // 2. Room numbers that can't come along to the new dates. A room handed
@@ -63,7 +67,7 @@ export async function GET(req: NextRequest) {
       bookingRooms.map((r) => ({
         room_type: r.room_type, qty: r.qty, room_numbers: r.room_numbers ?? [], evening_rooms: r.evening_rooms ?? [],
       })),
-      visitDate, checkOutDate, bookingId,
+      visitDate, checkOutDate, bookingId, undefined, staySnap,
     ))
     const conflictingRoomNumbers: Record<string, string[]> = {}
     for (const r of bookingRooms) {

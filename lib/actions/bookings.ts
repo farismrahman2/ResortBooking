@@ -8,6 +8,7 @@ import { getHolidayDateStrings } from '@/lib/queries/settings'
 import {
   checkAvailabilityConflict, findRoomNumberConflicts,
   checkGroupAvailabilityConflict, findGroupRoomNumberConflicts,
+  groupSnapshot, loadStaySnapshot, stayWindow,
 } from '@/lib/queries/availability'
 import { rowsToSegments, deriveGroupHeader, type GroupSegment } from '@/lib/bookings/group-itinerary'
 import { insertGroupDays, replaceGroupDays } from '@/lib/bookings/group-days-db'
@@ -92,9 +93,10 @@ export async function convertQuoteToBooking(
       if (groupDays.length === 0) {
         return { success: false, error: 'This group quote has no itinerary yet — edit it and add the days first.' }
       }
-      const cap = await checkGroupAvailabilityConflict(groupDays, { excludeQuoteId: quoteId })
+      const groupSnap = await groupSnapshot(groupDays, { excludeQuoteId: quoteId })   // one fetch for both checks
+      const cap = await checkGroupAvailabilityConflict(groupDays, { excludeQuoteId: quoteId, snap: groupSnap })
       if (cap) return { success: false, error: `Cannot convert: ${cap}` }
-      const clashes = await findGroupRoomNumberConflicts(groupDays, undefined, quoteId)
+      const clashes = await findGroupRoomNumberConflicts(groupDays, undefined, quoteId, groupSnap)
       if (clashes.length > 0) {
         const unique = Array.from(new Set(clashes.map((c) => c.room)))
         return {
@@ -117,12 +119,17 @@ export async function convertQuoteToBooking(
       room_numbers:  (r.room_numbers ?? []) as string[],
       evening_rooms: (r.evening_rooms ?? []) as string[],
     }))
+    // One fetch of the surrounding stays serves both checks below.
+    const convSnap = requestedRoomQtys.some((r) => r.qty > 0)
+      ? await loadStaySnapshot(...stayWindow(quote.visit_date, quote.check_out_date), { excludeQuoteId: quoteId })
+      : undefined
     const capacityErr = await checkAvailabilityConflict(
       quote.visit_date,
       quote.check_out_date,
       requestedRoomQtys,
       undefined,
       quoteId,
+      convSnap,
     )
     if (capacityErr) {
       return { success: false, error: `Cannot convert: ${capacityErr}` }
@@ -139,7 +146,7 @@ export async function convertQuoteToBooking(
     // claimed by another booking that confirmed first. A room the quote hands
     // over in the evening only needs its night free.
     const conflictingNumbers = await findRoomNumberConflicts(
-      requestedRoomQtys, quote.visit_date, quote.check_out_date, undefined, quoteId,
+      requestedRoomQtys, quote.visit_date, quote.check_out_date, undefined, quoteId, convSnap,
     )
     if (conflictingNumbers.length > 0) {
       const unique = Array.from(new Set(conflictingNumbers))
@@ -847,9 +854,10 @@ export async function updateBooking(
       const hasDay   = groupDays.some((d) => d.stay_kind === 'daylong')
       const daySnap  = input.day_package_snapshot ?? (hasNight ? null : package_snapshot)
       if (hasDay && !daySnap) return { success: false, error: 'This booking has no daylong package to price its day guests' }
-      const cap = await checkGroupAvailabilityConflict(groupDays, { excludeBookingId: bookingId })
+      const groupSnap = await groupSnapshot(groupDays, { excludeBookingId: bookingId })   // one fetch for both checks
+      const cap = await checkGroupAvailabilityConflict(groupDays, { excludeBookingId: bookingId, snap: groupSnap })
       if (cap) return { success: false, error: `Availability conflict: ${cap}` }
-      const clashes = await findGroupRoomNumberConflicts(groupDays, bookingId)
+      const clashes = await findGroupRoomNumberConflicts(groupDays, bookingId, undefined, groupSnap)
       if (clashes.length > 0) {
         return { success: false, error: `Room ${Array.from(new Set(clashes.map((c) => c.room))).join(', ')} is already booked by another booking on ${Array.from(new Set(clashes.map((c) => c.date))).join(', ')}` }
       }
@@ -1416,12 +1424,16 @@ export async function swapRoomAssignment(
 
       // Availability check only matters when the room_type actually changes
       // (same-type paid↔comp flip doesn't change physical occupancy)
+      // One fetch of the surrounding stays serves both checks below.
+      const swapSnap = await loadStaySnapshot(...stayWindow(booking.visit_date, booking.check_out_date), { excludeBookingId: bookingId })
       if (oldRow.room_type !== input.to_room_type) {
         const conflict = await checkAvailabilityConflict(
           booking.visit_date,
           booking.check_out_date,
           [{ room_type: input.to_room_type, qty: oldRow.qty }],
           bookingId,
+          undefined,
+          swapSnap,
         )
         if (conflict) return { success: false, error: `Availability conflict: ${conflict}` }
       }
@@ -1440,7 +1452,7 @@ export async function swapRoomAssignment(
           .filter((n) => input.new_room_numbers.includes(n))
         const clashes = await findRoomNumberConflicts(
           [{ room_type: input.to_room_type, qty: oldRow.qty, room_numbers: input.new_room_numbers, evening_rooms: keptEvening }],
-          booking.visit_date, booking.check_out_date, bookingId,
+          booking.visit_date, booking.check_out_date, bookingId, undefined, swapSnap,
         )
         if (clashes.length > 0) {
           return { success: false, error: `Room ${clashes.join(', ')} is already booked on these dates` }

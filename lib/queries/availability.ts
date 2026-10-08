@@ -8,6 +8,7 @@ import {
 import { distinctDates, type GroupSegment } from '@/lib/bookings/group-itinerary'
 import { blockStays, findBlockConflicts, type RoomBlock, type BlockConflict } from '@/lib/engine/blocks'
 import { listBlocksOverlapping } from '@/lib/queries/room-blocks'
+import { getRoomInventory } from '@/lib/queries/settings'
 import type { AvailabilityResult, RoomInventoryRow, RoomType } from '@/lib/supabase/types'
 
 export type { RequestedRoom } from '@/lib/engine/halves'
@@ -88,7 +89,7 @@ async function fetchStays(rangeStart: string, rangeEnd: string, opts: FetchOpts 
     await Promise.all([
       bookingQ, quoteQ, dayQ, quoteDayQ,
       wantBlocks ? listBlocksOverlapping(rangeStart, rangeEnd, opts.excludeBlockId) : Promise.resolve([]),
-      wantBlocks ? db.from('room_inventory').select('room_type, total_units').then((r: { data: unknown }) => r.data ?? []) : Promise.resolve([]),
+      wantBlocks ? inventoryRows() : Promise.resolve([]),
     ])
 
   const stays: StayLike[] = []
@@ -133,6 +134,53 @@ async function fetchStays(rangeStart: string, rangeEnd: string, opts: FetchOpts 
   return stays
 }
 
+/** Room inventory from the shared reference cache — it changes once a year,
+ *  and reading it per check was up to three extra round trips each time. */
+async function inventoryRows(): Promise<Array<{ room_type: string; total_units: number }>> {
+  try {
+    return (await getRoomInventory()).map((r) => ({ room_type: r.room_type, total_units: Number(r.total_units ?? 0) }))
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Every stay around a request, fetched ONCE and handed to each check that
+ * needs it. A booking save runs a capacity check and a room-number check, and
+ * a group runs both for every day of its itinerary — each used to fetch the
+ * same rows again (seven queries a time), which made a five-night group save
+ * take half a minute. Covers [from, to); `from` should be a day before the
+ * first date so the noon rule sees the previous night's checkouts.
+ */
+export interface StaySnapshot {
+  from:  string
+  to:    string
+  stays: StayLike[]
+  inventory: Map<string, number>
+}
+
+export async function loadStaySnapshot(
+  from: string, to: string,
+  opts: { excludeBookingId?: string; excludeQuoteId?: string } = {},
+): Promise<StaySnapshot> {
+  const [stays, inventory] = await Promise.all([fetchStays(from, to, opts), inventoryTotals()])
+  return { from, to, stays, inventory }
+}
+
+/** The snapshot for one stay: the day before arrival through checkout. */
+export function stayWindow(visitDate: string, checkOutDate: string | null): [string, string] {
+  return [addDaysIso(visitDate, -1), checkOutDate ?? addDaysIso(visitDate, 1)]
+}
+
+/** Use the snapshot when it covers the window, otherwise fetch. */
+async function staysFor(
+  from: string, to: string, snap: StaySnapshot | undefined,
+  opts: { excludeBookingId?: string; excludeQuoteId?: string },
+): Promise<StayLike[]> {
+  if (snap && snap.from <= from && snap.to >= to) return snap.stays
+  return fetchStays(from, to, opts)
+}
+
 /**
  * Bookings and confirmed quotes a block would collide with. A block is
  * refused while any exist (lib/actions/room-blocks.ts). An open-ended block
@@ -140,13 +188,11 @@ async function fetchStays(rangeStart: string, rangeEnd: string, opts: FetchOpts 
  */
 export async function findBlockBookingConflicts(block: RoomBlock): Promise<BlockConflict[]> {
   const end = block.end_date ? addDaysIso(block.end_date, 1) : '2999-12-31'
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db = createClient() as any
-  const [stays, { data: inv }] = await Promise.all([
+  const [stays, inv] = await Promise.all([
     fetchStays(block.start_date, end, { includeBlocks: false }),
-    db.from('room_inventory').select('room_type, total_units'),
+    inventoryRows(),
   ])
-  return findBlockConflicts(block, stays, (inv ?? []) as Array<{ room_type: string; total_units: number }>)
+  return findBlockConflicts(block, stays, inv)
 }
 
 /** "Room 113 is blocked on 2026-10-05 (Not yet open)" — said before the
@@ -182,11 +228,7 @@ function blockOccOn(stays: StayLike[], date: string): { records: OccupancyRecord
 }
 
 async function inventoryTotals(): Promise<Map<string, number>> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db = createClient() as any
-  const { data } = await db.from('room_inventory').select('room_type, total_units')
-  return new Map(((data ?? []) as Array<{ room_type: string; total_units: number }>)
-    .map((r) => [r.room_type, Number(r.total_units ?? 0)]))
+  return new Map((await inventoryRows()).map((r) => [r.room_type, r.total_units]))
 }
 
 function datesOf(visitDate: string, checkOutDate: string | null): string[] {
@@ -210,12 +252,14 @@ export async function checkAvailabilityConflict(
   requestedRooms: RequestedRoom[],
   excludeBookingId?: string,
   excludeQuoteId?: string,
+  /** Stays already fetched for this request — see loadStaySnapshot. */
+  snap?: StaySnapshot,
 ): Promise<string | null> {
   if (requestedRooms.every((r) => r.qty <= 0)) return null
   const dates = datesOf(visitDate, checkOutDate)
   const [inventory, stays] = await Promise.all([
-    inventoryTotals(),
-    fetchStays(visitDate, checkOutDate ?? addDaysIso(visitDate, 1), { excludeBookingId, excludeQuoteId }),
+    snap ? snap.inventory : inventoryTotals(),
+    staysFor(visitDate, checkOutDate ?? addDaysIso(visitDate, 1), snap, { excludeBookingId, excludeQuoteId }),
   ])
   const kind = checkOutDate ? 'night' : 'daylong'
   const blocked = blockMessage(stays, dates, requestedRooms)
@@ -358,11 +402,13 @@ export async function getRoomNumberBuckets(
    *  numbers, so without this a quote reads its own rooms as taken and
    *  refuses to convert — "booked by someone else", by itself. */
   excludeQuoteId?:   string,
+  snap?:             StaySnapshot,
 ): Promise<RoomNumberBuckets> {
   const kind  = checkOutDate ? 'night' : 'daylong'
   const dates = datesOf(visitDate, checkOutDate)
   // One day earlier so stays checking out on visitDate are seen (noon rule).
-  const stays = await fetchStays(addDaysIso(visitDate, -1), checkOutDate ?? addDaysIso(visitDate, 1), { excludeBookingId, excludeQuoteId })
+  const [from, to] = stayWindow(visitDate, checkOutDate)
+  const stays = await staysFor(from, to, snap, { excludeBookingId, excludeQuoteId })
 
   if (kind === 'daylong') {
     const b = roomNumberBuckets(occupancyFor(stays, visitDate), 'daylong')
@@ -436,8 +482,12 @@ export async function findRoomNumberConflicts(
   checkOutDate: string | null,
   excludeBookingId?: string,
   excludeQuoteId?: string,
+  snap?: StaySnapshot,
 ): Promise<string[]> {
-  const b = await getRoomNumberBuckets(visitDate, checkOutDate, excludeBookingId, excludeQuoteId)
+  // Nothing named, nothing to check — and no reason to fetch.
+  const named = rooms.some((r) => (r.room_numbers ?? []).length > 0 || COMPOSITE_ROOMS[r.room_type as RoomType])
+  if (!named) return []
+  const b = await getRoomNumberBuckets(visitDate, checkOutDate, excludeBookingId, excludeQuoteId, snap)
   const taken = new Set(b.taken), eveningOnly = new Set(b.eveningOnly)
   const out: string[] = []
   for (const r of rooms) {
@@ -577,18 +627,31 @@ function segmentRequest(seg: GroupSegment): { kind: 'daylong' | 'night'; rooms: 
  */
 export async function checkGroupAvailabilityConflict(
   segments: GroupSegment[],
-  opts: { excludeBookingId?: string; excludeQuoteId?: string } = {},
+  opts: { excludeBookingId?: string; excludeQuoteId?: string; snap?: StaySnapshot } = {},
 ): Promise<string | null> {
-  for (const seg of segments) {
-    if (seg.rooms.length === 0) continue
+  const withRooms = segments.filter((s) => s.rooms.length > 0)
+  if (withRooms.length === 0) return null
+  const snap = opts.snap ?? await groupSnapshot(withRooms, opts)
+  for (const seg of withRooms) {
     const { kind, rooms } = segmentRequest(seg)
     const conflict = await checkAvailabilityConflict(
       seg.day_date, kind === 'night' ? addDaysIso(seg.day_date, 1) : null, rooms,
-      opts.excludeBookingId, opts.excludeQuoteId,
+      opts.excludeBookingId, opts.excludeQuoteId, snap,
     )
     if (conflict) return conflict
   }
   return null
+}
+
+/** One fetch covering every date of an itinerary (plus the day before, for
+ *  the noon rule, and the morning after its last night). */
+export async function groupSnapshot(
+  segments: GroupSegment[],
+  opts: { excludeBookingId?: string; excludeQuoteId?: string } = {},
+): Promise<StaySnapshot | undefined> {
+  const dates = segments.map((s) => s.day_date).sort()
+  if (dates.length === 0) return undefined
+  return loadStaySnapshot(addDaysIso(dates[0], -1), addDaysIso(dates[dates.length - 1], 2), opts)
 }
 
 /** Room numbers the itinerary names that another booking already holds. */
@@ -596,14 +659,18 @@ export async function findGroupRoomNumberConflicts(
   segments: GroupSegment[],
   excludeBookingId?: string,
   excludeQuoteId?: string,
+  snap?: StaySnapshot,
 ): Promise<Array<{ date: string; room: string }>> {
   const out: Array<{ date: string; room: string }> = []
+  const withRooms = segments.filter((s) => s.rooms.length > 0)
+  if (withRooms.length === 0) return out
+  snap ??= await groupSnapshot(withRooms, { excludeBookingId, excludeQuoteId })
   for (const date of distinctDates(segments)) {
     for (const seg of segments) {
       if (seg.day_date !== date || seg.rooms.length === 0) continue
       const { kind, rooms } = segmentRequest(seg)
       const clashes = await findRoomNumberConflicts(
-        rooms, date, kind === 'night' ? addDaysIso(date, 1) : null, excludeBookingId, excludeQuoteId,
+        rooms, date, kind === 'night' ? addDaysIso(date, 1) : null, excludeBookingId, excludeQuoteId, snap,
       )
       for (const room of clashes) out.push({ date, room })
     }

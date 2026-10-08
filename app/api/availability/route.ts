@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { getRoomInventory } from '@/lib/queries/settings'
 import { getRoomAvailability, getAvailabilityRange } from '@/lib/queries/availability'
 import type { RoomInventoryRow } from '@/lib/supabase/types'
 
@@ -28,15 +28,11 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const supabase = createClient()
-    const { data: inventory, error: invError } = await supabase
-      .from('room_inventory')
-      .select('*')
-      .order('display_order')
-    if (invError || !inventory) {
+    // Reference data, from the shared cache rather than a round trip per call.
+    let inv: RoomInventoryRow[]
+    try { inv = await getRoomInventory() } catch {
       return NextResponse.json({ error: 'Failed to fetch inventory' }, { status: 500 })
     }
-    const inv = inventory as RoomInventoryRow[]
 
     if (date) {
       const rooms = await getRoomAvailability(date, inv, packageType)

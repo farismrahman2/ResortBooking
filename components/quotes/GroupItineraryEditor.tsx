@@ -69,19 +69,21 @@ export function GroupItineraryEditor({
       taken: d.takenRoomNumbers ?? [], noon: d.noonRoomNumbers ?? [],
       eveningOnly: d.eveningOnlyRoomNumbers ?? [], untilEvening: d.untilEveningRoomNumbers ?? [],
     })
-    for (const date of dates) {
-      if (bucketsByDate[date]) continue
-      const base = new URLSearchParams({ visitDate: date })
-      if (excludeBookingId) base.set('excludeId', excludeBookingId)
-      if (excludeQuoteId)   base.set('excludeQuoteId', excludeQuoteId)
-      const nightParams = new URLSearchParams(base); nightParams.set('checkOutDate', addDaysIso(date, 1))
-      Promise.all([
-        fetch(`/api/booked-room-numbers?${nightParams}`).then((r) => r.json()),
-        fetch(`/api/booked-room-numbers?${base}`).then((r) => r.json()),
-      ])
-        .then(([n, d]) => {
-          if (cancelled) return
-          setBucketsByDate((prev) => ({ ...prev, [date]: { night: parse(n), day: parse(d) } }))
+    // Every date not yet known, in ONE request (it used to be two per date).
+    const missing = dates.filter((d) => !bucketsByDate[d])
+    if (missing.length > 0) {
+      const params = new URLSearchParams({ dates: missing.join(',') })
+      if (excludeBookingId) params.set('excludeId', excludeBookingId)
+      if (excludeQuoteId)   params.set('excludeQuoteId', excludeQuoteId)
+      fetch(`/api/booked-room-numbers/range?${params}`)
+        .then((r) => r.json())
+        .then((res) => {
+          if (cancelled || !res?.dates) return
+          const next: Record<string, { night: Buckets; day: Buckets }> = {}
+          for (const [date, v] of Object.entries(res.dates as Record<string, { night: unknown; day: unknown }>)) {
+            next[date] = { night: parse(v.night), day: parse(v.day) }
+          }
+          setBucketsByDate((prev) => ({ ...prev, ...next }))
         })
         .catch(() => { /* leave unknown — the server re-checks on save */ })
     }

@@ -56,64 +56,51 @@ export default async function BookingDetailPage({ params }: PageProps) {
     getRoomInventory(),
   ])
 
-  // Room numbers already taken by OTHER bookings for the same date range,
-  // plus the advance instalment ledger (empty until migration 003 runs).
-  const [roomBuckets, advancePayments, paymentAccounts] = booking
-    ? await Promise.all([
-        getRoomNumberBuckets(booking.visit_date, booking.check_out_date, params.id),
-        listAdvancePayments(params.id).catch(() => []),
-        listPaymentAccounts().catch(() => []),
-      ])
-    : [{ taken: [] as string[], noon: [] as string[], eveningOnly: [] as string[], untilEvening: [] as string[] }, [], []]
-  const bookedRoomNumbers = roomBuckets.taken
-
   if (!booking) notFound()
 
-  // Charges section (best-effort: ignore errors so unmigrated installs still load)
-  const [canSeeCheckout, canWriteCheckout, canEditBooking] = await Promise.all([
-    hasPermission('checkout', 'read'),
-    hasPermission('checkout', 'write'),
-    hasPermission('bookings', 'write'),
+  // Everything else the page needs depends only on the booking, so it is
+  // fetched in ONE parallel round — it used to be five sequential steps.
+  const salesEmployeeId = (booking as any).sales_employee_id as string | null | undefined
+  const [
+    roomBuckets, advancePayments, paymentAccounts,
+    [canSeeCheckout, canWriteCheckout, canEditBooking],
+    checkoutBundle, salesEmployees, roomAvailableAfterNoon,
+  ] = await Promise.all([
+    getRoomNumberBuckets(booking.visit_date, booking.check_out_date, params.id),
+    listAdvancePayments(params.id).catch(() => []),
+    listPaymentAccounts().catch(() => []),
+    Promise.all([
+      hasPermission('checkout', 'read'),
+      hasPermission('checkout', 'write'),
+      hasPermission('bookings', 'write'),
+    ]),
+    // Charges (best-effort: unmigrated installs still load). Fetched for any
+    // confirmed / checked-out booking; shown only if the user may see them.
+    (booking.status === 'confirmed' || booking.status === 'checked_out')
+      ? getCheckoutByBooking(booking.id)
+          .then(async (co) => (co ? { status: co.status, charges: await getChargesByCheckout(co.id) } : null))
+          .catch(() => null)
+      : Promise.resolve(null),
+    // Sales rep — skip silently if HR migration 001 not yet applied.
+    listSalesEmployees().catch(() => [] as Awaited<ReturnType<typeof listSalesEmployees>>),
+    // Does a night stay check out of one of these room types on the visit date?
+    (async () => {
+      if (booking.package_type !== 'daylong' || booking.rooms.length === 0) return false
+      const { data } = await createClient()
+        .from('booking_rooms')
+        .select('room_type, bookings!inner(check_out_date, status)')
+        .eq('bookings.check_out_date', booking.visit_date)
+        .neq('bookings.status', 'cancelled')
+        .in('room_type', booking.rooms.map((r) => r.room_type))
+      return !!data && data.length > 0
+    })(),
   ])
+  const bookedRoomNumbers = roomBuckets.taken
+
   const showCharges = canSeeCheckout && (booking.status === 'confirmed' || booking.status === 'checked_out')
-  let charges: Awaited<ReturnType<typeof getChargesByCheckout>> = []
-  let checkoutStatus: Awaited<ReturnType<typeof getCheckoutByBooking>> extends infer T ? (T extends { status: infer S } ? S : null) : null = null
-  if (showCharges) {
-    try {
-      const co = await getCheckoutByBooking(booking.id)
-      if (co) {
-        checkoutStatus = co.status as any
-        charges = await getChargesByCheckout(co.id)
-      }
-    } catch {
-      // unmigrated — skip silently
-    }
-  }
-
-  // Sales rep — best-effort lookup. Skip silently if HR migration 001 not yet applied.
-  let salesEmployees: Awaited<ReturnType<typeof listSalesEmployees>> = []
-  let currentRep: Awaited<ReturnType<typeof listSalesEmployees>>[number] | null = null
-  try {
-    salesEmployees = await listSalesEmployees()
-    if ((booking as any).sales_employee_id) {
-      currentRep = salesEmployees.find((e) => e.id === (booking as any).sales_employee_id)
-        ?? null
-    }
-  } catch { /* HR module not migrated yet */ }
-
-  // Check if any selected rooms have a night stay checking out on the visit date
-  let roomAvailableAfterNoon = false
-  if (booking.package_type === 'daylong' && booking.rooms.length > 0) {
-    const supabase  = createClient()
-    const roomTypes = booking.rooms.map((r) => r.room_type)
-    const { data } = await supabase
-      .from('booking_rooms')
-      .select('room_type, bookings!inner(check_out_date, status)')
-      .eq('bookings.check_out_date', booking.visit_date)
-      .neq('bookings.status', 'cancelled')
-      .in('room_type', roomTypes)
-    if (data && data.length > 0) roomAvailableAfterNoon = true
-  }
+  const charges: Awaited<ReturnType<typeof getChargesByCheckout>> = showCharges ? (checkoutBundle?.charges ?? []) : []
+  const checkoutStatus = (showCharges ? (checkoutBundle?.status ?? null) : null) as any
+  const currentRep = salesEmployeeId ? (salesEmployees.find((e) => e.id === salesEmployeeId) ?? null) : null
 
   const snap = booking.package_snapshot
 
