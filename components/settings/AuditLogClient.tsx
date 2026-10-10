@@ -48,6 +48,7 @@ const EVENT_BADGE: Record<AdminAlertEvent, string> = {
   room_block_created:  'bg-slate-100 text-slate-800 border-slate-300',
   room_block_changed:  'bg-slate-100 text-slate-800 border-slate-300',
   room_block_released: 'bg-green-50 text-green-800 border-green-200',
+  room_prices_changed: 'bg-indigo-50 text-indigo-800 border-indigo-200',
 }
 
 const EVENT_LABELS: Record<AdminAlertEvent, string> = {
@@ -65,6 +66,7 @@ const EVENT_LABELS: Record<AdminAlertEvent, string> = {
   room_block_created:  'Rooms Blocked',
   room_block_changed:  'Room Block Changed',
   room_block_released: 'Rooms Released',
+  room_prices_changed: 'Room Prices Changed',
 }
 
 export function AuditLogClient({ alerts, filter }: Props) {
@@ -161,6 +163,16 @@ export function AuditLogClient({ alerts, filter }: Props) {
                       </span>
                     </div>
                     <p className="mt-1.5 text-sm text-gray-900">{a.summary}</p>
+                    {a.event_type === 'room_prices_changed' && Array.isArray((a.payload as { changes?: unknown[] } | null)?.changes) && (
+                      <details className="mt-1 text-xs text-gray-600">
+                        <summary className="cursor-pointer text-forest-700">Show changes</summary>
+                        <ul className="mt-1 space-y-0.5">
+                          {((a.payload as { changes: Array<{ package?: string; room?: string; old_text?: string; new_text?: string }> }).changes).map((c, i) => (
+                            <li key={i}><span className="text-gray-800">{c.package} · {c.room}</span>: {c.old_text} → <span className="font-medium text-gray-900">{c.new_text}</span></li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
                     {a.acknowledged_at && (
                       <p className="mt-1 text-xs text-gray-500">
                         Acknowledged {formatDate(a.acknowledged_at.slice(0, 10))}

@@ -28,6 +28,8 @@ const ROLE_DENY: Array<{ prefix: string; roles: RoleSlug[] }> = [
  */
 const ROLE_ALLOW: Array<{ prefix: string; roles: RoleSlug[] }> = [
   { prefix: '/reports/income/by-payment-method', roles: ['front_desk'] },
+  // Room prices grid: viewers who have no Settings access (lib/pricing/price-grid.ts).
+  { prefix: '/settings/room-prices', roles: ['admin', 'manager', 'md', 'accountant', 'operations_manager', 'reservation'] },
 ]
 
 const MODULE_PREFIX: Array<{ prefix: string; module: 'bookings' | 'checkout' | 'expenses' | 'hr' | 'reports' | 'settings' | 'availability' | 'attendance' | 'coffee_shop' | 'inventory' | 'crm' | 'fixed_assets' | 'qa' | 'menus' | 'enquiries' | 'field_visits' | 'kitchen' }> = [

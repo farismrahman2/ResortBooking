@@ -696,6 +696,8 @@ export type AdminAlertEvent =
   | 'booking_edited'
   /** Rooms taken off sale, a block's dates or rooms changed, or a block released. */
   | 'room_block_created' | 'room_block_changed' | 'room_block_released'
+  /** Package room prices changed (Room prices grid or the package form). */
+  | 'room_prices_changed'
 
 export interface AdminAlertRow {
   id: string

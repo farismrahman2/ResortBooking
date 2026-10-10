@@ -30,6 +30,7 @@ import {
   X,
   LogOut,
   User,
+  Tags,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSidebar } from '@/lib/sidebar-context'
@@ -69,6 +70,7 @@ const navItems: NavItem[] = [
   { href: '/hr',              label: 'HR',           icon: Users,          module: 'hr' },
   { href: '/hr/attendance',   label: 'Attendance',   icon: ClipboardCheck, module: 'attendance' },
   { href: '/packages',        label: 'Packages',     icon: Package,        module: 'bookings', hideForRoles: ['reservation'] },
+  { href: '/settings/room-prices', label: 'Room Prices', icon: Tags, onlyForRoles: ['admin', 'manager', 'md', 'accountant', 'operations_manager', 'reservation'] },
   // Front-desk-only shortcut to the one report they need (shift takings)
   { href: '/reports/income/by-payment-method', label: 'Daily Income', icon: Banknote, onlyForRoles: ['front_desk'] },
   { href: '/settings',     label: 'Settings',     icon: Settings,       module: 'settings' },
