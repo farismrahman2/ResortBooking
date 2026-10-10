@@ -1,5 +1,6 @@
 'use client'
 
+import { formatRoomList } from '@/lib/config/rooms'
 import { useEffect } from 'react'
 import type { DailyReportRow, FreeRooms } from '@/lib/queries/daily-report'
 import {
@@ -237,21 +238,37 @@ function renderRooms(row: DailyReportRow, lang: Lang, afterNoonRooms: Set<string
 }
 
 function renderFreeRooms(free: FreeRooms, lang: Lang, t: typeof DICT['en']) {
+  // Grouped by building with runs shortened ("Canopy 212–215"), each list
+  // with its count — 42 rooms as one comma list was unreadable on paper.
+  const list = (nums: string[]) => formatRoomList(nums, {
+    fmt:      (n) => fmtNum(n, lang),
+    building: (b) => (b === 'canopy' ? t.bld_canopy : t.bld_main),
+    floors:   (a, z) => (z ? t.floor_many.replace('{a}', a).replace('{z}', z) : t.floor_one.replace('{n}', a)),
+  })
+  const count = (nums: string[]) => `(${fmtNum(nums.length, lang)})`
   const lines: string[] = []
   if (free.free_all_day.length > 0) {
-    lines.push(free.free_all_day.map((n) => fmtNum(n, lang)).join(', '))
+    lines.push(`${count(free.free_all_day)} ${list(free.free_all_day)}`)
   }
   if (free.free_after_12pm.length > 0) {
-    lines.push(`${t.after_noon} ${free.free_after_12pm.map((n) => fmtNum(n, lang)).join(', ')}`)
+    lines.push(`${t.after_noon} ${count(free.free_after_12pm)}: ${list(free.free_after_12pm)}`)
   }
   if (free.free_after_6pm.length > 0) {
-    lines.push(`${t.after_6pm} ${free.free_after_6pm.map((n) => fmtNum(n, lang)).join(', ')}`)
+    lines.push(`${t.after_6pm} ${count(free.free_after_6pm)}: ${list(free.free_after_6pm)}`)
   }
   if ((free.free_until_6pm ?? []).length > 0) {
-    lines.push(`${t.until_6pm} ${free.free_until_6pm.map((n) => fmtNum(n, lang)).join(', ')}`)
+    lines.push(`${t.until_6pm} ${count(free.free_until_6pm)}: ${list(free.free_until_6pm)}`)
   }
-  if ((free.blocked ?? []).length > 0) {
-    lines.push(`${t.blocked}: ${free.blocked!.map((n) => fmtNum(n, lang)).join(', ')}`)
+  const blocked = free.blocked ?? []
+  if (blocked.length > 0) {
+    // One entry per reason: "Canopy floors 3–5 — Not yet open".
+    const byReason = new Map<string, string[]>()
+    for (const n of blocked) {
+      const why = free.blocked_reasons?.[n] ?? ''
+      byReason.set(why, [...(byReason.get(why) ?? []), n])
+    }
+    const parts = [...byReason.entries()].map(([why, nums]) => (why ? `${list(nums)} — ${why}` : list(nums)))
+    lines.push(`${t.blocked} ${count(blocked)}: ${parts.join(' · ')}`)
   }
   if (lines.length === 0) return '—'
   return (

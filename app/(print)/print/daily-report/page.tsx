@@ -26,7 +26,7 @@ export default async function DailyReportPrintPage({ searchParams }: PageProps) 
   const [rows, blocks, inventory] = await Promise.all([
     getDailyReport(date), listBlocksOverlapping(date, addDaysIso(date, 1)), getRoomInventory(),
   ])
-  const free  = computeFreeRooms(rows, Object.keys(blockedNumbersOn(blocks, [date], inventory)))
+  const free  = computeFreeRooms(rows, blockedNumbersOn(blocks, [date], inventory))
 
   return <DailyReportPrint date={date} lang={lang} rows={rows} free={free} />
 }

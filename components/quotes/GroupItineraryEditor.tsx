@@ -60,14 +60,15 @@ export function GroupItineraryEditor({
 
   // Room-number buckets per date, one set for the overnight block (a one-night
   // stay D → D+1) and one for the day-guest block (a day visit on D).
-  type Buckets = { taken: string[]; noon: string[]; eveningOnly: string[]; untilEvening: string[] }
-  const EMPTY: Buckets = { taken: [], noon: [], eveningOnly: [], untilEvening: [] }
+  type Buckets = { taken: string[]; noon: string[]; eveningOnly: string[]; untilEvening: string[]; blocked: Record<string, string> }
+  const EMPTY: Buckets = { taken: [], noon: [], eveningOnly: [], untilEvening: [], blocked: {} }
   const [bucketsByDate, setBucketsByDate] = useState<Record<string, { night: Buckets; day: Buckets }>>({})
   useEffect(() => {
     let cancelled = false
     const parse = (d: any): Buckets => ({   // eslint-disable-line @typescript-eslint/no-explicit-any
       taken: d.takenRoomNumbers ?? [], noon: d.noonRoomNumbers ?? [],
       eveningOnly: d.eveningOnlyRoomNumbers ?? [], untilEvening: d.untilEveningRoomNumbers ?? [],
+      blocked: d.blockedRoomReasons ?? {},
     })
     // Every date not yet known, in ONE request (it used to be two per date).
     const missing = dates.filter((d) => !bucketsByDate[d])
@@ -246,6 +247,7 @@ export function GroupItineraryEditor({
                     value={toSelections(night.rooms)}
                     onChange={(sel) => setSegment(date, 'night', { rooms: fromSelections(night.rooms, sel) })}
                     bookedRoomNumbers={nightTaken} eveningOnlyRoomNumbers={nightEvOnly}
+                    blockedReasons={avail.night.blocked ?? {}}
                     handoverLabel={handoverLabel}
                   />
                   <CompToggles seg={night} pkg={nightPackage} onToggle={(t) => toggleComp(date, 'night', t, nightPackage)} />
@@ -286,6 +288,7 @@ export function GroupItineraryEditor({
                       onChange={(sel) => setSegment(date, 'daylong', { rooms: fromSelections(day.rooms, sel) })}
                       bookedRoomNumbers={dayTaken} noonRoomNumbers={avail.day.noon}
                       untilEveningRoomNumbers={dayUntilEve}
+                      blockedReasons={avail.day.blocked ?? {}}
                       handoverLabel={handoverLabel}
                     />
                     <CompToggles seg={day} pkg={dayPackage} onToggle={(t) => toggleComp(date, 'daylong', t, dayPackage)} />

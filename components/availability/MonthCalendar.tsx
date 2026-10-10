@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { isComposite, isGuestRoom } from '@/lib/config/rooms'
+import { isComposite, isGuestRoom, roomTypeBuilding, type Building } from '@/lib/config/rooms'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { AvailabilityResult, RoomInventoryRow } from '@/lib/supabase/types'
 
@@ -59,7 +59,20 @@ function bandFor(available: number, total: number): Band {
   return                       { bg: 'bg-red-600 hover:bg-red-700',          text: 'text-white',       label: 'Full' }
 }
 
+/** Totals for one day over the rooms a building filter keeps. total_units is
+ *  already net of blocked rooms; the villa and conference room add nothing. */
+function totalsFor(rooms: AvailabilityResult[], building: 'all' | Building) {
+  const kept = rooms.filter((r) => !isComposite(r.room_type) && isGuestRoom(r.room_type)
+    && (building === 'all' || roomTypeBuilding(r.room_type) === building))
+  return {
+    totalUnits:        kept.reduce((s, r) => s + r.total_units, 0),
+    totalAvailable:    kept.reduce((s, r) => s + (r.available_both ?? r.available), 0),
+    totalAfterEvening: kept.reduce((s, r) => s + (r.available_after_evening ?? 0), 0),
+  }
+}
+
 export function MonthCalendar({ selectedDate, onDateClick, inventory }: MonthCalendarProps) {
+  const [building, setBuilding] = useState<'all' | Building>('all')
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()))
   const [days,      setDays]      = useState<Map<string, DaySummary> | null>(null)
   const [loading,   setLoading]   = useState(false)
@@ -160,6 +173,15 @@ export function MonthCalendar({ selectedDate, onDateClick, inventory }: MonthCal
           <h2 className="font-semibold text-gray-900">Calendar</h2>
           <p className="text-xs text-gray-500">{startLabel} → {endLabel}</p>
         </div>
+        {/* Count Main, the Canopy, or both. */}
+        <div className="flex rounded-lg border border-gray-200 p-0.5 text-xs">
+          {(['all', 'main', 'canopy'] as const).map((b) => (
+            <button key={b} type="button" onClick={() => setBuilding(b)}
+              className={`rounded-md px-2.5 py-1 font-medium ${building === b ? 'bg-forest-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
+              {b === 'all' ? 'All' : b === 'main' ? 'Main' : 'Canopy'}
+            </button>
+          ))}
+        </div>
         <div className="flex items-center gap-1">
           <button
             type="button"
@@ -197,8 +219,9 @@ export function MonthCalendar({ selectedDate, onDateClick, inventory }: MonthCal
       {/* Grid */}
       <div className="grid grid-cols-7 gap-1">
         {cells.map((c) => {
-          const summary    = days?.get(c.date)
-          const band       = summary
+          const day        = days?.get(c.date)
+          const summary    = day ? { ...day, ...totalsFor(day.rooms, building) } : undefined
+          const band       = summary && summary.totalUnits > 0
             ? bandFor(summary.totalAvailable, summary.totalUnits)
             : { bg: 'bg-gray-50', text: 'text-gray-400', label: '' }
           const isSelected = c.date === selectedDate
@@ -228,16 +251,20 @@ export function MonthCalendar({ selectedDate, onDateClick, inventory }: MonthCal
               </div>
               {summary ? (
                 <div className={`text-[11px] font-medium sm:text-xs ${band.text}`}>
-                  {summary.totalAvailable === 0 ? 'Full' : (
+                  {summary.totalUnits === 0 ? <span className="opacity-60">—</span> : summary.totalAvailable === 0 ? 'Full' : (
                     <>
                       <span className="text-sm font-bold sm:text-base">{summary.totalAvailable}</span>
-                      <span className="opacity-70">/{summary.totalUnits}</span>
+                      {/* Phones show just the free count; the total is on wider screens. */}
+                      <span className="hidden opacity-70 sm:inline">/{summary.totalUnits}</span>
                     </>
                   )}
                   {summary.totalAfterEvening > 0 && (
-                    <span className="block text-[9px] font-medium opacity-80 sm:text-[10px]">
-                      +{summary.totalAfterEvening} after 6 PM
-                    </span>
+                    <>
+                      <span className="ml-0.5 inline-block h-1.5 w-1.5 rounded-full bg-orange-500 align-middle sm:hidden" title={`+${summary.totalAfterEvening} after 6 PM`} />
+                      <span className="hidden text-[10px] font-medium opacity-80 sm:block">
+                        +{summary.totalAfterEvening} after 6 PM
+                      </span>
+                    </>
                   )}
                 </div>
               ) : loading ? (
@@ -251,7 +278,9 @@ export function MonthCalendar({ selectedDate, onDateClick, inventory }: MonthCal
                   <div className="mb-1.5 border-b border-white/15 pb-1 font-semibold">
                     {new Date(c.date + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
                   </div>
-                  {summary.rooms.map((r) => (
+                  {summary.rooms
+                    .filter((r) => r.total_units > 0 && (building === 'all' || roomTypeBuilding(r.room_type) === building))
+                    .map((r) => (
                     <div key={r.room_type} className="flex items-center justify-between gap-3 py-0.5">
                       <span className="truncate text-white/80">{r.display_name}</span>
                       <span className="font-mono tabular-nums">
@@ -277,6 +306,8 @@ export function MonthCalendar({ selectedDate, onDateClick, inventory }: MonthCal
         <span className="flex items-center gap-1"><span className="h-3 w-3 rounded bg-amber-100" /> Filling</span>
         <span className="flex items-center gap-1"><span className="h-3 w-3 rounded bg-red-100" /> Tight</span>
         <span className="flex items-center gap-1"><span className="h-3 w-3 rounded bg-red-600" /> Full</span>
+        <span className="flex items-center gap-1 sm:hidden"><span className="h-1.5 w-1.5 rounded-full bg-orange-500" /> more free after 6 PM</span>
+        <span className="text-gray-400">Blocked rooms are not counted</span>
       </div>
 
       {error && (

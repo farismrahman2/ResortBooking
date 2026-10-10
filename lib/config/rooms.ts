@@ -115,3 +115,114 @@ export function dateRangesOverlap(
   const bEnd   = bCheckOut ?? nextDay(bVisit)
   return aStart < bEnd && bStart < aEnd
 }
+
+// ─── Buildings and floors (display only) ─────────────────────────────────────
+//
+// Which building and floor a room number is on — used to group pickers and
+// lists, never by the availability or pricing rules. Canopy rooms are x11–x15
+// (floor = first digit); every other numbered room is in the main building.
+
+export type Building = 'main' | 'canopy' | 'other'
+
+export const BUILDING_LABEL: Record<Building, string> = { main: 'Main', canopy: 'Canopy', other: 'Other' }
+const BUILDING_ORDER: Building[] = ['main', 'canopy', 'other']
+
+export function roomLocation(num: string): { building: Building; floor: number | null } {
+  if (/^\d1[1-5]$/.test(num)) return { building: 'canopy', floor: Number(num[0]) }
+  if (/^\d{3}$/.test(num))    return { building: 'main',   floor: Number(num[0]) }
+  return { building: 'other', floor: null }
+}
+
+/** The building a room TYPE lives in (by its first room), for grouping cards. */
+export function roomTypeBuilding(roomType: string): Building {
+  const nums = physicalRoomNumbers(roomType)
+  return nums.length ? roomLocation(nums[0]).building : 'main'
+}
+
+const cmpRoom = (a: string, b: string) => {
+  const an = parseInt(a, 10), bn = parseInt(b, 10)
+  return Number.isFinite(an) && Number.isFinite(bn) && an !== bn ? an - bn : a.localeCompare(b)
+}
+
+/** Every real room number, sorted — runs are only drawn over rooms that exist. */
+const ALL_ROOMS: string[] = [...new Set(Object.values(ROOM_NUMBERS).flatMap((n) => n ?? []))].sort(cmpRoom)
+
+/** "103–106, 202" — three or more rooms that are next to each other in the
+ *  building's own numbering become a range; 202 and 205 stay apart because
+ *  203 and 204 exist. `fmt` localises each number (Bangla digits). */
+function runs(nums: string[], fmt: (n: string) => string): string[] {
+  const order = new Map(ALL_ROOMS.map((n, i) => [n, i]))
+  const sorted = [...nums].sort(cmpRoom)
+  const out: string[] = []
+  let run: string[] = []
+  const flush = () => {
+    if (run.length >= 3) out.push(`${fmt(run[0])}–${fmt(run[run.length - 1])}`)
+    else out.push(...run.map(fmt))
+    run = []
+  }
+  for (const n of sorted) {
+    const prev = run[run.length - 1]
+    const adjacent = prev !== undefined && order.has(n) && order.has(prev)
+      && order.get(n)! === order.get(prev)! + 1
+      && roomLocation(n).building === roomLocation(prev).building
+    if (!adjacent) flush()
+    run.push(n)
+  }
+  flush()
+  return out
+}
+
+/**
+ * A list of room numbers for people: grouped by building, runs shortened, and
+ * a Canopy floor that is wholly in the list named as a floor.
+ *   ['103','104','105','106','202','212','213','214','215','311',…,'515']
+ *   → "Main 103–106, 202 · Canopy floors 3–5, 212–215"
+ */
+export interface RoomListFormat {
+  /** Localise a number (Bangla digits). */
+  fmt?:      (n: string) => string
+  /** Building name before its rooms ("Main", "মূল ভবন"). */
+  building?: (b: Building) => string
+  /** A whole floor or a run of floors ("floor 2", "floors 3–5"). */
+  floors?:   (from: string, to: string | null) => string
+}
+
+export function formatRoomList(nums: string[], opts: RoomListFormat = {}): string {
+  const fmt      = opts.fmt ?? ((n: string) => n)
+  const building = opts.building ?? ((b: Building) => BUILDING_LABEL[b])
+  const floorTxt = opts.floors ?? ((a: string, z: string | null) => (z ? `floors ${a}–${z}` : `floor ${a}`))
+  const by = new Map<Building, string[]>()
+  for (const n of new Set(nums)) {
+    const b = roomLocation(n).building
+    by.set(b, [...(by.get(b) ?? []), n])
+  }
+  const parts: string[] = []
+  for (const b of BUILDING_ORDER) {
+    const list = by.get(b)
+    if (!list?.length) continue
+    let rest = list
+    const bits: string[] = []
+    if (b === 'canopy') {
+      // Whole floors first: "floors 3–5".
+      const floors = [...new Set(ALL_ROOMS.filter((n) => roomLocation(n).building === 'canopy').map((n) => roomLocation(n).floor!))].sort()
+      const full = floors.filter((f) => {
+        const onFloor = ALL_ROOMS.filter((n) => roomLocation(n).building === 'canopy' && roomLocation(n).floor === f)
+        return onFloor.every((n) => list.includes(n))
+      })
+      if (full.length) {
+        const groups: number[][] = []
+        for (const f of full) {
+          const g = groups[groups.length - 1]
+          if (g && g[g.length - 1] === f - 1) g.push(f); else groups.push([f])
+        }
+        for (const g of groups) {
+          bits.push(floorTxt(fmt(String(g[0])), g.length === 1 ? null : fmt(String(g[g.length - 1]))))
+        }
+        rest = list.filter((n) => !full.includes(roomLocation(n).floor!))
+      }
+    }
+    bits.push(...runs(rest, fmt))
+    parts.push(b === 'other' ? bits.join(', ') : `${building(b)} ${bits.join(', ')}`)
+  }
+  return parts.join(' · ')
+}

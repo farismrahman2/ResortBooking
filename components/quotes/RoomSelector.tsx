@@ -2,7 +2,7 @@
 
 import { cn } from '@/lib/utils'
 import { formatBDT } from '@/lib/formatters/currency'
-import { ROOM_NUMBERS, COMPOSITE_ROOMS, requiredRoomNumbers, isWholeDay } from '@/lib/config/rooms'
+import { ROOM_NUMBERS, COMPOSITE_ROOMS, requiredRoomNumbers, isWholeDay, roomLocation, formatRoomList } from '@/lib/config/rooms'
 import type { RoomInventoryRow, PackageWithPrices, RoomType } from '@/lib/supabase/types'
 import type { RoomSelection } from '@/lib/engine/calculator'
 
@@ -137,6 +137,25 @@ export function RoomSelector({
 
   const noPackage = !selectedPackage
 
+  // Blocked rooms are off sale, not booked: they get their own look, and a
+  // type with every room blocked (a floor or building not open yet) folds
+  // into one line at the bottom instead of a red "Fully booked" card.
+  const isBlockedNum = (n: string) => !!blockedReasons[n]
+  const numsOf = (t: string) => COMPOSITE_ROOMS[t as RoomType]?.room_numbers ?? ROOM_NUMBERS[t as RoomType] ?? []
+  const isClosedType = (t: string) => {
+    const nums = numsOf(t)
+    if (nums.length === 0 || getQty(t) > 0) return false
+    return COMPOSITE_ROOMS[t as RoomType] ? nums.some(isBlockedNum) : nums.every(isBlockedNum)
+  }
+  const openRooms   = visibleRooms.filter((r) => !isClosedType(r.room_type))
+  const closedRooms = visibleRooms.filter((r) => isClosedType(r.room_type))
+  /** "Canopy floors 3–5 — Not yet open · Canopy 111–115 — Maintenance" */
+  const blockedSummary = (nums: string[]) => {
+    const byReason = new Map<string, string[]>()
+    for (const n of nums) byReason.set(blockedReasons[n], [...(byReason.get(blockedReasons[n]) ?? []), n])
+    return [...byReason.entries()].map(([why, ns]) => `${formatRoomList(ns)} — ${why}`).join(' · ')
+  }
+
   return (
     <div className="relative space-y-2">
       {noPackage && (
@@ -145,7 +164,7 @@ export function RoomSelector({
         </div>
       )}
 
-      {visibleRooms.map((room) => {
+      {openRooms.map((room) => {
         const qty          = getQty(room.room_type)
         // Rooms already picked on another row of THIS form are taken too —
         // the villa cannot be sold alongside Deluxe 301 or 302, and vice versa.
@@ -175,6 +194,10 @@ export function RoomSelector({
           : fixedNums.filter((n) => booked.includes(n)).length
         const availableUnits = Math.max(0, room.total_units - takenCount)
         const isFullyBooked  = fixedNums.length > 0 && availableUnits === 0
+        // Rooms of this type off sale on these dates (not picked).
+        const blockedNums    = fixedNums.filter((n) => isBlockedNum(n) && !selectedNums.includes(n))
+        const blockedCount   = comp ? (blockedNums.length > 0 ? 1 : 0) : blockedNums.length
+        const sellableUnits  = Math.max(0, room.total_units - blockedCount)
         const maxSelectable  = fixedNums.length > 0 ? availableUnits : room.total_units
         const noonCount      = countIn(noonRoomNumbers)
         const eveningOnlyCount = countIn(eveningOnlyRoomNumbers)
@@ -210,10 +233,13 @@ export function RoomSelector({
                         {noonCount > 0 && <span className="text-amber-600 font-medium"> · {noonCount} after 12 PM</span>}
                         {eveningOnlyCount > 0 && <span className="text-orange-700 font-medium"> · {eveningOnlyCount} from {handoverLabel}</span>}
                       </>
-                    ) : takenCount > 0 ? (
-                      `${availableUnits} of ${room.total_units} available`
+                    ) : takenCount > blockedCount ? (
+                      `${availableUnits} of ${sellableUnits} available`
                     ) : (
-                      `${room.total_units} unit${room.total_units !== 1 ? 's' : ''} available`
+                      `${sellableUnits} unit${sellableUnits !== 1 ? 's' : ''} available`
+                    )}
+                    {blockedCount > 0 && (
+                      <span className="text-gray-500"> · 🔒 {blockedCount} not on sale</span>
                     )}
                     {untilEveningCount > 0 && (
                       <span className="text-sky-700"> · {untilEveningCount} free until {handoverLabel}</span>
@@ -277,10 +303,18 @@ export function RoomSelector({
                     : wholeDay ? (isNight ? 'Held for the whole arrival day — not for later nights' : 'Held for the whole day')
                     : `Room Numbers — select ${qty}`}
                 </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {fixedNums.map((num) => {
+                {/* Rooms on more than one Canopy floor are laid out a floor per row. */}
+                {(() => {
+                  const floors = [...new Set(fixedNums.map((n) => roomLocation(n).floor))]
+                  const byFloor = !comp && floors.length > 1 && roomLocation(fixedNums[0]).building === 'canopy'
+                  const rows = byFloor ? floors.map((f) => ({ label: `F${f}`, nums: fixedNums.filter((n) => roomLocation(n).floor === f) })) : [{ label: '', nums: fixedNums }]
+                  return rows.map((row) => (
+                <div key={row.label || 'all'} className={cn('flex flex-wrap items-center gap-1.5', byFloor && 'mb-1')}>
+                  {row.label && <span className="w-6 text-[10px] font-semibold text-gray-400">{row.label}</span>}
+                  {row.nums.map((num) => {
                     const isPicked      = selectedNums.includes(num)
                     const isTaken       = booked.includes(num) && !isPicked
+                    const isBlocked     = isTaken && isBlockedNum(num)
                     const isNoon        = !isTaken && noonRoomNumbers.includes(num)
                     const isEveningOnly = !isTaken && eveningOnlyRoomNumbers.includes(num)
                     const isUntilEve    = !isTaken && untilEveningRoomNumbers.includes(num)
@@ -303,6 +337,8 @@ export function RoomSelector({
                             isPicked && isNight && !wholeDay ? 'rounded-r-none' : '',
                             isPicked
                               ? isEvening ? 'border-orange-500 bg-orange-600 text-white' : 'border-forest-500 bg-forest-600 text-white'
+                              : isBlocked
+                              ? 'border-dashed border-gray-300 bg-gray-50 text-gray-400 cursor-not-allowed'
                               : isTaken
                               ? 'border-red-300 bg-red-50 text-red-400 cursor-not-allowed'
                               : isEveningOnly
@@ -314,7 +350,7 @@ export function RoomSelector({
                               : 'border-gray-300 bg-white text-gray-700 hover:border-forest-400 hover:bg-forest-50',
                           )}
                         >
-                          {num}
+                          {isBlocked && <span aria-hidden className="mr-0.5">🔒</span>}{num}
                         </button>
                         {isPicked && isNight && !wholeDay && (
                           <button
@@ -335,6 +371,11 @@ export function RoomSelector({
                     )
                   })}
                 </div>
+                  ))
+                })()}
+                {blockedNums.length > 0 && (
+                  <p className="mt-1 text-[11px] text-gray-500">🔒 Not on sale: {blockedSummary(blockedNums)}</p>
+                )}
                 {!wholeDay && (noonCount > 0 || eveningOnlyCount > 0 || untilEveningCount > 0 || (isNight && selectedNums.length > 0)) && (
                   <p className="mt-1.5 text-[10px] text-gray-500 space-x-2">
                     {noonCount > 0 && <span className="text-amber-600">Yellow: free after 12:00 PM (previous guest checking out).</span>}
@@ -353,6 +394,21 @@ export function RoomSelector({
           </div>
         )
       })}
+
+      {closedRooms.length > 0 && (
+        <details className="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-2.5">
+          <summary className="cursor-pointer text-sm text-gray-600">
+            🔒 Not on sale for these dates ({closedRooms.length} type{closedRooms.length === 1 ? '' : 's'} · {closedRooms.reduce((n, r) => n + r.total_units, 0)} room{closedRooms.reduce((n, r) => n + r.total_units, 0) === 1 ? '' : 's'})
+          </summary>
+          <ul className="mt-2 space-y-1 text-xs text-gray-500">
+            {closedRooms.map((r) => (
+              <li key={r.room_type}>
+                <span className="font-medium text-gray-700">{r.display_name}</span> — {blockedSummary(numsOf(r.room_type).filter(isBlockedNum))}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </div>
   )
 }
