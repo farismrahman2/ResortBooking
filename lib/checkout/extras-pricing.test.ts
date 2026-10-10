@@ -9,7 +9,7 @@ function bookingFixture(overrides: Partial<BookingRow>): BookingRow {
     package_type: 'daylong', visit_date: '2026-05-08', check_out_date: null,
     nights: null, adults: 4, children_paid: 0, children_free: 0,
     drivers: 0, extra_beds: 0,
-    subtotal: 0, discount: 0, discount_pct: 0, service_charge_pct: 0,
+    subtotal: 0, discount: 0, discount_pct: 0, service_charge_pct: 0, vat_pct: 0,
     total: 0, advance_required: 0, advance_paid: 0, due_advance: 0, remaining: 0,
     status: 'confirmed', sales_employee_id: null, is_corporate: false, company_name: null, corporate_account_id: null,
     package_snapshot: {} as any, line_items: [], extra_items: [],

@@ -114,6 +114,7 @@ export interface QuoteRow {
   discount:            number      // effective total discount (flat + pct_amount)
   discount_pct:        number      // percentage component (stored separately for re-editing)
   service_charge_pct:  number     // percentage (default 0)
+  vat_pct:             number     // VAT percentage (default 0)
   total:               number     // generated
   advance_required:    number
   advance_paid:        number
@@ -172,6 +173,7 @@ export interface BookingRow {
   discount:           number      // effective total discount (flat + pct_amount)
   discount_pct:       number      // percentage component
   service_charge_pct: number   // percentage (default 0)
+  vat_pct:            number   // VAT percentage (default 0)
   total:              number
   advance_required:   number
   advance_paid:       number
@@ -795,6 +797,7 @@ export type LineItemKind =
   | 'driver'
   | 'extra'
   | 'service_charge'
+  | 'vat'
 
 export interface LineItem {
   label: string

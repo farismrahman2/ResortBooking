@@ -24,6 +24,7 @@ import { WhatsAppLink } from '@/components/ui/WhatsAppLink'
 import { PackageSelector } from '@/components/quotes/PackageSelector'
 import { RoomSelector } from '@/components/quotes/RoomSelector'
 import { isWholeDay } from '@/lib/config/rooms'
+import { PercentInput } from '@/components/ui/PercentInput'
 import { GuestInputs, type GuestValues } from '@/components/quotes/GuestInputs'
 import { PricingBreakdown } from '@/components/quotes/PricingBreakdown'
 import { DuplicateConfirmModal } from '@/components/quotes/DuplicateConfirmModal'
@@ -118,6 +119,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
       discount:            0,
       discount_pct:        0,
       service_charge_pct:  0,
+      vat_pct:             0,
       advance_required:    0,
       advance_paid:        0,
       advance_method:      'bkash',
@@ -211,6 +213,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
           discount:           watchedValues.discount,
           discount_pct:       watchedValues.discount_pct ?? 0,
           service_charge_pct: watchedValues.service_charge_pct ?? 0,
+          vat_pct:            watchedValues.vat_pct ?? 0,
           advance_required:   watchedValues.advance_required,
           advance_paid:       watchedValues.advance_paid,
           extra_items:        extraItems,
@@ -256,6 +259,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
           discount:           watchedValues.discount,
           discount_pct:       watchedValues.discount_pct ?? 0,
           service_charge_pct: watchedValues.service_charge_pct ?? 0,
+          vat_pct:            watchedValues.vat_pct ?? 0,
           advance_required:   watchedValues.advance_required,
           advance_paid:       watchedValues.advance_paid,
           extra_items:        extraItems,
@@ -276,6 +280,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
           discount:           watchedValues.discount,
           discount_pct:       watchedValues.discount_pct ?? 0,
           service_charge_pct: watchedValues.service_charge_pct ?? 0,
+          vat_pct:            watchedValues.vat_pct ?? 0,
           advance_required:   watchedValues.advance_required,
           advance_paid:       watchedValues.advance_paid,
           extra_items:        extraItems,
@@ -301,6 +306,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
     watchedValues.discount,
     watchedValues.discount_pct,
     watchedValues.service_charge_pct,
+    watchedValues.vat_pct,
     watchedValues.advance_required,
     watchedValues.advance_paid,
     extraItems,
@@ -946,6 +952,19 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
                 />
               )}
             />
+            <Controller
+              name="vat_pct"
+              control={control}
+              render={({ field }) => (
+                <PercentInput
+                  label="VAT"
+                  value={field.value ?? 0}
+                  onChange={(v) => field.onChange(v)}
+                  error={errors.vat_pct?.message}
+                  hint="Added to the bill only when above 0%"
+                />
+              )}
+            />
           </div>
           <Textarea
             label="Internal Notes"
@@ -1186,7 +1205,7 @@ export function QuoteForm({ packages, rooms, holidayDates, settings, salesEmploy
 const WATCHED_FIELDS = [
   'package_id', 'package_type', 'visit_date', 'check_out_date', 'days', 'day_package_id', 'rooms',
   'adults', 'children_paid', 'children_free', 'drivers', 'extra_beds',
-  'discount', 'discount_pct', 'service_charge_pct', 'advance_required', 'advance_paid',
+  'discount', 'discount_pct', 'service_charge_pct', 'vat_pct', 'advance_required', 'advance_paid',
   'is_corporate', 'company_name', 'corporate_account_id',
 ] as const satisfies ReadonlyArray<keyof CreateQuoteInput>
 type WatchedField = typeof WATCHED_FIELDS[number]

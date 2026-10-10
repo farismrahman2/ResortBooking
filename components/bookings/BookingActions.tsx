@@ -9,6 +9,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { Textarea } from '@/components/ui/Textarea'
 import { NumberInput } from '@/components/ui/NumberInput'
+import { PercentInput } from '@/components/ui/PercentInput'
 import { ChangeDatesModal } from '@/components/bookings/ChangeDatesModal'
 import { SwapRoomsModal } from '@/components/bookings/SwapRoomsModal'
 import { formatBDT } from '@/lib/formatters/currency'
@@ -96,6 +97,7 @@ export function BookingActions({
   const [discount,           setDiscount]           = useState(Math.max(0, booking.discount - storedPctAmount))
   const [discountPct,        setDiscountPct]        = useState(storedPct)
   const [serviceChargePct,   setServiceChargePct]   = useState(booking.service_charge_pct ?? 0)
+  const [vatPct,             setVatPct]             = useState(Number(booking.vat_pct ?? 0))
   const [adults,             setAdults]             = useState(booking.adults)
   const [childrenPaid,  setChildrenPaid]  = useState(booking.children_paid)
   const [childrenFree,  setChildrenFree]  = useState(booking.children_free)
@@ -235,6 +237,7 @@ export function BookingActions({
           discount,
           discount_pct:       discountPct,
           service_charge_pct: serviceChargePct,
+          vat_pct:            vatPct,
           advance_required:   advanceRequired,
           advance_paid:       advancePaid,
           extra_items:        extraItems,
@@ -253,6 +256,7 @@ export function BookingActions({
           discount,
           discount_pct:       discountPct,
           service_charge_pct: serviceChargePct,
+          vat_pct:            vatPct,
           advance_required:   advanceRequired,
           advance_paid:       advancePaid,
           extra_items:        extraItems,
@@ -272,6 +276,7 @@ export function BookingActions({
           discount,
           discount_pct:       discountPct,
           service_charge_pct: serviceChargePct,
+          vat_pct:            vatPct,
           advance_required:   advanceRequired,
           advance_paid:       advancePaid,
           extra_items:        extraItems,
@@ -280,7 +285,7 @@ export function BookingActions({
     } catch {
       return null
     }
-  }, [roomQtys, adults, childrenPaid, childrenFree, drivers, extraBeds, discount, discountPct, serviceChargePct, advancePaid, advanceRequired, extraItems, booking, snap, holidayDates, isGroup, days, daySnap])
+  }, [roomQtys, adults, childrenPaid, childrenFree, drivers, extraBeds, discount, discountPct, serviceChargePct, vatPct, advancePaid, advanceRequired, extraItems, booking, snap, holidayDates, isGroup, days, daySnap])
 
   // ── Cancel state ──────────────────────────────────────────────────────────
   const [cancelOpen,    setCancelOpen]    = useState(false)
@@ -342,6 +347,7 @@ export function BookingActions({
         discount,
         discount_pct:       discountPct,
         service_charge_pct: serviceChargePct,
+        vat_pct:            vatPct,
         advance_paid:       advancePaid,
         advance_required:   advanceRequired,
         adults,
@@ -776,6 +782,7 @@ export function BookingActions({
               <NumberInput label="Flat Discount (৳)"    value={discount}          onChange={setDiscount}          min={0} prefix="৳" />
               <NumberInput label="Discount %"          value={discountPct}       onChange={setDiscountPct}       min={0} suffix="%" />
               <NumberInput label="Service Charge (%)"  value={serviceChargePct}  onChange={setServiceChargePct}  min={0} suffix="%" />
+              <PercentInput label="VAT (%)" value={vatPct} onChange={setVatPct} />
             </div>
           </div>
 

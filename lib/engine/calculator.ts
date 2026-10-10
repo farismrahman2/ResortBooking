@@ -49,6 +49,7 @@ export interface DaylongInputs {
   discount:            number
   discount_pct?:       number   // percentage discount, default 0
   service_charge_pct?: number   // service charge percentage, default 0
+  vat_pct?:            number   // VAT percentage, default 0 (decimals allowed)
   advance_required:    number
   advance_paid:        number
   extra_items?:        ExtraItem[]
@@ -68,6 +69,7 @@ export interface NightInputs {
   discount:            number
   discount_pct?:       number   // percentage discount, default 0
   service_charge_pct?: number   // service charge percentage, default 0
+  vat_pct?:            number   // VAT percentage, default 0 (decimals allowed)
   advance_required:    number
   advance_paid:        number
   extra_items?:        ExtraItem[]
@@ -146,6 +148,36 @@ function computeFinancials(
     remaining,
     adult_rate_used,
     nights,
+  }
+}
+
+/**
+ * Service charge, then VAT, appended as their own lines — each only when its
+ * percentage is above 0, so a bill without VAT looks exactly as before.
+ *
+ * VAT is charged on everything above it, service charge included (the usual
+ * hospitality basis). Both sit before the discount, as the service charge
+ * always has, so a percentage discount reduces them in proportion.
+ */
+function addSurcharges(lineItems: LineItem[], serviceChargePct: number, vatPct: number): void {
+  const sum = () => lineItems.reduce((s, i) => s + i.subtotal, 0)
+  if (serviceChargePct > 0) {
+    const charge = Math.round(sum() * serviceChargePct / 100)
+    if (charge > 0) {
+      lineItems.push({
+        label: `Service Charge (${serviceChargePct}%)`, qty: 1, unit_price: charge,
+        nights: null, subtotal: charge, kind: 'service_charge',
+      })
+    }
+  }
+  if (vatPct > 0) {
+    const vat = Math.round(sum() * vatPct / 100)
+    if (vat > 0) {
+      lineItems.push({
+        label: `VAT (${vatPct}%)`, qty: 1, unit_price: vat,
+        nights: null, subtotal: vat, kind: 'vat',
+      })
+    }
   }
 }
 
@@ -236,22 +268,8 @@ export function calculateDaylong(inputs: DaylongInputs): CalculationResult {
     }
   }
 
-  // Service charge (applied to pre-discount subtotal)
-  const pct = inputs.service_charge_pct ?? 0
-  if (pct > 0) {
-    const base = lineItems.reduce((s, i) => s + i.subtotal, 0)
-    const charge = Math.round(base * pct / 100)
-    if (charge > 0) {
-      lineItems.push({
-        label:      `Service Charge (${pct}%)`,
-        qty:        1,
-        unit_price: charge,
-        nights:     null,
-        subtotal:   charge,
-        kind:       'service_charge',
-      })
-    }
-  }
+  // Service charge, then VAT (both on the pre-discount subtotal)
+  addSurcharges(lineItems, inputs.service_charge_pct ?? 0, inputs.vat_pct ?? 0)
 
   // Percentage discount applied on top of flat discount
   const baseForPct = lineItems.reduce((s, i) => s + i.subtotal, 0)
@@ -374,22 +392,8 @@ export function calculateNight(inputs: NightInputs): CalculationResult {
     }
   }
 
-  // Service charge (applied to pre-discount subtotal)
-  const pct = inputs.service_charge_pct ?? 0
-  if (pct > 0) {
-    const base = lineItems.reduce((s, i) => s + i.subtotal, 0)
-    const charge = Math.round(base * pct / 100)
-    if (charge > 0) {
-      lineItems.push({
-        label:      `Service Charge (${pct}%)`,
-        qty:        1,
-        unit_price: charge,
-        nights:     null,
-        subtotal:   charge,
-        kind:       'service_charge',
-      })
-    }
-  }
+  // Service charge, then VAT (both on the pre-discount subtotal)
+  addSurcharges(lineItems, inputs.service_charge_pct ?? 0, inputs.vat_pct ?? 0)
 
   // Percentage discount applied on top of flat discount
   const baseForPct = lineItems.reduce((s, i) => s + i.subtotal, 0)
@@ -425,6 +429,7 @@ export interface GroupInputs {
   discount:            number
   discount_pct?:       number
   service_charge_pct?: number
+  vat_pct?:            number
   advance_required:    number
   advance_paid:        number
   extra_items?:        ExtraItem[]
@@ -552,17 +557,7 @@ export function calculateGroup(inputs: GroupInputs): CalculationResult {
 
   // Service charge, then percentage discount — the same order as the other
   // two calculators, so a group and a plain booking agree to the taka.
-  const pct = inputs.service_charge_pct ?? 0
-  if (pct > 0) {
-    const base = lineItems.reduce((s, i) => s + i.subtotal, 0)
-    const charge = Math.round(base * pct / 100)
-    if (charge > 0) {
-      lineItems.push({
-        label: `Service Charge (${pct}%)`, qty: 1, unit_price: charge,
-        nights: null, subtotal: charge, kind: 'service_charge',
-      })
-    }
-  }
+  addSurcharges(lineItems, inputs.service_charge_pct ?? 0, inputs.vat_pct ?? 0)
   const baseForPct = lineItems.reduce((s, i) => s + i.subtotal, 0)
   const pctAmount  = Math.round(baseForPct * (inputs.discount_pct ?? 0) / 100)
 

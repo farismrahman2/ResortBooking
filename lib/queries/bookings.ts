@@ -30,7 +30,7 @@ const BOOKING_LIST_COLUMNS = `
   id, booking_number, quote_id, customer_name, customer_phone,
   package_type, visit_date, check_out_date, nights,
   adults, children_paid, children_free, drivers, extra_beds,
-  subtotal, discount, discount_pct, service_charge_pct,
+  subtotal, discount, discount_pct, service_charge_pct, vat_pct,
   total, advance_required, advance_paid, due_advance, remaining,
   status, sales_employee_id, is_corporate, company_name, corporate_account_id,
   package_name:package_snapshot->>name,

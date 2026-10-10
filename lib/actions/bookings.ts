@@ -192,6 +192,7 @@ export async function convertQuoteToBooking(
         discount:            quote.discount,
         discount_pct:        quote.discount_pct ?? 0,
         service_charge_pct:  quote.service_charge_pct ?? 0,
+        vat_pct:             quote.vat_pct ?? 0,
         advance_required:    quote.advance_required,
         advance_paid:        quote.advance_paid,
         advance_method:      quote.advance_method ?? 'bkash',
@@ -785,6 +786,7 @@ export async function updateBooking(
     discount:           number
     discount_pct:       number
     service_charge_pct: number
+    vat_pct:            number
     advance_paid:       number
     advance_required:   number
     adults:        number
@@ -870,6 +872,7 @@ export async function updateBooking(
         discount:           input.discount,
         discount_pct:       input.discount_pct,
         service_charge_pct: input.service_charge_pct,
+        vat_pct:            input.vat_pct,
         advance_required:   input.advance_required,
         advance_paid:       input.advance_paid,
         extra_items,
@@ -887,6 +890,7 @@ export async function updateBooking(
         discount:           input.discount,
         discount_pct:       input.discount_pct,
         service_charge_pct: input.service_charge_pct,
+        vat_pct:            input.vat_pct,
         advance_required:   input.advance_required,
         advance_paid:       input.advance_paid,
         extra_items,
@@ -906,6 +910,7 @@ export async function updateBooking(
         discount:           input.discount,
         discount_pct:       input.discount_pct,
         service_charge_pct: input.service_charge_pct,
+        vat_pct:            input.vat_pct,
         advance_required:   input.advance_required,
         advance_paid:       input.advance_paid,
         extra_items,
@@ -968,6 +973,7 @@ export async function updateBooking(
         discount:            calc.discount,
         discount_pct:        input.discount_pct,
         service_charge_pct:  input.service_charge_pct,
+        vat_pct:             input.vat_pct,
         advance_paid:        calc.advance_paid,
         advance_required:    calc.advance_required,
         adults:              header?.adults        ?? input.adults,
@@ -1099,6 +1105,7 @@ export async function confirmDateChange(
         discount:           flatDiscount,
         discount_pct:       storedPct,
         service_charge_pct: booking.service_charge_pct ?? 0,
+        vat_pct:            booking.vat_pct ?? 0,
         advance_required:   booking.advance_required,
         advance_paid:       booking.advance_paid,
         extra_items:        extraItems,
@@ -1118,6 +1125,7 @@ export async function confirmDateChange(
         discount:           flatDiscount,
         discount_pct:       storedPct,
         service_charge_pct: booking.service_charge_pct ?? 0,
+        vat_pct:            booking.vat_pct ?? 0,
         advance_required:   booking.advance_required,
         advance_paid:       booking.advance_paid,
         extra_items:        extraItems,
@@ -1511,6 +1519,7 @@ export async function swapRoomAssignment(
           discount:           flatDiscount,
           discount_pct:       storedPct,
           service_charge_pct: booking.service_charge_pct ?? 0,
+          vat_pct:            booking.vat_pct ?? 0,
           advance_required:   booking.advance_required,
           advance_paid:       booking.advance_paid,
           extra_items:        extraItems,
@@ -1530,6 +1539,7 @@ export async function swapRoomAssignment(
           discount:           flatDiscount,
           discount_pct:       storedPct,
           service_charge_pct: booking.service_charge_pct ?? 0,
+          vat_pct:            booking.vat_pct ?? 0,
           advance_required:   booking.advance_required,
           advance_paid:       booking.advance_paid,
           extra_items:        extraItems,
