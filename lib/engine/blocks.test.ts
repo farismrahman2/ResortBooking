@@ -8,7 +8,7 @@ import { occupancyOnDate, findHalvesConflict, availabilityByHalves, type StayLik
 const INV = [
   { room_type: 'deluxe', total_units: 4 }, { room_type: 'cottage', total_units: 5 },
   { room_type: 'tree_house', total_units: 1 }, { room_type: 'villa_2br', total_units: 1 },
-  { room_type: 'premium_deluxe_canopy', total_units: 4 }, { room_type: 'deluxe_canopy', total_units: 1 },
+  { room_type: 'premium_deluxe_canopy', total_units: 16 }, { room_type: 'deluxe_canopy', total_units: 5 },
 ]
 const block = (over: Partial<RoomBlock>): RoomBlock => ({
   id: 'b1', all_rooms: false, room_types: [], room_numbers: [], start_date: '2026-10-05',
@@ -19,8 +19,8 @@ describe('which rooms a block holds', () => {
   it('a room type means every room of it', () => {
     expect(blockedRooms(block({ room_types: ['premium_deluxe_canopy', 'deluxe_canopy'] }), INV))
       .toEqual([
-        { room_type: 'premium_deluxe_canopy', qty: 4, room_numbers: ['111', '112', '113', '114'] },
-        { room_type: 'deluxe_canopy', qty: 1, room_numbers: ['115'] },
+        { room_type: 'premium_deluxe_canopy', qty: 16, room_numbers: ['111', '112', '113', '114', '212', '213', '214', '312', '313', '314', '412', '413', '414', '512', '513', '514'] },
+        { room_type: 'deluxe_canopy', qty: 5, room_numbers: ['115', '215', '315', '415', '515'] },
       ])
   })
   it('specific rooms are grouped by their type', () => {
@@ -103,7 +103,7 @@ describe('a block over existing bookings is refused', () => {
 describe('reporting helpers', () => {
   const blocks = [block({ room_types: ['premium_deluxe_canopy'] }), block({ id: 'b2', room_numbers: ['111', '115'] })]
   it('counts physical units once', () => {
-    expect(blockedUnitsOn(blocks, '2026-10-06', INV)).toBe(5)   // 111-114 + 115
+    expect(blockedUnitsOn(blocks, '2026-10-06', INV)).toBe(17)   // all 16 Premium Deluxe Canopy (111 among them) + 115
     expect(blockedUnitsOn(blocks, '2026-10-09', INV)).toBe(0)
   })
   it('names why each number is blocked', () => {

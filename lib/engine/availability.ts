@@ -70,6 +70,9 @@ export function getAvailabilitySummary(availability: AvailabilityResult[]): {
 } {
   let available = 0, partial = 0, fullyBooked = 0
   for (const r of availability) {
+    // A type with every room blocked is off sale that date — neither free
+    // nor "fully booked".
+    if (r.total_units <= 0) continue
     if (r.available === r.total_units) available++
     else if (r.available > 0) partial++
     else fullyBooked++

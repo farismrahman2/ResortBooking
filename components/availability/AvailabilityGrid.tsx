@@ -60,9 +60,13 @@ export function AvailabilityGrid({ rooms, handoverLabel = '6:00 PM' }: Availabil
                 />
               </div>
 
-              <p className={`text-sm font-medium ${isAvail ? 'text-green-700' : 'text-red-600'}`}>
-                {room.available} / {room.total_units} available
-              </p>
+              {room.total_units === 0 && (room.blocked ?? 0) > 0 ? (
+                <p className="text-sm font-medium text-gray-500">Not for sale this date</p>
+              ) : (
+                <p className={`text-sm font-medium ${isAvail ? 'text-green-700' : 'text-red-600'}`}>
+                  {room.available} / {room.total_units} available
+                </p>
+              )}
               {room.booked > 0 && (
                 <p className="mt-0.5 text-xs text-gray-500">{room.booked} booked</p>
               )}

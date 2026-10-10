@@ -20,6 +20,7 @@ const ROOM_LABELS: Record<RoomType, string> = {
   super_premium:  'Super Premium',
   tree_house:     'Tree House',
   villa_2br:     'Two-bedroom Villa',
+  super_premium_canopy: 'Super Premium Canopy',
   premium_deluxe_canopy: 'Premium Deluxe Canopy',
   deluxe_canopy: 'Deluxe Canopy',
   conference_room: 'Conference Room',

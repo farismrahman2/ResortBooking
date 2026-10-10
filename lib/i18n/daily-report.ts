@@ -154,6 +154,7 @@ const ROOM_TYPE_BN: Record<RoomType, string> = {
   cottage:         'কটেজ',
   tree_house:      'ট্রি হাউজ',
   villa_2br:       'দুই বেডরুমের ভিলা',
+  super_premium_canopy: 'সুপার প্রিমিয়াম ক্যানোপি',
   premium_deluxe_canopy: 'প্রিমিয়াম ডিলাক্স ক্যানোপি',
   deluxe_canopy:   'ডিলাক্স ক্যানোপি',
   conference_room: 'কনফারেন্স রুম',

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { isComposite } from '@/lib/config/rooms'
+import { isComposite, isGuestRoom } from '@/lib/config/rooms'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { AvailabilityResult, RoomInventoryRow } from '@/lib/supabase/types'
 
@@ -74,8 +74,11 @@ export function MonthCalendar({ selectedDate, onDateClick, inventory }: MonthCal
     () => inventory.filter((r) => !r.daylong_only),
     [inventory],
   )
+  // Bedrooms only: the villa is 301 + 302, already counted, and the
+  // conference room sleeps nobody.
+  const isCountedRoom = (t: string) => !isComposite(t) && isGuestRoom(t)
   const totalInventory = useMemo(
-    () => visibleInventory.reduce((s, r) => s + r.total_units, 0),
+    () => visibleInventory.filter((r) => isCountedRoom(r.room_type)).reduce((s, r) => s + r.total_units, 0),
     [visibleInventory],
   )
 
@@ -119,9 +122,11 @@ export function MonthCalendar({ selectedDate, onDateClick, inventory }: MonthCal
         }
         for (const d of data.dates ?? []) {
           const rooms = (d.rooms as AvailabilityResult[]).filter((r) => !r.daylong_only)
-          const totalUnits     = rooms.reduce((s, r) => s + r.total_units, 0)
-          // The villa stands on two Deluxe rooms already counted — it adds no unit.
-          const physical = rooms.filter((r) => !isComposite(r.room_type))
+          // The villa stands on two Deluxe rooms already counted — it adds no
+          // unit; the conference room is not a bedroom. total_units is already
+          // net of blocked rooms (lib/queries/availability.ts).
+          const physical = rooms.filter((r) => isCountedRoom(r.room_type))
+          const totalUnits     = physical.reduce((s, r) => s + r.total_units, 0)
           const totalAvailable    = physical.reduce((s, r) => s + (r.available_both ?? r.available), 0)
           const totalAfterEvening = physical.reduce((s, r) => s + (r.available_after_evening ?? 0), 0)
           map.set(d.date, { date: d.date, rooms, totalUnits, totalAvailable, totalAfterEvening })

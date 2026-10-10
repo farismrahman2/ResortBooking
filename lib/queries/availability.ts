@@ -287,7 +287,17 @@ function toResults(
     // Daylong-only rooms aren't for night stays.
     .filter((r) => !(packageType === 'night' && r.daylong_only))
     .map((r) => {
-      const h = halves.get(r.room_type)!
+      const raw = halves.get(r.room_type)!
+      // Blocked rooms are off sale, not "booked": they leave the count
+      // altogether, so a day with the future Canopy floors blocked reads
+      // 17 of 17 free — not 17 of 42, which looked like a busy day.
+      const blk = Math.min(r.total_units, blockedBy.get(r.room_type) ?? 0)
+      const h = {
+        ...raw,
+        booked_day:   Math.max(0, raw.booked_day - blk),
+        booked_night: Math.max(0, raw.booked_night - blk),
+        booked_any:   Math.max(0, raw.booked_any - blk),
+      }
       // "All" counts a room as booked if ANYTHING holds it that day — a day
       // visit, a night guest, or a night guest arriving in the evening. The
       // rooms that free up after the handover (or are free only until it)
@@ -300,7 +310,7 @@ function toResults(
       return {
         room_type:       r.room_type,
         display_name:    r.display_name,
-        total_units:     r.total_units,
+        total_units:     r.total_units - blk,   // sellable on this date
         booked,
         available,
         booked_day:      h.booked_day,
@@ -310,8 +320,8 @@ function toResults(
         available_both:  h.available_both,
         available_after_evening: Math.max(0, h.available_night - h.available_both),
         available_until_evening: Math.max(0, h.available_day - h.available_both),
-        blocked:         blockedBy.get(r.room_type) ?? 0,
-        block_reason:    (blockedBy.get(r.room_type) ?? 0) > 0 ? blockOcc.reason : null,
+        blocked:         blk,
+        block_reason:    blk > 0 ? blockOcc.reason : null,
         daylong_only:    r.daylong_only,
       }
     })

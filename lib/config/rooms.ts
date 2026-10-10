@@ -15,8 +15,12 @@ export const ROOM_NUMBERS: Partial<Record<RoomType, string[]>> = {
   deluxe:          ['202', '205', '301', '302'],
   superior_deluxe: ['203', '206'],
   eco_deluxe:      ['204', '207'],
-  premium_deluxe_canopy: ['111', '112', '113', '114'],
-  deluxe_canopy:         ['115'],
+  // Canopy building — five floors of five: x11 Super Premium Canopy (floors
+  // 2–5; 111 is a Premium Deluxe Canopy), x12–x14 Premium Deluxe Canopy,
+  // x15 Deluxe Canopy. Floors not yet open are held by a room block.
+  super_premium_canopy:  ['211', '311', '411', '511'],
+  premium_deluxe_canopy: ['111', '112', '113', '114', '212', '213', '214', '312', '313', '314', '412', '413', '414', '512', '513', '514'],
+  deluxe_canopy:         ['115', '215', '315', '415', '515'],
   conference_room:       ['Conference'],
   // tree_house: no fixed room numbers assigned
 }
