@@ -1,5 +1,10 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+import { boundedFetch } from '@/lib/supabase/deadline'
+
+/** No single Supabase call from a page or action may hang: a stuck call used
+ *  to hold the page until Vercel killed it. Generous enough for reports. */
+const SERVER_FETCH_TIMEOUT_MS = 15000
 
 /** Standard server client — used in Server Components and API Routes */
 export function createClient() {
@@ -8,6 +13,7 @@ export function createClient() {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      global: { fetch: boundedFetch(SERVER_FETCH_TIMEOUT_MS) },
       cookies: {
         getAll() {
           return cookieStore.getAll()

@@ -1,5 +1,11 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createMiddlewareClient } from '@/lib/supabase/middleware'
+import { withDeadline } from '@/lib/supabase/deadline'
+
+/** Total time for the session check, retries included, and for the profile
+ *  lookup — together well inside Vercel's 25s middleware limit. */
+const MIDDLEWARE_AUTH_DEADLINE_MS = 9000
+const MIDDLEWARE_PROFILE_DEADLINE_MS = 3000
 
 /**
  * Map URL prefix → module slug. Used for the route-level read-permission check
@@ -160,7 +166,7 @@ export async function middleware(request: NextRequest) {
     // IMPORTANT: this refreshes the session cookie if needed. Bounded by
     // SUPABASE_TIMEOUT_MS — an unbounded await here is what produced 504
     // MIDDLEWARE_INVOCATION_TIMEOUT in production.
-    const { data, error } = await supabase.auth.getUser()
+    const { data, error } = await withDeadline(supabase.auth.getUser(), MIDDLEWARE_AUTH_DEADLINE_MS, 'session check')
     if (isTransientAuthFailure(error)) throw error
     user = data.user
   } catch (err) {
@@ -216,7 +222,7 @@ export async function middleware(request: NextRequest) {
         if (!cached) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const db = supabase as any
-          const { data: profile, error: profileErr } = await db
+          const { data: profile, error: profileErr } = await withDeadline<any>(db
             .from('user_profiles')
             .select(`
               role_id,
@@ -230,7 +236,7 @@ export async function middleware(request: NextRequest) {
               )
             `)
             .eq('user_id', user.id)
-            .maybeSingle()
+            .maybeSingle(), MIDDLEWARE_PROFILE_DEADLINE_MS, 'profile lookup')
 
           // Couldn't reach the database — fail open WITHOUT caching, so the
           // next request retries instead of inheriting a blank verdict.

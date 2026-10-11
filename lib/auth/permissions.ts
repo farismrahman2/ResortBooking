@@ -2,6 +2,7 @@ import { cache } from 'react'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { cachedRef } from '@/lib/cache'
+import { withDeadline } from '@/lib/supabase/deadline'
 import type { ActionResult } from '@/lib/actions/types'
 import type {
   ModuleSlug,
@@ -56,7 +57,10 @@ export const getCurrentUserContext = cache(async (): Promise<UserContext | null>
   const supabase = createClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = supabase as any
-  const { data } = await supabase.auth.getUser()
+  // Capped, retries included: a slow session refresh must send the person to
+  // the login page, not hang the page until Vercel gives up.
+  const { data } = await withDeadline(supabase.auth.getUser(), 10000, 'session check')
+    .catch(() => ({ data: { user: null } }))
   if (!data?.user) return null
 
   try {
