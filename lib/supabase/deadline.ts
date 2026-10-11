@@ -32,3 +32,15 @@ export function boundedFetch(timeoutMs: number): typeof fetch {
     return fetch(input, { ...init, signal })
   }
 }
+
+/** A failure that means "Supabase didn't answer", not "you are signed out"
+ *  or "no such row": timeouts, aborted fetches, gateway errors. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function isTransientFailure(error: any): boolean {
+  if (!error) return false
+  if (error instanceof DeadlineError) return true
+  const status = Number(error.status ?? error.code ?? NaN)
+  if (status === 0 || status === 502 || status === 503 || status === 504 || status === 520 || status === 522 || status === 524) return true
+  const text = `${error.name ?? ''} ${error.message ?? ''} ${error.details ?? ''}`
+  return /abort|timeout|timed out|fetch failed|network|retryable|ECONN|socket|upstream/i.test(text)
+}

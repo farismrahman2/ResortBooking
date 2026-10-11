@@ -2,7 +2,7 @@ import { cache } from 'react'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { cachedRef } from '@/lib/cache'
-import { withDeadline } from '@/lib/supabase/deadline'
+import { withDeadline, isTransientFailure } from '@/lib/supabase/deadline'
 import type { ActionResult } from '@/lib/actions/types'
 import type {
   ModuleSlug,
@@ -53,56 +53,58 @@ const rolePermissionMap = (roleId: string) => cachedRef<Record<string, Permissio
   { tags: ['role-permissions'], revalidate: 300 },
 )()
 
+/** Supabase could not be reached: send the person to the outage page (which
+ *  retries by itself) — never treat it as "signed out" or "no permissions",
+ *  which used to show a misleading "Access denied". */
+function databaseUnreachable(): never {
+  redirect('/unavailable')
+}
+
 export const getCurrentUserContext = cache(async (): Promise<UserContext | null> => {
   const supabase = createClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = supabase as any
-  // Capped, retries included: a slow session refresh must send the person to
-  // the login page, not hang the page until Vercel gives up.
-  const { data } = await withDeadline(supabase.auth.getUser(), 10000, 'session check')
-    .catch(() => ({ data: { user: null } }))
-  if (!data?.user) return null
 
+  // Capped, retries included — a slow Supabase must never hang the page.
+  const auth = await withDeadline(supabase.auth.getUser(), 10000, 'session check').catch((e) => ({ data: { user: null }, error: e }))
+  if (isTransientFailure(auth.error)) databaseUnreachable()
+  const user = auth.data?.user
+  if (!user) return null
+
+  // The per-user part is one small row; the role's permission map is the
+  // same for everyone holding the role and changes a few times a year, so
+  // it comes from a shared cache (busted by updateRolePermissions).
+  const res = await withDeadline<any>(db   // eslint-disable-line @typescript-eslint/no-explicit-any
+    .from('user_profiles')
+    .select(`
+      user_id, full_name, email, role_id, is_active, phone,
+      created_by, created_at, updated_at, last_login_at,
+      role:roles!inner ( id, slug, display_name )
+    `)
+    .eq('user_id', user.id)
+    .maybeSingle(), 8000, 'profile lookup').catch((e: unknown) => ({ data: null, error: e }))
+  if (isTransientFailure(res.error)) databaseUnreachable()
+  const profile = res.data
+  // Migration not run yet, or profile missing — no permissions (auth is ok).
+  if (res.error || !profile) return null
+  // Deactivated user — treat as logged out for permission purposes.
+  if (!profile.is_active) return null
+
+  let levels: Record<string, PermissionLevel>
   try {
-    // The per-user part is one small row; the role's permission map is the
-    // same for everyone holding the role and changes a few times a year, so
-    // it comes from a shared cache (busted by updateRolePermissions). The old
-    // nested select joined role_permissions on every request — the most
-    // repeated query on the database.
-    const { data: profile, error: profileErr } = await db
-      .from('user_profiles')
-      .select(`
-        user_id, full_name, email, role_id, is_active, phone,
-        created_by, created_at, updated_at, last_login_at,
-        role:roles!inner ( id, slug, display_name )
-      `)
-      .eq('user_id', data.user.id)
-      .maybeSingle()
-
-    if (profileErr || !profile) {
-      // Migration not run yet, or profile missing — surface as no-permissions
-      // (auth still ok). The caller can decide what to do; sidebar / pages will
-      // show /403 for module-protected routes.
-      return null
-    }
-
-    if (!profile.is_active) {
-      // Deactivated user — treat as logged out for permission purposes
-      return null
-    }
-
-    const permissions = emptyPermissionMap()
-    const levels = await rolePermissionMap(profile.role_id).catch(() => ({} as Record<string, PermissionLevel>))
-    for (const [slug, level] of Object.entries(levels)) permissions[slug as ModuleSlug] = level
-
-    return {
-      user_id: data.user.id,
-      email:   data.user.email ?? profile.email,
-      profile: profile as UserContext['profile'],
-      permissions,
-    }
+    levels = await withDeadline(rolePermissionMap(profile.role_id), 8000, 'role permissions')
   } catch {
-    return null
+    // An empty map here used to mean "Access denied" everywhere.
+    databaseUnreachable()
+  }
+  const permissions = emptyPermissionMap()
+  for (const [slug, level] of Object.entries(levels)) permissions[slug as ModuleSlug] = level
+
+  return {
+    user_id: user.id,
+    email:   user.email ?? profile.email,
+    profile: profile as UserContext['profile'],
+    permissions,
   }
 })
 

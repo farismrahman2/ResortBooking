@@ -12,3 +12,17 @@ describe('withDeadline', () => {
     expect(Date.now() - t0).toBeLessThan(500)
   })
 })
+
+import { isTransientFailure, DeadlineError } from './deadline'
+
+describe('isTransientFailure', () => {
+  it('outages are transient; signed-out and bad requests are not', () => {
+    expect(isTransientFailure(new DeadlineError('session check', 10))).toBe(true)
+    expect(isTransientFailure({ name: 'AuthRetryableFetchError', message: 'The operation was aborted due to timeout', status: 0 })).toBe(true)
+    expect(isTransientFailure({ message: 'TypeError: fetch failed' })).toBe(true)
+    expect(isTransientFailure({ status: 522 })).toBe(true)
+    expect(isTransientFailure({ name: 'AuthSessionMissingError', message: 'Auth session missing!', status: 400 })).toBe(false)
+    expect(isTransientFailure({ message: 'Invalid Refresh Token: Refresh Token Not Found', status: 400 })).toBe(false)
+    expect(isTransientFailure(null)).toBe(false)
+  })
+})

@@ -151,6 +151,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
+  // The outage page and its health check must work when Supabase doesn't.
+  if (pathname === '/unavailable' || pathname === '/api/health') {
+    return NextResponse.next()
+  }
+
   // Fail open for the login + diagnose routes if env vars are missing so the
   // user can still see diagnostic info instead of an opaque 500.
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
@@ -173,13 +178,15 @@ export async function middleware(request: NextRequest) {
     // Auth couldn't be reached — which is NOT the same as "signed out".
     if (isLoginRoute || isAuthRoute) return NextResponse.next()
     if (isApiRoute) return NextResponse.json({ error: 'Auth service unavailable' }, { status: 503 })
-    // Let the request through rather than bouncing a signed-in user to
-    // /login over one slow round trip. The page's own requirePermission()
-    // runs uncached on the server and refuses if the user really is not
-    // entitled to it, so nothing is exposed by being optimistic here.
-    console.warn('[middleware] auth check failed, passing through:',
-      err instanceof Error ? err.message : String(err))
-    return response
+    console.warn('[middleware] auth check failed:', err instanceof Error ? err.message : String(err))
+    // A page: straight to the outage page, which retries on its own — the
+    // page itself would only wait on the same unreachable service. A
+    // prefetch just gets nothing.
+    const isPrefetch = request.headers.get('next-router-prefetch') === '1' || request.headers.get('purpose') === 'prefetch'
+    if (isPrefetch) return new NextResponse(null, { status: 204 })
+    const url = new URL('/unavailable', request.url)
+    url.searchParams.set('next', pathname + search)
+    return NextResponse.redirect(url)
   }
 
   // Not authenticated
