@@ -25,6 +25,10 @@ export default async function DashboardPage() {
   // Corporate sales has crm:write but no bookings access — land them on /crm
   // instead of falling through to /403.
   const ctx = await getCurrentUserContext()
+  // No context = signed out, or the session couldn't be checked (Supabase
+  // slow or down). Either way the answer is the login page — not "Access
+  // denied", which read as a permissions problem.
+  if (!ctx) redirect('/login')
   // Corporate sales has no bookings access at all — "today at the resort"
   // would be meaningless to them. Review collectors only have Guest Feedback.
   if (ctx?.profile.role.slug === 'corporate_sales')  redirect('/crm')
