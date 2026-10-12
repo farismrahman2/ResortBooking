@@ -1,7 +1,10 @@
+import { realRevenueAllowed } from '@/lib/auth/permissions'
 import { NextRequest, NextResponse } from 'next/server'
 import { getRevenueStats } from '@/lib/queries/bookings'
 
 export async function GET(req: NextRequest) {
+  // Real revenue — the admin only (lib/revenue/display.ts).
+  if (!(await realRevenueAllowed())) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const { searchParams } = new URL(req.url)
   const from_date = searchParams.get('from') ?? new Date(Date.now() - 30 * 86400_000).toISOString().slice(0, 10)
   const to_date   = searchParams.get('to')   ?? new Date().toISOString().slice(0, 10)

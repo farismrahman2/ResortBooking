@@ -47,7 +47,7 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { href: '/',             label: 'Dashboard',    icon: LayoutDashboard, module: 'bookings', hideForRoles: ['reservation', 'corporate_sales'] },
+  { href: '/',             label: 'Dashboard',    icon: LayoutDashboard, module: 'bookings', hideForRoles: ['corporate_sales'] },
   { href: '/enquiries',    label: 'Enquiries',    icon: MailQuestion,   module: 'enquiries' },
   { href: '/quotes',       label: 'Quotes',       icon: FileText,       module: 'bookings' },
   { href: '/bookings',     label: 'Bookings',     icon: CalendarCheck,  module: 'bookings' },

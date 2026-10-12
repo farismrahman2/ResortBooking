@@ -698,6 +698,8 @@ export type AdminAlertEvent =
   | 'room_block_created' | 'room_block_changed' | 'room_block_released'
   /** Package room prices changed (Room prices grid or the package form). */
   | 'room_prices_changed'
+  /** The revenue % staff see for a month was set or changed (admin only). */
+  | 'revenue_display_changed'
 
 export interface AdminAlertRow {
   id: string

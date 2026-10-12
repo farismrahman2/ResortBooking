@@ -25,7 +25,7 @@ interface Props {
   daily:      DailyExpenseTrendRow[]
   categories: CategoryBreakdownRow[]
   payees:     PayeeBreakdownRow[]
-  pl:         ProfitAndLoss
+  pl:  ProfitAndLoss | null
 }
 
 const ROSE_500    = '#f43f5e'
@@ -55,7 +55,7 @@ export function ExpenseAnalyticsClient({ from, to, summary, daily, categories, p
     router.push(`/expenses/analytics?${params.toString()}`)
   }
 
-  const hasAny = summary.txn_count > 0 || pl.revenue.booking_revenue > 0
+  const hasAny = summary.txn_count > 0 || (pl?.revenue.booking_revenue ?? 0) > 0
 
   // Daily chart with short labels
   const dailyShort = daily.map((d) => ({
@@ -109,10 +109,12 @@ export function ExpenseAnalyticsClient({ from, to, summary, daily, categories, p
             />
           </div>
 
-          {/* Profit & Loss */}
-          <Section title="📊 Profit & Loss">
-            <PnLPanel pl={pl} />
-          </Section>
+          {/* Profit & Loss — the admin only (it carries real revenue). */}
+          {pl && (
+            <Section title="📊 Profit & Loss">
+              <PnLPanel pl={pl} />
+            </Section>
+          )}
 
           {/* Daily expense trend */}
           <Section title="📈 Daily Expense Trend">

@@ -125,6 +125,18 @@ export async function hasPermission(
   return false
 }
 
+/** Real revenue totals: the admin only (lib/revenue/display.ts). */
+export async function requireRealRevenue(): Promise<UserContext> {
+  const ctx = await getCurrentUserContext()
+  if (!ctx) redirect('/login')
+  if (ctx.profile.role.slug !== 'admin') redirect('/403?from=revenue')
+  return ctx
+}
+
+export async function realRevenueAllowed(): Promise<boolean> {
+  return (await getCurrentUserContext())?.profile.role.slug === 'admin'
+}
+
 /** Server-component / page-level guard. Redirects to /403 if not satisfied. */
 export async function requirePermission(
   module: ModuleSlug,

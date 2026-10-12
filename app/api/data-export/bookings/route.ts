@@ -1,3 +1,4 @@
+import { realRevenueAllowed } from '@/lib/auth/permissions'
 import { NextResponse } from 'next/server'
 import { getCurrentUserContext } from '@/lib/auth/permissions'
 import { getBookingsForExport } from '@/lib/queries/data-export'
@@ -12,6 +13,8 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 export async function GET(req: Request) {
+  // Real revenue — the admin only (lib/revenue/display.ts).
+  if (!(await realRevenueAllowed())) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   // Defence in depth: admin role only — both settings:read AND explicit slug.
   const ctx = await getCurrentUserContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })

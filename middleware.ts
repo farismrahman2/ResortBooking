@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createMiddlewareClient } from '@/lib/supabase/middleware'
 import { withDeadline } from '@/lib/supabase/deadline'
+import { isRealRevenuePath, canSeeRealRevenue } from '@/lib/revenue/display'
 
 /** Total time for the session check, retries included, and for the profile
  *  lookup — together well inside Vercel's 25s middleware limit. */
@@ -279,6 +280,15 @@ export async function middleware(request: NextRequest) {
           await supabase.auth.signOut().catch(() => {})
           if (isApiRoute) return NextResponse.json({ error: 'Account deactivated' }, { status: 403 })
           return redirectWithCookies(new URL('/login?deactivated=1', request.url))
+        }
+
+        // Real revenue totals are the admin's alone (lib/revenue/display.ts);
+        // everyone else sees the adjusted figure on the dashboard.
+        if (isRealRevenuePath(pathname) && !canSeeRealRevenue(entry.roleSlug)) {
+          if (isApiRoute) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+          const url = new URL('/403', request.url)
+          url.searchParams.set('from', 'revenue')
+          return redirectWithCookies(url)
         }
 
         if (!mod) return response   // no module mapping → nothing further to enforce

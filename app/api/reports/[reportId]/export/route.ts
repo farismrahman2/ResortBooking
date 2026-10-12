@@ -1,3 +1,5 @@
+import { realRevenueAllowed } from '@/lib/auth/permissions'
+import { REAL_REVENUE_REPORT_IDS } from '@/lib/revenue/display'
 import { NextRequest, NextResponse } from 'next/server'
 import { renderToStream } from '@react-pdf/renderer'
 import { requirePermission, getCurrentUserContext, hasPermission } from '@/lib/auth/permissions'
@@ -36,6 +38,10 @@ const EXTRA_PERMISSION: Record<string, ModuleSlug> = {
 
 export async function GET(req: NextRequest, { params }: RouteParams) {
   await requirePermission('reports', 'read')
+  // Revenue reports — the admin only (lib/revenue/display.ts).
+  if (REAL_REVENUE_REPORT_IDS.includes(params.reportId) && !(await realRevenueAllowed())) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
 
   const extra = EXTRA_PERMISSION[params.reportId]
   if (extra && !(await hasPermission(extra, 'read'))) {

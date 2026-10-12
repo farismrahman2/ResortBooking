@@ -1,5 +1,6 @@
 import { FileDown } from 'lucide-react'
 import { requirePermission, hasPermission } from '@/lib/auth/permissions'
+import { canSeeRealRevenue, isRealRevenuePath } from '@/lib/revenue/display'
 import { buildPeriodRange, toIsoDate } from '@/lib/reports/periods'
 import { computeAvailability } from '@/lib/reports/sufficient-data'
 import { getHubTotals, getHubTotalsForComparison, getRevenueSparkline } from '@/lib/queries/reports/hub'
@@ -32,7 +33,9 @@ function pickMode(s: string | undefined): ComparisonMode {
 }
 
 export default async function ReportsHubPage({ searchParams }: PageProps) {
-  await requirePermission('reports', 'read')
+  const ctx = await requirePermission('reports', 'read')
+  // Real revenue — and Net, which gives it away — is the admin's alone.
+  const realRevenue = canSeeRealRevenue(ctx.profile.role.slug)
 
   const preset = pickPreset(searchParams.period)
   const mode   = pickMode(searchParams.compare)
@@ -49,7 +52,7 @@ export default async function ReportsHubPage({ searchParams }: PageProps) {
     hasPermission('hr', 'read'),
     hasPermission('checkout', 'read'),
     hasPermission('expenses', 'read'),
-    getRevenueSparkline(),
+    realRevenue ? getRevenueSparkline() : Promise.resolve([] as Array<{ revenue: number }>),
   ])
 
   const sparkline = sparklineRaw.map((d) => d.revenue)
@@ -78,25 +81,25 @@ export default async function ReportsHubPage({ searchParams }: PageProps) {
       customFrom={searchParams.from}
       customTo={searchParams.to}
       mode={mode}
-      toolbar={
+      toolbar={realRevenue && (
         <a
           href={printHref}
           className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg bg-forest-700 px-3 text-xs font-semibold text-white"
         >
           <FileDown size={14} /> PDF report
         </a>
-      }
+      )}
     >
       {/* KPI strip */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard
+        {realRevenue && <KpiCard
           label="Total revenue"
           value={formatBDTCompact(current.total_revenue)}
           raw={current.total_revenue}
           prior={prev?.total_revenue ?? null}
           yoy={yoy?.total_revenue ?? null}
           mode={effectiveMode}
-        />
+        />}
         <KpiCard
           label="Total expenses"
           value={formatBDTCompact(current.total_expenses)}
@@ -106,7 +109,7 @@ export default async function ReportsHubPage({ searchParams }: PageProps) {
           mode={effectiveMode}
           invertColour
         />
-        <KpiCard
+        {realRevenue && <KpiCard
           label="Net"
           value={formatBDTCompact(current.net)}
           raw={current.net}
@@ -114,7 +117,7 @@ export default async function ReportsHubPage({ searchParams }: PageProps) {
           yoy={yoy?.net ?? null}
           mode={effectiveMode}
           emphasis={current.net >= 0 ? 'positive' : 'negative'}
-        />
+        />}
         <KpiCard
           label="Avg occupancy"
           value={current.avg_occupancy_pct == null ? '—' : `${current.avg_occupancy_pct.toFixed(1)}%`}
@@ -149,8 +152,9 @@ export default async function ReportsHubPage({ searchParams }: PageProps) {
                     (meta.module === 'checkout' && !checkoutAccess) ||
                     (meta.module === 'expenses' && !expensesAccess)
                   const notYetShipped = meta.phase > 1
-                  const disabled = lacksModule || notYetShipped
-                  const reason = lacksModule
+                  const adminOnly = !realRevenue && isRealRevenuePath(meta.href)
+                  const disabled = lacksModule || notYetShipped || adminOnly
+                  const reason = adminOnly ? 'Admin only' : lacksModule
                     ? `${meta.module?.toUpperCase()} access required`
                     : notYetShipped
                       ? `Coming in Phase ${meta.phase}`

@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Users, ShieldCheck, ListChecks, Settings as SettingsIcon, Calendar, ArrowRight, Copy, Bell, Building2, Phone, Download, Sparkles, Ban, Tags } from 'lucide-react'
+import { Users, ShieldCheck, ListChecks, Settings as SettingsIcon, Calendar, ArrowRight, Copy, Bell, Building2, Phone, Download, Sparkles, Ban, Tags, Percent } from 'lucide-react'
 import { getSettings, getHolidayDates } from '@/lib/queries/settings'
 import { getUnreadAlertCount } from '@/lib/auth/alerts'
 import { Topbar } from '@/components/layout/Topbar'
@@ -29,6 +29,14 @@ export default async function SettingsPage() {
       <div className="p-4 sm:p-6 space-y-6">
         {/* Hub tiles */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {isAdmin && (
+            <HubTile
+              href="/settings/revenue-display"
+              icon={<Percent size={18} />}
+              title="Revenue display"
+              description="The revenue figure staff see — a % of the real one, per month"
+            />
+          )}
           {['admin', 'manager', 'md', 'accountant', 'operations_manager', 'reservation'].includes(ctx?.profile.role.slug ?? '') && (
             <HubTile
               href="/settings/room-prices"

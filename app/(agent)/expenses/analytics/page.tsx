@@ -16,6 +16,7 @@ import {
   getProfitAndLoss,
 } from '@/lib/queries/expenses'
 import { toISODate } from '@/lib/formatters/dates'
+import { realRevenueAllowed } from '@/lib/auth/permissions'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,8 +36,10 @@ export default async function ExpenseAnalyticsPage({ searchParams }: PageProps) 
     daily:   Awaited<ReturnType<typeof getDailyExpenseTrend>>
     cats:    Awaited<ReturnType<typeof getCategoryBreakdown>>
     payees:  Awaited<ReturnType<typeof getPayeeBreakdown>>
-    pl:      Awaited<ReturnType<typeof getProfitAndLoss>>
+    pl:      Awaited<ReturnType<typeof getProfitAndLoss>> | null
   } | null = null
+  // The P&L carries real revenue — the admin's alone (lib/revenue/display.ts).
+  const realRevenue = await realRevenueAllowed()
   let migrationError: string | null = null
 
   try {
@@ -45,7 +48,7 @@ export default async function ExpenseAnalyticsPage({ searchParams }: PageProps) 
       getDailyExpenseTrend(from, to),
       getCategoryBreakdown(from, to),
       getPayeeBreakdown(from, to),
-      getProfitAndLoss(from, to),
+      realRevenue ? getProfitAndLoss(from, to) : Promise.resolve(null),
     ])
     data = { summary, daily, cats, payees, pl }
   } catch (err) {

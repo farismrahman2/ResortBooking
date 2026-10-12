@@ -1,3 +1,4 @@
+import { realRevenueAllowed } from '@/lib/auth/permissions'
 import { NextRequest, NextResponse } from 'next/server'
 import { hasPermission } from '@/lib/auth/permissions'
 import { buildBusinessContext, type ExportDetail } from '@/lib/queries/exports/business-context'
@@ -16,6 +17,8 @@ const ISO = /^\d{4}-\d{2}-\d{2}$/
  * bar as the money reports it summarises.
  */
 export async function GET(req: NextRequest) {
+  // Real revenue — the admin only (lib/revenue/display.ts).
+  if (!(await realRevenueAllowed())) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   if (!(await hasPermission('reports', 'read'))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }

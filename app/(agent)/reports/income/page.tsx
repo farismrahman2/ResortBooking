@@ -1,4 +1,4 @@
-import { requirePermission } from '@/lib/auth/permissions'
+import { requirePermission, requireRealRevenue } from '@/lib/auth/permissions'
 import { resolvePeriod } from '@/lib/reports/page-params'
 import { computeAvailability } from '@/lib/reports/sufficient-data'
 import { getDailyIncome, getPackageRevenue, getIndustryKpis } from '@/lib/queries/reports/income'
@@ -18,6 +18,7 @@ export const dynamic = 'force-dynamic'
 interface PageProps { searchParams: { period?: string; from?: string; to?: string; compare?: string } }
 
 export default async function IncomeReportPage({ searchParams }: PageProps) {
+  await requireRealRevenue()   // admin only — see lib/revenue/display.ts
   await requirePermission('reports', 'read')
   const { preset, period, mode, customFrom, customTo } = resolvePeriod(searchParams)
 

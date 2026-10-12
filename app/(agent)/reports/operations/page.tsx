@@ -1,4 +1,5 @@
 import { requirePermission } from '@/lib/auth/permissions'
+import { canSeeRealRevenue } from '@/lib/revenue/display'
 import { resolvePeriod } from '@/lib/reports/page-params'
 import { getOccupancyByDay, getPickupPace, type PickupWeekRow } from '@/lib/queries/reports/operations'
 import { getIndustryKpis } from '@/lib/queries/reports/income'
@@ -15,7 +16,9 @@ export const dynamic = 'force-dynamic'
 interface PageProps { searchParams: { period?: string; from?: string; to?: string; compare?: string } }
 
 export default async function OperationsReportPage({ searchParams }: PageProps) {
-  await requirePermission('reports', 'read')
+  const ctx = await requirePermission('reports', 'read')
+  // ADR × room-nights = room revenue, so the money metrics are the admin's alone.
+  const realRevenue = canSeeRealRevenue(ctx.profile.role.slug)
   const { preset, period, mode, customFrom, customTo } = resolvePeriod(searchParams)
   const [days, pickup, industry] = await Promise.all([
     getOccupancyByDay(period),
@@ -53,10 +56,10 @@ export default async function OperationsReportPage({ searchParams }: PageProps) 
         ]}
       />
       <details className="rounded-xl border border-gray-200 bg-white p-4">
-        <summary className="cursor-pointer text-sm font-semibold text-gray-900">Advanced metrics (ADR, RevPAR)</summary>
+        <summary className="cursor-pointer text-sm font-semibold text-gray-900">{realRevenue ? 'Advanced metrics (ADR, RevPAR)' : 'Room-nights'}</summary>
         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <KpiCard label="ADR"    value={industry.adr    !== null ? formatBDT(industry.adr)    : '—'} mode="off" />
-          <KpiCard label="RevPAR" value={industry.revpar !== null ? formatBDT(industry.revpar) : '—'} mode="off" />
+          {realRevenue && <KpiCard label="ADR"    value={industry.adr    !== null ? formatBDT(industry.adr)    : '—'} mode="off" />}
+          {realRevenue && <KpiCard label="RevPAR" value={industry.revpar !== null ? formatBDT(industry.revpar) : '—'} mode="off" />}
           <KpiCard label="Room-nights sold / available"
             value={`${industry.total_room_nights_sold} / ${industry.total_available_room_nights}`} mode="off" />
         </div>

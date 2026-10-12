@@ -8,6 +8,8 @@ import { QuickActions } from '@/components/dashboard/QuickActions'
 import { RevenueWidget } from '@/components/dashboard/RevenueWidget'
 import { ExpensesThisMonth } from '@/components/dashboard/ExpensesThisMonth'
 import { MonthlyPnLWidget } from '@/components/dashboard/MonthlyPnLWidget'
+import { DisplayedRevenueCard } from '@/components/dashboard/DisplayedRevenueCard'
+import { canSeeRealRevenue } from '@/lib/revenue/display'
 import { getCurrentUserContext } from '@/lib/auth/permissions'
 import { formatDate } from '@/lib/formatters/dates'
 import { formatBDT } from '@/lib/formatters/currency'
@@ -42,7 +44,9 @@ export default async function DashboardPage() {
   // precisely their job, so they now get the operational half of this page —
   // just without the revenue widgets below.
   const canSeeOps     = canRead('bookings') || canRead('checkout')
-  const canSeeRevenue = canRead('reports') || canRead('expenses')
+  // Real revenue is the admin's alone; everyone else gets the adjusted
+  // "Revenue this month" card (lib/revenue/display.ts).
+  const realRevenue = canSeeRealRevenue(ctx.profile.role.slug)
 
   if (!canSeeOps) {
     if (canRead('availability')) redirect('/availability')
@@ -86,12 +90,15 @@ export default async function DashboardPage() {
       <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
         {/* What's happening today — the question this page is actually opened
             to answer. Shown to everyone with operational access. */}
-        {today && <TodayPanel snapshot={today} name={ctx?.profile.full_name} />}
+        {today && <TodayPanel
+          // The 7-day trend carries real revenue — counts only for staff.
+          snapshot={realRevenue ? today : { ...today, bookingTrend: today.bookingTrend.map((t) => ({ ...t, revenue: 0 })) }}
+          name={ctx?.profile.full_name} />}
 
         {showBookingWidgets && (
           <StatsCards
             quoteStatusCounts={statusCounts}
-            bookingStats={bookingStats}
+            bookingStats={realRevenue ? bookingStats : { ...bookingStats, total_revenue: 0 }}   // never send the real total to staff
             upcomingCount={upcomingBookings.length}
             trend={today?.bookingTrend.map((t) => t.count)}
           />
@@ -109,9 +116,10 @@ export default async function DashboardPage() {
             <QuickActions />
             {/* The server-rendered money widgets stream in on their own
                 instead of holding the whole page until they are ready. */}
-            {canSeeRevenue && <RevenueWidget />}
-            {canSeeRevenue && <Suspense fallback={<WidgetSkeleton />}><MonthlyPnLWidget /></Suspense>}
-            {canSeeRevenue && <Suspense fallback={<WidgetSkeleton />}><ExpensesThisMonth /></Suspense>}
+            <Suspense fallback={<WidgetSkeleton />}><DisplayedRevenueCard adminNote={realRevenue} /></Suspense>
+            {realRevenue && <RevenueWidget />}
+            {realRevenue && <Suspense fallback={<WidgetSkeleton />}><MonthlyPnLWidget /></Suspense>}
+            {canRead('expenses') && <Suspense fallback={<WidgetSkeleton />}><ExpensesThisMonth /></Suspense>}
 
             {/* Upcoming bookings mini list */}
             <div className="card p-5">

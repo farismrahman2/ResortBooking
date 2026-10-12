@@ -2,6 +2,7 @@ import { Topbar } from '@/components/layout/Topbar'
 import { AuditLogClient } from '@/components/settings/AuditLogClient'
 import { listAdminAlerts } from '@/lib/queries/admin-alerts'
 import { requirePermission } from '@/lib/auth/permissions'
+import { canSeeRealRevenue } from '@/lib/revenue/display'
 import { flagOverdueDues } from '@/lib/alerts/overdue-dues'
 import type { AdminAlertEvent } from '@/lib/supabase/types'
 
@@ -14,7 +15,7 @@ const VALID_FILTERS = [
   'refund_recorded', 'booking_cancelled', 'user_deactivated',
   'booking_edited', 'advance_corrected', 'advance_removed',
   'room_block_created', 'room_block_changed', 'room_block_released',
-  'room_prices_changed',
+  'room_prices_changed', 'revenue_display_changed',
 ] as const
 
 interface PageProps {
@@ -22,7 +23,7 @@ interface PageProps {
 }
 
 export default async function AuditLogPage({ searchParams }: PageProps) {
-  await requirePermission('settings', 'read')
+  const ctx = await requirePermission('settings', 'read')
   const filter = (VALID_FILTERS as readonly string[]).includes(searchParams.filter ?? '')
     ? (searchParams.filter as 'unread' | 'all' | AdminAlertEvent)
     : 'unread'
@@ -37,6 +38,8 @@ export default async function AuditLogPage({ searchParams }: PageProps) {
   let migrationError: string | null = null
   try {
     alerts = await listAdminAlerts({ filter })
+    // The revenue % staff see is the admin's alone.
+    if (!canSeeRealRevenue(ctx.profile.role.slug)) alerts = alerts.filter((a) => a.event_type !== 'revenue_display_changed')
   } catch (err) {
     migrationError = err instanceof Error ? err.message : String(err)
   }

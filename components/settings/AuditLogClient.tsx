@@ -49,6 +49,7 @@ const EVENT_BADGE: Record<AdminAlertEvent, string> = {
   room_block_changed:  'bg-slate-100 text-slate-800 border-slate-300',
   room_block_released: 'bg-green-50 text-green-800 border-green-200',
   room_prices_changed: 'bg-indigo-50 text-indigo-800 border-indigo-200',
+  revenue_display_changed: 'bg-gray-100 text-gray-800 border-gray-300',
 }
 
 const EVENT_LABELS: Record<AdminAlertEvent, string> = {
@@ -67,6 +68,7 @@ const EVENT_LABELS: Record<AdminAlertEvent, string> = {
   room_block_changed:  'Room Block Changed',
   room_block_released: 'Rooms Released',
   room_prices_changed: 'Room Prices Changed',
+  revenue_display_changed: 'Revenue Display Changed',
 }
 
 export function AuditLogClient({ alerts, filter }: Props) {
