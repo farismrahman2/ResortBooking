@@ -40,7 +40,8 @@ function compactBDT(v: number): string {
 
 export function BookingAnalyticsClient({ from, to, packageType, data }: Props) {
   const router = useRouter()
-  const [dailyMetric, setDailyMetric] = useState<DailyMetric>('both')
+  // Opens on the amount booked — the figure this page is read for.
+  const [dailyMetric, setDailyMetric] = useState<DailyMetric>('amount')
 
   function pushQuery(next: Partial<{ from: string; to: string; package: string }>) {
     const params = new URLSearchParams()

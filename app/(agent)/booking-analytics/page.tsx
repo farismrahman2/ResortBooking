@@ -1,7 +1,7 @@
 import dynamic_ from 'next/dynamic'
 import { Topbar } from '@/components/layout/Topbar'
 import { getBookingAnalytics } from '@/lib/queries/booking-analytics'
-import { toISODate } from '@/lib/formatters/dates'
+import { todayDhaka, monthStartDhaka } from '@/lib/dates'
 
 const BookingAnalyticsClient = dynamic_(
   () => import('@/components/booking-analytics/BookingAnalyticsClient').then((m) => m.BookingAnalyticsClient),
@@ -15,13 +15,12 @@ interface PageProps {
 }
 
 export default async function BookingAnalyticsPage({ searchParams }: PageProps) {
-  // Default range: trailing 30 days ending today. Marketing campaigns are
-  // usually evaluated on a rolling window, not a calendar month.
-  const now = new Date()
-  const defaultTo   = toISODate(now)
-  const defaultFromDate = new Date(now)
-  defaultFromDate.setDate(defaultFromDate.getDate() - 29)
-  const defaultFrom = toISODate(defaultFromDate)
+  // Default range: this calendar month (Dhaka), 1st to last day — bookings
+  // already made for the rest of the month show as amount booked ahead.
+  const today = todayDhaka()
+  const defaultFrom = monthStartDhaka(today)
+  const [y, m] = today.split('-').map(Number)
+  const defaultTo = `${today.slice(0, 7)}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0')}`
 
   const from = searchParams.from ?? defaultFrom
   const to   = searchParams.to   ?? defaultTo
