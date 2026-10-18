@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { Topbar } from '@/components/layout/Topbar'
 import { requirePermission } from '@/lib/auth/permissions'
+import { canSeeRealRevenue } from '@/lib/revenue/display'
 import { MigrationErrorBanner } from '@/components/crm/MigrationErrorBanner'
 import {
   getPipelineForecast, getWinRate, getTopAccounts, getActivityVolume, getSectorBreakdown,
@@ -12,7 +13,9 @@ import type { ActivityType } from '@/lib/supabase/types-crm'
 export const dynamic = 'force-dynamic'
 
 export default async function CrmReportsPage() {
-  await requirePermission('crm', 'read')
+  const ctx = await requirePermission('crm', 'read')
+  // Closed revenue is the super admin's alone (lib/revenue/display.ts).
+  const showMoney = canSeeRealRevenue(ctx.profile.role.slug)
 
   let migrationError: string | null = null
   let forecast: Awaited<ReturnType<typeof getPipelineForecast>> | null = null
@@ -53,9 +56,9 @@ export default async function CrmReportsPage() {
               </div>
             </Section>
 
-            <Section title="Top accounts by closed revenue">
-              <Table head={['Account', 'Won deals', 'Revenue']} rightAlign={[1, 2]}
-                rows={topAccounts.map((r) => [r.company_name, String(r.won_deals), formatBDT(r.revenue)])} />
+            <Section title={showMoney ? 'Top accounts by closed revenue' : 'Top accounts by won deals'}>
+              <Table head={showMoney ? ['Account', 'Won deals', 'Revenue'] : ['Account', 'Won deals']} rightAlign={showMoney ? [1, 2] : [1]}
+                rows={topAccounts.map((r) => showMoney ? [r.company_name, String(r.won_deals), formatBDT(r.revenue)] : [r.company_name, String(r.won_deals)])} />
             </Section>
 
             <Section title="Activity volume">
@@ -68,8 +71,8 @@ export default async function CrmReportsPage() {
             </Section>
 
             <Section title="Sector breakdown">
-              <Table head={['Sector', 'Accounts', 'Closed revenue']} rightAlign={[1, 2]}
-                rows={sectors.map((r) => [r.sector, String(r.accounts), formatBDT(r.revenue)])} />
+              <Table head={showMoney ? ['Sector', 'Accounts', 'Closed revenue'] : ['Sector', 'Accounts']} rightAlign={showMoney ? [1, 2] : [1]}
+                rows={sectors.map((r) => showMoney ? [r.sector, String(r.accounts), formatBDT(r.revenue)] : [r.sector, String(r.accounts)])} />
             </Section>
 
             <Link href="/crm" className="inline-block text-sm text-amber-700 hover:underline">← Back to Corporate Sales</Link>

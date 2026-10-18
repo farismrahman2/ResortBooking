@@ -4,6 +4,7 @@ import { MigrationErrorBanner } from '@/components/checkout/MigrationErrorBanner
 import { CheckoutFilterBar } from './CheckoutListClient'
 import { listCheckoutCandidates, PAST_DUE_WINDOW_DAYS } from '@/lib/queries/checkout'
 import { requirePermission, getCurrentUserContext } from '@/lib/auth/permissions'
+import { canSeeRealRevenue } from '@/lib/revenue/display'
 import { CHECKOUT_STATUS_BADGE, CHECKOUT_STATUS_LABELS } from '@/components/checkout/labels'
 import { formatBDT } from '@/lib/formatters/currency'
 import { formatDate } from '@/lib/formatters/dates'
@@ -79,9 +80,12 @@ export default async function CheckoutListPage({ searchParams }: PageProps) {
               {PAST_DUE_WINDOW_DAYS} days without settling. Today&apos;s departures are on the{' '}
               <strong>Today</strong> tab — they are not late yet.
             </p>
-            <p className="font-mono text-lg font-bold tabular-nums text-red-900">
-              {formatBDT(pastDueTotal)}
-            </p>
+            {/* The total owed is a money aggregate — super admin only. */}
+            {canSeeRealRevenue(ctx?.profile.role.slug) && (
+              <p className="font-mono text-lg font-bold tabular-nums text-red-900">
+                {formatBDT(pastDueTotal)}
+              </p>
+            )}
           </div>
         )}
 

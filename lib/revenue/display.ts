@@ -21,6 +21,7 @@ export const REAL_REVENUE_PREFIXES: readonly string[] = [
   '/reports/checkout', '/reports/coffee-shop', '/reports/hr/salary-vs-revenue', '/reports/print',
   '/api/revenue', '/api/data-export/bookings', '/api/exports',
   '/settings/revenue-display',
+  '/hr/sales', '/reports/dues',
 ]
 
 /** Downloadable reports (/api/reports/[id]/export) that total revenue. */

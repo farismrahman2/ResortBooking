@@ -42,7 +42,7 @@ function StatCard({ label, value, icon, iconBg, valueClassName, trend, trendColo
   )
 }
 
-export function StatsCards({ quoteStatusCounts, bookingStats, upcomingCount, trend }: StatsCardsProps) {
+export function StatsCards({ quoteStatusCounts, bookingStats, upcomingCount, trend, showMoney = true }: StatsCardsProps & { showMoney?: boolean }) {
   const totalQuotes = Object.values(quoteStatusCounts).reduce((sum, n) => sum + n, 0)
 
   return (
@@ -61,7 +61,7 @@ export function StatsCards({ quoteStatusCounts, bookingStats, upcomingCount, tre
         iconBg="bg-green-100"
         icon={<CalendarCheck size={22} className="text-green-600" />}
       />
-      <StatCard
+      {showMoney && <StatCard
         label="Pending Advance"
         value={formatBDT(bookingStats.pending_advance)}
         iconBg={bookingStats.pending_advance > 0 ? 'bg-red-100' : 'bg-gray-100'}
@@ -72,7 +72,7 @@ export function StatsCards({ quoteStatusCounts, bookingStats, upcomingCount, tre
           />
         }
         valueClassName={bookingStats.pending_advance > 0 ? 'text-red-600' : undefined}
-      />
+      />}
       <StatCard
         label="Upcoming This Week"
         value={upcomingCount}

@@ -3,6 +3,7 @@ import { Plus, Coffee, Boxes } from 'lucide-react'
 import { Topbar } from '@/components/layout/Topbar'
 import { Button } from '@/components/ui/Button'
 import { requirePermission, hasPermission } from '@/lib/auth/permissions'
+import { canSeeRealRevenue } from '@/lib/revenue/display'
 import { listCoffeeShopSales, getDailySummary } from '@/lib/queries/coffee-shop'
 import { getTodayInDhaka } from '@/lib/coffee-shop/timezone'
 import { MigrationErrorBanner } from '@/components/coffee-shop/MigrationErrorBanner'
@@ -12,7 +13,9 @@ import { formatBDT } from '@/lib/formatters/currency'
 export const dynamic = 'force-dynamic'
 
 export default async function CoffeeShopHubPage() {
-  await requirePermission('coffee_shop', 'read')
+  const ctx = await requirePermission('coffee_shop', 'read')
+  // Revenue totals are the super admin's alone (lib/revenue/display.ts).
+  const showMoney = canSeeRealRevenue(ctx.profile.role.slug)
   const canWrite = await hasPermission('coffee_shop', 'write')
 
   const today = getTodayInDhaka()
@@ -59,9 +62,9 @@ export default async function CoffeeShopHubPage() {
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <Kpi label="Sales today" value={String(kpis?.sales_count ?? 0)} />
-              <Kpi label="Revenue today" value={formatBDT(kpis?.total_revenue ?? 0)} emphasis />
-              <Kpi label="Cash" value={formatBDT(kpis?.cash_total ?? 0)} />
-              <Kpi label="Digital" value={formatBDT(kpis?.digital_total ?? 0)} note="bKash + Nagad + Rocket + Card" />
+              {showMoney && <Kpi label="Revenue today" value={formatBDT(kpis?.total_revenue ?? 0)} emphasis />}
+              {showMoney && <Kpi label="Cash" value={formatBDT(kpis?.cash_total ?? 0)} />}
+              {showMoney && <Kpi label="Digital" value={formatBDT(kpis?.digital_total ?? 0)} note="bKash + Nagad + Rocket + Card" />}
             </div>
 
             <div className="rounded-xl border border-gray-200 bg-white">

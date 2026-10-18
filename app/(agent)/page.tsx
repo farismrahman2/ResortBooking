@@ -98,7 +98,9 @@ export default async function DashboardPage() {
         {showBookingWidgets && (
           <StatsCards
             quoteStatusCounts={statusCounts}
-            bookingStats={realRevenue ? bookingStats : { ...bookingStats, total_revenue: 0 }}   // never send the real total to staff
+            // Money totals are the super admin's alone — never sent to anyone else.
+            bookingStats={realRevenue ? bookingStats : { ...bookingStats, total_revenue: 0, pending_advance: 0 }}
+            showMoney={realRevenue}
             upcomingCount={upcomingBookings.length}
             trend={today?.bookingTrend.map((t) => t.count)}
           />
