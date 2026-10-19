@@ -33,6 +33,14 @@ export interface DailyReportRow {
   is_checkout:    boolean   // check-out today
   /** Set when this row is one segment of a group itinerary. */
   group_segment?: StayKind
+  // For the Room board (booking details on a tapped room).
+  booking_id?:    string
+  status?:        string
+  package_name?:  string | null
+  /** total − advance paid (before any checkout payments). */
+  remaining?:     number
+  is_corporate?:  boolean
+  company_name?:  string | null
 }
 
 /**
@@ -63,6 +71,17 @@ export async function getDailyReport(date: string): Promise<DailyReportRow[]> {
   const rows: DailyReportRow[] = []
 
   for (const booking of bookings ?? []) {
+    // A no-show never arrived: no room, no meals (the availability engine
+    // already frees its rooms — the sheet used to still list them).
+    if (booking.status === 'no_show') continue
+    const details = {
+      booking_id:   booking.id as string,
+      status:       booking.status as string,
+      package_name: ((booking.package_snapshot ?? {}) as { name?: string }).name?.trim() ?? null,
+      remaining:    Number(booking.remaining ?? 0),
+      is_corporate: Boolean(booking.is_corporate),
+      company_name: (booking.company_name ?? null) as string | null,
+    }
     // A group is its itinerary: one row per segment that touches this date,
     // shaped exactly like the daylong / night booking it stands in for, so
     // meals, room occupancy and the free-rooms maths need no special case.
@@ -79,6 +98,7 @@ export async function getDailyReport(date: string): Promise<DailyReportRow[]> {
           : v.visit_date <= date && date <= (v.check_out_date as string)
         if (!covers) continue
         rows.push({
+          ...details,
           booking_number: booking.booking_number,
           customer_name:  booking.customer_name,
           customer_phone: booking.customer_phone,
@@ -145,6 +165,7 @@ export async function getDailyReport(date: string): Promise<DailyReportRow[]> {
     }))
 
     rows.push({
+      ...details,
       booking_number: booking.booking_number,
       customer_name:  booking.customer_name,
       customer_phone: booking.customer_phone,

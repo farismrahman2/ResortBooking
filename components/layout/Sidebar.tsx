@@ -31,6 +31,7 @@ import {
   LogOut,
   User,
   Tags,
+  LayoutGrid,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSidebar } from '@/lib/sidebar-context'
@@ -54,6 +55,7 @@ const navItems: NavItem[] = [
   { href: '/checkout',     label: 'Checkout',     icon: Receipt,        module: 'checkout' },
   { href: '/qa',           label: 'Guest Feedback', icon: MessageSquareHeart, module: 'qa' },
   { href: '/availability', label: 'Availability', icon: CalendarSearch, module: 'availability' },
+  { href: '/availability/rooms', label: 'Room Board', icon: LayoutGrid, module: 'availability' },
   { href: '/coffee-shop',  label: 'Coffee Shop',  icon: Coffee,         module: 'coffee_shop' },
   { href: '/menus',        label: 'Meal Menus',   icon: UtensilsCrossed, module: 'menus' },
   { href: '/kitchen/requisitions', label: 'Kitchen Orders',    icon: ClipboardList, module: 'kitchen' },
@@ -135,7 +137,10 @@ export function Sidebar({ userEmail, permissions, roleLabel, roleSlug, unreadAle
               // role match → bypass the module gate
             } else if (module && permissions && !canSee(permissions[module])) return null
             if (hideForRoles && roleSlug && hideForRoles.includes(roleSlug)) return null
-            const isActive = href === '/' ? pathname === '/' : pathname.startsWith(href)
+            // The most specific link wins: /availability/rooms lights Room Board, not Availability too.
+            const isActive = href === '/' ? pathname === '/'
+              : (pathname === href || pathname.startsWith(href + '/'))
+                && !navItems.some((n) => n.href !== href && n.href.startsWith(href + '/') && (pathname === n.href || pathname.startsWith(n.href + '/')))
             const badgeCount =
               href === '/settings'  ? unreadAlerts :
               href === '/enquiries' ? unreadEnquiries : 0
