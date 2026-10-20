@@ -1,6 +1,8 @@
 import { Document, Page, Text, View, Image, StyleSheet } from '@react-pdf/renderer'
 import { isWholeDay } from '@/lib/config/rooms'
 import { formatTime12h } from '@/lib/formatters/dates'
+import { GuestBriefingPage, TermsPage } from './guest-info-pages'
+import type { Briefing } from './guest-info'
 
 /**
  * The quotation / booking-confirmation PDF.
@@ -97,6 +99,12 @@ const styles = StyleSheet.create({
 export interface QuotationPdfInput {
   /** 'Quotation' or 'Booking Confirmation' — drives the heading. */
   documentType: 'quotation' | 'booking'
+  /** Guest briefing page(s) for the stay — confirmations only. */
+  briefings?:   Briefing[]
+  /** The Bangla road directions as an image (public/pdf/routes-bn.png). */
+  routesImage?: Buffer | null
+  /** Attach the Terms & Conditions pages. */
+  withTerms?:   boolean
   /** True while the quote is still a draft; renders a "DRAFT" chip. */
   isDraftPreview?: boolean
   /** Display reference, e.g. quote_number or booking_number. */
@@ -182,6 +190,10 @@ export function QuotationPdfDocument(p: QuotationPdfInput) {
     p.childrenFree > 0 ? `${p.childrenFree} infant${p.childrenFree === 1 ? '' : 's'} (free)` : null,
     p.drivers > 0      ? `${p.drivers} driver${p.drivers === 1 ? '' : 's'}` : null,
   ].filter(Boolean)
+
+  const footerText = (pageNumber: number, totalPages: number) =>
+    `${p.resortName ?? 'Garden Centre Resort'}${p.resortPhone ? ` · ${p.resortPhone}` : ''}` +
+    ` · Generated ${p.generatedAt.toLocaleString('en-GB')} · Page ${pageNumber} of ${totalPages}`
 
   return (
     <Document
@@ -362,6 +374,17 @@ export function QuotationPdfDocument(p: QuotationPdfInput) {
           ` · Generated ${p.generatedAt.toLocaleString('en-GB')} · Page ${pageNumber} of ${totalPages}`
         } />
       </Page>
+
+      {/* ── Attached: guest briefing + directions, then terms ── */}
+      {(p.briefings?.length ?? 0) > 0 && (
+        <GuestBriefingPage briefings={p.briefings!} routesImage={p.routesImage} logo={p.logo}
+          resortName={p.resortName ?? 'Garden Centre Resort'} resortPhone={p.resortPhone}
+          reference={p.documentType === 'booking' ? (p.referenceNumber ?? undefined) : undefined} footer={footerText} />
+      )}
+      {p.withTerms && (
+        <TermsPage logo={p.logo} resortName={p.resortName ?? 'Garden Centre Resort'} resortPhone={p.resortPhone}
+          reference={p.documentType === 'booking' ? (p.referenceNumber ?? undefined) : undefined} footer={footerText} />
+      )}
     </Document>
   )
 }

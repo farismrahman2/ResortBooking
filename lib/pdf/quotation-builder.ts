@@ -2,6 +2,7 @@ import type { QuoteWithRooms, BookingWithRooms, SettingsMap, RoomInventoryRow, Q
 import { guestHandoverLabel } from '@/lib/settings/handover'
 import { formatDate } from '@/lib/formatters/dates'
 import type { QuotationPdfInput } from './quotation'
+import { NIGHT_BRIEFING, DAYLONG_BRIEFING, type Briefing } from './guest-info'
 
 /**
  * Build PDF input from a quote OR booking row. Reuses the snapshot data
@@ -15,6 +16,8 @@ export function buildQuotationPdfInput(args: {
   settings:  SettingsMap
   inventory: RoomInventoryRow[]
   logo?:     Buffer | string | null
+  /** Bangla road directions image for the briefing page. */
+  routesImage?: Buffer | null
 }): QuotationPdfInput {
   const { source, kind, isDraftPreview, settings, inventory, logo } = args
   const snap: any = source.package_snapshot ?? {}  // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -100,5 +103,21 @@ export function buildQuotationPdfInput(args: {
     resortPhone:   settings.contact_numbers ?? '',
     logo:          logo ?? null,
     generatedAt:   new Date(),
+    // A confirmation carries the guest briefing for its stay, the directions
+    // and the terms; a draft quotation only the terms.
+    briefings:     isDraftPreview ? [] : briefingsFor(source),
+    routesImage:   args.routesImage ?? null,
+    withTerms:     true,
   }
+}
+
+/** The briefing(s) a stay needs: night, day visit, or both for a group itinerary. */
+export function briefingsFor(source: { package_type?: string | null; days?: Array<{ stay_kind?: string }> | null }): Briefing[] {
+  if (source.package_type === 'night')   return [NIGHT_BRIEFING]
+  if (source.package_type === 'daylong') return [DAYLONG_BRIEFING]
+  const kinds = new Set((source.days ?? []).map((d) => d.stay_kind))
+  const out: Briefing[] = []
+  if (kinds.has('night'))   out.push(NIGHT_BRIEFING)
+  if (kinds.has('daylong')) out.push(DAYLONG_BRIEFING)
+  return out
 }

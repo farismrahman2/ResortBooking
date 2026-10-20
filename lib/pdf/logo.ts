@@ -13,3 +13,9 @@ export async function loadResortLogo(): Promise<Buffer | null> {
   }
   return null
 }
+
+/** The Bangla road directions for the guest briefing page (pre-rendered:
+ *  scripts/render-routes-bn.mjs). Null if the file is missing. */
+export async function loadRoutesImage(): Promise<Buffer | null> {
+  try { return await readFile(path.join(process.cwd(), 'public', 'pdf', 'routes-bn.png')) } catch { return null }
+}

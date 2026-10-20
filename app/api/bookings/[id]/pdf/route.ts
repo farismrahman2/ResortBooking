@@ -6,7 +6,7 @@ import { getSettings, getRoomInventory } from '@/lib/queries/settings'
 import { hasPermission } from '@/lib/auth/permissions'
 import { QuotationPdfDocument } from '@/lib/pdf/quotation'
 import { buildQuotationPdfInput } from '@/lib/pdf/quotation-builder'
-import { loadResortLogo } from '@/lib/pdf/logo'
+import { loadResortLogo, loadRoutesImage } from '@/lib/pdf/logo'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -21,11 +21,12 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const [booking, settings, inventory, logo] = await Promise.all([
+  const [booking, settings, inventory, logo, routesImage] = await Promise.all([
     getBookingById(params.id),
     getSettings(),
     getRoomInventory(),
     loadResortLogo(),
+    loadRoutesImage(),
   ])
   if (!booking) return NextResponse.json({ error: 'Booking not found' }, { status: 404 })
 
@@ -36,6 +37,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     settings,
     inventory,
     logo,
+    routesImage,
   })
 
   const buffer = await renderToBuffer(QuotationPdfDocument(input))
