@@ -1,5 +1,6 @@
 'use client'
 
+import { PdfLink } from '@/components/ui/PdfLink'
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Modal } from '@/components/ui/Modal'
@@ -106,15 +107,13 @@ export function FinalizeAndVoid({ checkout, totals, isAdmin, canWrite }: Props) 
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
-        <a
+        <PdfLink
           href={`/api/checkout/${checkout.booking_id}/invoice`}
-          target="_blank"
-          rel="noopener noreferrer"
           className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
         >
           <FileDown size={14} />
           Invoice PDF
-        </a>
+        </PdfLink>
 
         {canWrite && isDraft && (
           <Button

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { versionedPdfName } from '@/lib/pdf/filename'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { Invoice } from '@/lib/pdf/invoice'
 import { loadResortLogo } from '@/lib/pdf/logo'
@@ -74,14 +75,18 @@ export async function GET(_req: Request, { params }: RouteParams) {
     }),
   )
 
-  const filename = `GCR-invoice-${checkout.id.slice(0, 8).toUpperCase()}.pdf`
+  // Charges and payments change the invoice without touching one updated_at,
+  // so it is named by when it was generated — always a new file.
+  const filename = versionedPdfName('GCR-invoice', checkout.id.slice(0, 8).toUpperCase(), new Date().toISOString())
   return new NextResponse(buffer as unknown as BodyInit, {
     status: 200,
     headers: {
       'Content-Type':         'application/pdf',
       'Content-Disposition':  `inline; filename="${filename}"`,
       'Content-Length':       String(buffer.length),
-      'Cache-Control':        'no-store',
+      'Cache-Control':        'no-store, no-cache, must-revalidate, max-age=0',
+      'Pragma':               'no-cache',
+      'Expires':              '0',
     },
   })
 }

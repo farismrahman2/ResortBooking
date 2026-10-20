@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import { PdfLink } from '@/components/ui/PdfLink'
 import { chargedNights, isWholeDay } from '@/lib/config/rooms'
 import Link from 'next/link'
 import { Printer } from 'lucide-react'
@@ -125,14 +126,12 @@ export default async function BookingDetailPage({ params }: PageProps) {
             Created {formatDate(booking.created_at.slice(0, 10))}
           </span>
           <div className="ml-auto flex items-center gap-2">
-            <a
+            <PdfLink
               href={`/api/bookings/${booking.id}/pdf`}
-              target="_blank"
-              rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"
             >
               Download PDF
-            </a>
+            </PdfLink>
             <Link
               href={`/bookings/${booking.id}/print`}
               className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"

@@ -124,10 +124,13 @@ function overlayBookingOntoQuote(
     qty:          r.qty,
     unit_price:   r.unit_price,
     room_numbers: r.room_numbers,
+    evening_rooms: (r as { evening_rooms?: string[] }).evening_rooms ?? [],
   }))
 
   return {
     ...quote,
+    // The latest edit, wherever it happened — names the PDF version.
+    updated_at:         booking.updated_at > quote.updated_at ? booking.updated_at : quote.updated_at,
     customer_name:      booking.customer_name,
     customer_phone:     booking.customer_phone,
     customer_notes:     booking.customer_notes,

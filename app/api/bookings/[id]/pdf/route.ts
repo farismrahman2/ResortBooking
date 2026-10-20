@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { versionedPdfName } from '@/lib/pdf/filename'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { getBookingById } from '@/lib/queries/bookings'
 import { getSettings, getRoomInventory } from '@/lib/queries/settings'
@@ -38,14 +39,16 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   })
 
   const buffer = await renderToBuffer(QuotationPdfDocument(input))
-  const filename = `GCR-booking-${booking.booking_number || booking.id.slice(0, 8)}.pdf`
+  const filename = versionedPdfName('GCR-booking', booking.booking_number || booking.id.slice(0, 8), booking.updated_at)
   return new NextResponse(buffer as unknown as BodyInit, {
     status: 200,
     headers: {
       'Content-Type':        'application/pdf',
       'Content-Disposition': `inline; filename="${filename}"`,
       'Content-Length':      String(buffer.length),
-      'Cache-Control':       'no-store',
+      'Cache-Control':       'no-store, no-cache, must-revalidate, max-age=0',
+      'Pragma':              'no-cache',
+      'Expires':             '0',
     },
   })
 }

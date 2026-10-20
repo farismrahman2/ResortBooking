@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { versionedPdfName } from '@/lib/pdf/filename'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { getEffectiveQuoteForDisplay } from '@/lib/queries/quotes'
 import { getSettings, getRoomInventory } from '@/lib/queries/settings'
@@ -38,14 +39,16 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   })
 
   const buffer = await renderToBuffer(QuotationPdfDocument(input))
-  const filename = `GCR-quote-${quote.quote_number || quote.id.slice(0, 8)}.pdf`
+  const filename = versionedPdfName('GCR-quote', quote.quote_number || quote.id.slice(0, 8), quote.updated_at)
   return new NextResponse(buffer as unknown as BodyInit, {
     status: 200,
     headers: {
       'Content-Type':        'application/pdf',
       'Content-Disposition': `inline; filename="${filename}"`,
       'Content-Length':      String(buffer.length),
-      'Cache-Control':       'no-store',
+      'Cache-Control':       'no-store, no-cache, must-revalidate, max-age=0',
+      'Pragma':              'no-cache',
+      'Expires':             '0',
     },
   })
 }
