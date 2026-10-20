@@ -41,8 +41,14 @@ const s = StyleSheet.create({
   dirWhere:  { fontSize: 10, fontWeight: 'bold', color: '#111827' },
   dirLand:   { fontSize: 9, color: '#4b5563', marginTop: 2 },
   linkRow:   { flexDirection: 'row', marginTop: 8, marginBottom: 10 },
-  linkBtn:   { backgroundColor: BRAND, color: 'white', fontSize: 9, fontWeight: 'bold', paddingVertical: 5, paddingHorizontal: 10, borderRadius: 4, marginRight: 8, textDecoration: 'none' },
-  linkUrl:   { fontSize: 7.5, color: '#6b7280', marginBottom: 8 },
+  tapNote:   { marginTop: 10, backgroundColor: MINT, border: `0.75pt solid ${LINE}`, borderRadius: 5, paddingVertical: 5, paddingHorizontal: 9 },
+  tapNoteTx: { fontSize: 9, color: BRAND, fontWeight: 'bold' },
+  tapBtn:    { flexGrow: 1, flexBasis: 0, backgroundColor: BRAND, borderRadius: 6, paddingVertical: 9, paddingHorizontal: 12, textDecoration: 'none' },
+  tapBtnTx:  { fontSize: 11.5, fontWeight: 'bold', color: 'white' },
+  tapBtnHint:{ fontSize: 8, color: '#bbf7d0', marginTop: 2 },
+  callCard:  { flexGrow: 1, flexBasis: 0, backgroundColor: MINT, border: `0.75pt solid ${LINE}`, borderRadius: 5, paddingVertical: 8, paddingHorizontal: 9, textDecoration: 'none' },
+  callPill:  { marginTop: 6, alignSelf: 'flex-start', backgroundColor: BRAND, color: 'white', fontSize: 9.5, fontWeight: 'bold', paddingVertical: 4, paddingHorizontal: 8, borderRadius: 10 },
+  linkUrl:   { fontSize: 7.5, color: '#6b7280', marginBottom: 4 },
 
   tItem:     { flexDirection: 'row', marginBottom: 4.5 },
   tNum:      { width: 16, fontSize: 8.5, color: BRAND, fontWeight: 'bold' },
@@ -146,22 +152,31 @@ export function GuestBriefingPage(props: Common & { briefings: Briefing[]; route
         <Text style={[s.title, { fontSize: 14 }]}>How to reach {resortName}</Text>
         <Text style={s.dirWhere}>{DIRECTIONS.where}</Text>
         <Text style={s.dirLand}>{DIRECTIONS.landmark}</Text>
-        <View style={s.linkRow}>
-          {DIRECTIONS.links.map((l) => <Link key={l.url} src={l.url} style={s.linkBtn}>{l.label}</Link>)}
+        <View style={s.tapNote}>
+          <Text style={s.tapNoteTx}>Tap a green button below to open the route in Google Maps on your phone.</Text>
         </View>
+        <View style={s.linkRow}>
+          {DIRECTIONS.links.map((l, i) => (
+            <Link key={l.url} src={l.url} style={i === 0 ? s.tapBtn : [s.tapBtn, s.cardGap]}>
+              <Text style={s.tapBtnTx}>{l.label}  {'\u00bb'}</Text>
+              <Text style={s.tapBtnHint}>{l.hint}</Text>
+            </Link>
+          ))}
+        </View>
+        <Text style={s.linkUrl}>Or type the link:</Text>
         {DIRECTIONS.links.map((l) => (
           <Text key={l.url} style={s.linkUrl}>
             {l.label}: <Link src={l.url} style={{ color: BRAND, textDecoration: 'underline' }}>{l.url}</Link>
           </Text>
         ))}
-        <Text style={[s.section, { marginTop: 4 }]}>Contact persons for directions</Text>
+        <Text style={[s.section, { marginTop: 6 }]}>Need help finding us? Tap to call</Text>
         <View style={s.cards}>
           {DIRECTIONS.contacts.map((c, i) => (
-            <View key={c.phone} style={i === 0 ? s.card : [s.card, s.cardGap]}>
+            <Link key={c.phone} src={`tel:${c.phone.replace(/[^+\d]/g, '')}`} style={i === 0 ? s.callCard : [s.callCard, s.cardGap]}>
               <Text style={{ fontSize: 9.5, fontWeight: 'bold', color: '#111827' }}>{c.name}</Text>
               <Text style={{ fontSize: 7.5, color: '#4b5563', marginTop: 1 }}>{c.role || 'Garden Centre Resort'}</Text>
-              <Link src={`tel:${c.phone.replace(/[^+\d]/g, '')}`} style={{ fontSize: 10, fontWeight: 'bold', color: BRAND, marginTop: 4, textDecoration: 'none' }}>{c.phone}</Link>
-            </View>
+              <Text style={s.callPill}>Call  {c.phone}</Text>
+            </Link>
           ))}
         </View>
         {routesImage && <Image src={routesImage as any} style={{ width: '100%', marginTop: 4 }} />}  {/* eslint-disable-line @typescript-eslint/no-explicit-any */}

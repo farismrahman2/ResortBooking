@@ -80,8 +80,8 @@ export const DIRECTIONS = {
   where: 'Berua, Kaliganj, Gazipur — just 40 minutes from the Purbachal Kanchan Bridge.',
   landmark: 'Beside Boktarpur Union Parishad',
   links: [
-    { label: 'Google Maps route', url: 'https://goo.gl/maps/cJhjeFnTZvycU78D6' },
-    { label: 'Aristocrat shortcut', url: 'https://maps.app.goo.gl/snNmahKGfTu98ftKA?g_st=ac' },
+    { label: 'Open in Google Maps', hint: 'Main route - tap to start directions', url: 'https://goo.gl/maps/cJhjeFnTZvycU78D6' },
+    { label: 'Open Aristocrat shortcut', hint: 'Shorter road - tap to start directions', url: 'https://maps.app.goo.gl/snNmahKGfTu98ftKA?g_st=ac' },
   ],
   /** Who to call for directions or on the way; shown under the map links. */
   contacts: [
