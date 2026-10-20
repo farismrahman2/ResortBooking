@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Users, ShieldCheck, ListChecks, Settings as SettingsIcon, Calendar, ArrowRight, Copy, Bell, Building2, Phone, Download, Sparkles, Ban, Tags, Percent } from 'lucide-react'
+import { Users, ShieldCheck, ListChecks, Settings as SettingsIcon, Calendar, ArrowRight, Copy, Bell, Building2, Phone, Download, Sparkles, Ban, Tags, Percent, Bot } from 'lucide-react'
 import { getSettings, getHolidayDates } from '@/lib/queries/settings'
 import { getUnreadAlertCount } from '@/lib/auth/alerts'
 import { Topbar } from '@/components/layout/Topbar'
@@ -35,6 +35,14 @@ export default async function SettingsPage() {
               icon={<Percent size={18} />}
               title="Revenue display"
               description="The revenue figure staff see — a % of the real one, per month"
+            />
+          )}
+          {isAdmin && (
+            <HubTile
+              href="/settings/ai-audit"
+              icon={<Bot size={18} />}
+              title="AI audit"
+              description="Daily checks, weekly cost report and monthly business report"
             />
           )}
           {['admin', 'manager', 'md', 'accountant', 'operations_manager', 'reservation'].includes(ctx?.profile.role.slug ?? '') && (

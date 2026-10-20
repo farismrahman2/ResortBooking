@@ -151,6 +151,11 @@ export async function middleware(request: NextRequest) {
   if (pathname === '/api/enquiries') {
     return NextResponse.next()
   }
+  // Vercel Cron calls carry `Authorization: Bearer CRON_SECRET`, not a session —
+  // without this they were 401'd here and never reached their own secret check.
+  if (pathname.startsWith('/api/cron/')) {
+    return NextResponse.next()
+  }
 
   // The outage page and its health check must work when Supabase doesn't.
   if (pathname === '/unavailable' || pathname === '/api/health') {

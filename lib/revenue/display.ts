@@ -20,7 +20,7 @@ export const REAL_REVENUE_PREFIXES: readonly string[] = [
   '/reports/income', '/reports/profitability', '/reports/weekly', '/reports/corporate',
   '/reports/checkout', '/reports/coffee-shop', '/reports/hr/salary-vs-revenue', '/reports/print',
   '/api/revenue', '/api/data-export/bookings', '/api/exports',
-  '/settings/revenue-display',
+  '/settings/revenue-display', '/settings/ai-audit',
   '/hr/sales', '/reports/dues',
 ]
 
