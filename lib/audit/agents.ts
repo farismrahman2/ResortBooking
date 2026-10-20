@@ -35,7 +35,12 @@ export function costUsd(model: string, input: number, output: number, batch: boo
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = () => createServiceClient() as any
-const client = () => new Anthropic({ maxRetries: 2, timeout: 50_000 })
+/** A key that isn't scoped to a workspace must name one on every request
+ *  (Vercel → ANTHROPIC_WORKSPACE_ID, from Console → Settings → Workspaces). */
+const client = () => new Anthropic({
+  maxRetries: 2, timeout: 50_000,
+  ...(process.env.ANTHROPIC_WORKSPACE_ID ? { defaultHeaders: { 'anthropic-workspace-id': process.env.ANTHROPIC_WORKSPACE_ID } } : {}),
+})
 
 const RESORT = 'Garden Centre Resort, a day-visit and overnight resort in Kaliganj, Gazipur, Bangladesh. Money is in Bangladeshi taka (write "Tk").'
 
@@ -174,6 +179,9 @@ export async function collectBatches() {
 function errorText(e: unknown): string {
   if (e instanceof Anthropic.AuthenticationError) return 'The Anthropic API key is missing or invalid (Vercel → ANTHROPIC_API_KEY).'
   if (e instanceof Anthropic.RateLimitError) return 'Anthropic rate limit or spend limit reached — try again later.'
+  if (e instanceof Anthropic.BadRequestError && /workspace/i.test(e.message)) {
+    return 'The Anthropic API key is not tied to a workspace. Add ANTHROPIC_WORKSPACE_ID in Vercel (Console → Settings → Workspaces), or use a key created inside a workspace.'
+  }
   if (e instanceof Anthropic.APIError) return `Anthropic API error ${e.status ?? ''}: ${e.message}`.trim()
   return e instanceof Error ? e.message : String(e)
 }

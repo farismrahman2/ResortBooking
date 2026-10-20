@@ -12,6 +12,8 @@ const taka = (n: number) => `৳${Math.round(n).toLocaleString('en-IN')}`
 const ex = (e: AuditExpense, detail: string) => ({
   ref: `${e.expense_date} · ${e.payee_name ?? e.category_name ?? 'Expense'}`, detail, link: `/expenses/${e.id}`,
 })
+/** Salaries are paid in cash and carry no receipt — not something to flag. */
+const isPayroll = (e: AuditExpense) => /salary|salaries|wage|payroll|bonus/i.test(e.category_name ?? '')
 const median = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b); return s.length ? s[Math.floor(s.length / 2)] : 0 }
 
 /** Large expenses without a receipt — over this many taka. */
@@ -38,7 +40,7 @@ export function checkExpenses(input: {
     dupes.map((g) => ex(g[0], `${g.length} × ${taka(g[0].amount)}`)),
     dupes.reduce((s, g) => s + g[0].amount * (g.length - 1), 0)))
 
-  const noReceipt = recent.filter((e) => e.amount >= RECEIPT_THRESHOLD && e.attachments === 0)
+  const noReceipt = recent.filter((e) => e.amount >= RECEIPT_THRESHOLD && e.attachments === 0 && !isPayroll(e))
   out.push(finding({ id: 'expense-no-receipt', area: 'expenses', severity: 'medium', title: `Expenses of ${taka(RECEIPT_THRESHOLD)} or more with no receipt attached (last 60 days)` },
     noReceipt.map((e) => ex(e, `${taka(e.amount)} · ${e.category_name ?? 'uncategorised'}`)), noReceipt.reduce((s, e) => s + e.amount, 0)))
 
@@ -51,15 +53,15 @@ export function checkExpenses(input: {
 
   // Cash spends far above what that category normally costs.
   const cashByCat = new Map<string, number[]>()
-  for (const e of real.filter((x) => x.payment_method === 'cash' && daysBetween(x.expense_date, today) <= 90)) {
+  for (const e of real.filter((x) => x.payment_method === 'cash' && !isPayroll(x) && daysBetween(x.expense_date, today) <= 90)) {
     if (e.category_id) cashByCat.set(e.category_id, [...(cashByCat.get(e.category_id) ?? []), e.amount])
   }
   const unusual = recent.filter((e) => {
-    if (e.payment_method !== 'cash' || !e.category_id) return false
+    if (e.payment_method !== 'cash' || !e.category_id || isPayroll(e) || daysBetween(e.expense_date, today) > 30) return false
     const xs = cashByCat.get(e.category_id) ?? []
-    return xs.length >= 5 && e.amount > 3 * median(xs) && e.amount >= 5000
+    return xs.length >= 10 && e.amount > 5 * median(xs) && e.amount >= 10000
   })
-  out.push(finding({ id: 'expense-unusual-cash', area: 'expenses', severity: 'medium', title: 'Cash payments much larger than usual for their category' },
+  out.push(finding({ id: 'expense-unusual-cash', area: 'expenses', severity: 'medium', title: 'Cash payments over 5× the usual for their category (last 30 days)' },
     unusual.map((e) => ex(e, `${taka(e.amount)} vs usual ~${taka(median(cashByCat.get(e.category_id!) ?? []))}`)), unusual.reduce((s, e) => s + e.amount, 0)))
 
   out.push(finding({ id: 'expense-old-drafts', area: 'expenses', severity: 'low', title: 'Draft expenses older than 7 days — finish or delete them (Expenses → Drafts)' },

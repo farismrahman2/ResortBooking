@@ -17,7 +17,8 @@ const live = (b: AuditBooking) => b.status === 'confirmed' || b.status === 'chec
 const bk = (b: AuditBooking, detail: string) => ({ ref: b.booking_number, detail: `${b.customer_name} · ${detail}`, link: `/bookings/${b.id}` })
 const taka = (n: number) => `৳${Math.round(n).toLocaleString('en-IN')}`
 /** Bangladesh mobile: 01XXXXXXXXX, optionally +88 / 88. */
-export const validPhone = (p: string | null) => !!p && /^(\+?88)?01[3-9]\d{8}$/.test(p.replace(/[\s-]/g, ''))
+export const validPhone = (p: string | null) =>
+  !!p && p.split(/[/,;]|\bor\b/).some((x) => /^(\+?88)?01[3-9]\d{8}$/.test(x.replace(/[\s-]/g, '')))   // "017… / 018…" is fine
 
 export function checkBookings(input: {
   bookings: AuditBooking[]; quotes: AuditQuote[]; prices: AuditPackagePrice[]; today: string
@@ -64,8 +65,8 @@ export function checkBookings(input: {
     future.filter((b) => b.rooms.some((r) => r.qty > 0 && r.room_numbers.length < requiredRoomNumbers(r.room_type, r.qty)))
       .map((b) => bk(b, `arrives ${b.visit_date}`))))
 
-  out.push(finding({ id: 'booking-not-closed', area: 'bookings', severity: 'medium', title: 'Stay ended but the booking was never checked out or marked no-show' },
-    bookings.filter((b) => b.status === 'confirmed' && daysBetween(b.check_out_date ?? b.visit_date, today) > 2)
+  out.push(finding({ id: 'booking-not-closed', area: 'bookings', severity: 'medium', title: 'Stay ended in the last 30 days but the booking was never checked out or marked no-show' },
+    bookings.filter((b) => { const d = daysBetween(b.check_out_date ?? b.visit_date, today); return b.status === 'confirmed' && d > 2 && d <= 30 })
       .map((b) => bk(b, `ended ${b.check_out_date ?? b.visit_date}`))))
 
   out.push(finding({ id: 'quote-expired-unconverted', area: 'bookings', severity: 'low', title: 'Confirmed quote whose date has passed — never turned into a booking' },

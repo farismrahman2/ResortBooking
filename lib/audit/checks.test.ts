@@ -98,3 +98,17 @@ describe('schedule and cost', () => {
     expect(costUsd('claude-opus-5-5', 150000, 15000, true)).toBeCloseTo(0.45)
   })
 })
+
+describe('noise filters', () => {
+  it('accepts two phone numbers in one field', () => {
+    expect(validPhone('01796025518 / 01720121412')).toBe(true)
+  })
+  it('does not flag salaries for receipts', () => {
+    const f = checkExpenses({ expenses: [expense({ amount: 30000, attachments: 0, category_name: 'Salary' })], budgets: [{ category_id: 'x', category_name: 'x', amount: 1 }], templates: [], today: TODAY })
+    expect(ids(f)).not.toContain('expense-no-receipt')
+  })
+  it('only stays ended in the last 30 days count as never closed', () => {
+    const f = checkBookings({ bookings: [booking({ visit_date: '2026-04-01', check_out_date: '2026-04-02' })], quotes: [], prices: [], today: TODAY })
+    expect(ids(f)).not.toContain('booking-not-closed')
+  })
+})
