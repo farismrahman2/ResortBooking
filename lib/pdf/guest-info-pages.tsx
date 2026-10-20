@@ -154,6 +154,16 @@ export function GuestBriefingPage(props: Common & { briefings: Briefing[]; route
             {l.label}: <Link src={l.url} style={{ color: BRAND, textDecoration: 'underline' }}>{l.url}</Link>
           </Text>
         ))}
+        <Text style={[s.section, { marginTop: 4 }]}>Contact persons for directions</Text>
+        <View style={s.cards}>
+          {DIRECTIONS.contacts.map((c, i) => (
+            <View key={c.phone} style={i === 0 ? s.card : [s.card, s.cardGap]}>
+              <Text style={{ fontSize: 9.5, fontWeight: 'bold', color: '#111827' }}>{c.name}</Text>
+              <Text style={{ fontSize: 7.5, color: '#4b5563', marginTop: 1 }}>{c.role || 'Garden Centre Resort'}</Text>
+              <Link src={`tel:${c.phone.replace(/[^+\d]/g, '')}`} style={{ fontSize: 10, fontWeight: 'bold', color: BRAND, marginTop: 4, textDecoration: 'none' }}>{c.phone}</Link>
+            </View>
+          ))}
+        </View>
         {routesImage && <Image src={routesImage as any} style={{ width: '100%', marginTop: 4 }} />}  {/* eslint-disable-line @typescript-eslint/no-explicit-any */}
       </View>
       <Footer {...props} />

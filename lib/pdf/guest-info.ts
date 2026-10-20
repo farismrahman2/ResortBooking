@@ -83,6 +83,12 @@ export const DIRECTIONS = {
     { label: 'Google Maps route', url: 'https://goo.gl/maps/cJhjeFnTZvycU78D6' },
     { label: 'Aristocrat shortcut', url: 'https://maps.app.goo.gl/snNmahKGfTu98ftKA?g_st=ac' },
   ],
+  /** Who to call for directions or on the way; shown under the map links. */
+  contacts: [
+    { name: 'Md. Farid Uddin',   role: 'Public Relation Manager', phone: '+880 1715-047672' },
+    { name: 'Abul Basher Liton', role: 'Manager (Admin)',         phone: '+880 1790-600005' },
+    { name: 'Md. Ujjal',         role: '',                        phone: '+880 1731-970000' },
+  ],
 }
 
 export const TERMS_TITLE = 'Terms & Conditions'
