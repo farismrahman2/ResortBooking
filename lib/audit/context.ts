@@ -15,8 +15,17 @@ type Row = any
 const round = (n: number) => Math.round(n)
 const month = (iso: string) => String(iso).slice(0, 7)
 
-async function soft(p: PromiseLike<{ data: Row[] | null }>): Promise<Row[]> {
-  try { return (await p).data ?? [] } catch { return [] }
+/** An optional slice: empty when unavailable, but logged — a query that fails
+ *  quietly reads to the model as "nothing recorded". */
+async function soft(p: PromiseLike<{ data: Row[] | null; error?: { message: string } | null }>): Promise<Row[]> {
+  try {
+    const { data, error } = await p
+    if (error) console.warn('[ai-audit] context query failed:', error.message)
+    return data ?? []
+  } catch (e) {
+    console.warn('[ai-audit] context query failed:', e instanceof Error ? e.message : String(e))
+    return []
+  }
 }
 
 function sumBy(rows: Row[], key: (r: Row) => string, val: (r: Row) => number) {
@@ -29,7 +38,7 @@ function sumBy(rows: Row[], key: (r: Row) => string, val: (r: Row) => number) {
 async function operations(from: string, to: string) {
   const db = createServiceClient({ fresh: true })
   const [payroll, deliveries, receipts, items, opps, enquiries, qa] = await Promise.all([
-    soft(db.from('payroll_runs').select('period, status, total_gross, total_net').gte('period', from.slice(0, 7)).lte('period', to.slice(0, 7))),
+    soft(db.from('payroll_runs').select('period, status, total_gross, total_net').gte('period', `${from.slice(0, 7)}-01`).lte('period', to)),   // period is a date
     soft(db.from('kitchen_deliveries').select('delivery_date, status, total_amount, kitchen_vendors (display_name)').gte('delivery_date', from).lte('delivery_date', to).eq('status', 'confirmed')),
     soft(db.from('inv_movements').select('movement_date, movement_type, total_value, status').gte('movement_date', from).lte('movement_date', to).eq('status', 'completed')),
     soft(db.from('inv_items').select('current_stock, avg_purchase_price, reorder_point, is_active').eq('is_active', true)),
@@ -40,15 +49,17 @@ async function operations(from: string, to: string) {
   const avg = (xs: number[]) => (xs.length ? Math.round((xs.reduce((s, x) => s + x, 0) / xs.length) * 10) / 10 : null)
   const rated = (k: string) => qa.map((r) => Number(r[k])).filter((x) => x > 0)
   return {
-    payroll_by_month: payroll.map((p) => ({ month: p.period, status: p.status, gross: round(Number(p.total_gross ?? 0)), net: round(Number(p.total_net ?? 0)) })),
+    payroll_by_month: payroll.map((p) => ({ month: month(p.period), status: p.status, gross: round(Number(p.total_gross ?? 0)), net: round(Number(p.total_net ?? 0)) })),
     kitchen_purchases: {
       by_month:  sumBy(deliveries, (d) => month(d.delivery_date), (d) => Number(d.total_amount ?? 0)),
       by_vendor: sumBy(deliveries, (d) => (Array.isArray(d.kitchen_vendors) ? d.kitchen_vendors[0] : d.kitchen_vendors)?.display_name ?? 'other', (d) => Number(d.total_amount ?? 0)),
     },
-    store_movements_value: {
-      receipts_by_month: sumBy(receipts.filter((m) => m.movement_type === 'receipt'), (m) => month(m.movement_date), (m) => Number(m.total_value ?? 0)),
-      issues_by_month:   sumBy(receipts.filter((m) => m.movement_type === 'issue'), (m) => month(m.movement_date), (m) => Number(m.total_value ?? 0)),
-      adjustments_by_month: sumBy(receipts.filter((m) => m.movement_type === 'adjustment'), (m) => month(m.movement_date), (m) => Number(m.total_value ?? 0)),
+    store_movements: {
+      note: 'Issues to the kitchen are recorded without a value (Tk 0), so count them rather than sum them.',
+      receipts_value_by_month: sumBy(receipts.filter((m) => m.movement_type === 'receipt'), (m) => month(m.movement_date), (m) => Number(m.total_value ?? 0)),
+      receipts_count_by_month: sumBy(receipts.filter((m) => m.movement_type === 'receipt'), (m) => month(m.movement_date), () => 1),
+      issues_count_by_month:   sumBy(receipts.filter((m) => m.movement_type === 'issue'), (m) => month(m.movement_date), () => 1),
+      adjustments_count_by_month: sumBy(receipts.filter((m) => m.movement_type === 'adjustment'), (m) => month(m.movement_date), () => 1),
     },
     stock_now: {
       active_items: items.length,
