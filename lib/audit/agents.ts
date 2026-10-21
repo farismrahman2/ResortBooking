@@ -130,8 +130,10 @@ export async function submitPeriodic(agent: 'weekly' | 'monthly', today: string,
         custom_id: `${agent}-${today}`,
         params: {
           model: MODELS[agent],
-          max_tokens: agent === 'weekly' ? 8000 : 16000,
-          output_config: { effort: agent === 'weekly' ? 'medium' : 'high' },
+          // Thinking counts against max_tokens: at 16K and high effort the first
+          // monthly run thought until the limit and wrote nothing.
+          max_tokens: agent === 'weekly' ? 16000 : 32000,
+          output_config: { effort: 'medium' },
           system: agent === 'weekly' ? WEEKLY_SYSTEM : MONTHLY_SYSTEM,
           messages: [{ role: 'user', content: `Today is ${today}. Figures (JSON):\n${JSON.stringify(context)}` }],
         },
@@ -155,11 +157,12 @@ export async function collectBatches() {
       for await (const r of await client().messages.batches.results(row.batch_id)) {
         if (r.result.type === 'succeeded') {
           const m = r.result.message
+          const text = m.stop_reason === 'refusal' ? '' : textOf(m.content)
           update = {
-            status: m.stop_reason === 'refusal' ? 'failed' : 'done',
-            report: m.stop_reason === 'refusal' ? null : textOf(m.content),
+            status: text ? 'done' : 'failed',
+            report: text || null,
             error: m.stop_reason === 'refusal' ? 'The model declined to write this report.'
-              : m.stop_reason === 'max_tokens' ? 'The report was cut off at the length limit.' : null,
+              : m.stop_reason === 'max_tokens' ? (text ? 'The report was cut off at the length limit.' : 'The model ran out of room before writing the report.') : null,
             input_tokens: m.usage.input_tokens, output_tokens: m.usage.output_tokens,
             cost_usd: costUsd(row.model, m.usage.input_tokens, m.usage.output_tokens, true),
           }
