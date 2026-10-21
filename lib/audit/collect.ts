@@ -129,7 +129,7 @@ async function inventoryInputs(db: Db, today: string) {
 /** Runs every rule check for `today` (Dhaka date). An area whose data can't
  *  be read reports that, instead of failing the whole run. */
 export async function runChecks(today: string): Promise<{ findings: Finding[]; errors: string[] }> {
-  const db = createServiceClient()
+  const db = createServiceClient({ fresh: true })
   const errors: string[] = []
   const safe = async (area: string, f: () => Promise<Finding[]>) => {
     try { return await f() } catch (e) { errors.push(`${area}: ${e instanceof Error ? e.message : String(e)}`); return [] }

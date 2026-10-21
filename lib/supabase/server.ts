@@ -32,12 +32,19 @@ export function createClient() {
   )
 }
 
-/** Service-role client — bypasses RLS, only for Server Actions that need elevated writes */
-export function createServiceClient() {
+/** Service-role client — bypasses RLS, only for Server Actions that need elevated writes.
+ *
+ *  `fresh: true` sends every request with `cache: 'no-store'`. Next.js caches a
+ *  plain fetch GET on the server, so in a cron or API route a repeated read
+ *  (e.g. "which reports are pending?") could come back from the cache instead
+ *  of the database. Left off by default: cachedRef / unstable_cache callers
+ *  rely on the current behaviour. */
+export function createServiceClient(opts: { fresh?: boolean } = {}) {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { createClient: rawCreate } = require('@supabase/supabase-js') as typeof import('@supabase/supabase-js')
   return rawCreate(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    opts.fresh ? { global: { fetch: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, { ...init, cache: 'no-store' }) } } : undefined,
   )
 }

@@ -19,7 +19,7 @@ async function runTokenOk(auth: string | null): Promise<boolean> {
   const token = auth?.startsWith('Bearer ') ? auth.slice(7) : ''
   if (token.length < 32) return false
   const hash = createHash('sha256').update(token).digest('hex')
-  const db = createServiceClient() as any   // eslint-disable-line @typescript-eslint/no-explicit-any
+  const db = createServiceClient({ fresh: true }) as any   // eslint-disable-line @typescript-eslint/no-explicit-any
   const { data } = await db.from('ai_audit_run_tokens').delete().eq('token_hash', hash).gt('expires_at', new Date().toISOString()).select('token_hash')
   return (data ?? []).length > 0
 }

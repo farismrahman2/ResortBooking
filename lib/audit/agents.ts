@@ -34,7 +34,7 @@ export function costUsd(model: string, input: number, output: number, batch: boo
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = () => createServiceClient() as any
+const db = () => createServiceClient({ fresh: true }) as any
 /** A key that isn't scoped to a workspace must name one on every request
  *  (Vercel → ANTHROPIC_WORKSPACE_ID, from Console → Settings → Workspaces). */
 const client = () => new Anthropic({

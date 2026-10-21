@@ -11,7 +11,7 @@ export interface AuditReportRow {
 /** Reports for Settings → AI audit. Service role: the table has no RLS policies.
  *  Callers must have checked the viewer is the admin. */
 export async function listAuditReports(): Promise<{ reports: AuditReportRow[]; monthSpend: number; missing: boolean }> {
-  const db = createServiceClient() as any   // eslint-disable-line @typescript-eslint/no-explicit-any
+  const db = createServiceClient({ fresh: true }) as any   // eslint-disable-line @typescript-eslint/no-explicit-any
   const since = new Date(Date.now() - 400 * 86400000).toISOString()
   const { data, error } = await db.from('ai_audit_reports').select('*').gte('created_at', since)
     .order('created_at', { ascending: false }).limit(200)

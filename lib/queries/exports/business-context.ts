@@ -19,7 +19,7 @@ import { isComposite } from '@/lib/config/rooms'
  */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = () => createServiceClient() as any
+const db = () => createServiceClient({ fresh: true }) as any
 
 export type ExportDetail = 'summary' | 'full'
 

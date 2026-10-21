@@ -27,7 +27,7 @@ function sumBy(rows: Row[], key: (r: Row) => string, val: (r: Row) => number) {
 
 /** Costs, stock, sales pipeline, enquiries and guest feedback for a period. */
 async function operations(from: string, to: string) {
-  const db = createServiceClient()
+  const db = createServiceClient({ fresh: true })
   const [payroll, deliveries, receipts, items, opps, enquiries, qa] = await Promise.all([
     soft(db.from('payroll_runs').select('period, status, total_gross, total_net').gte('period', from.slice(0, 7)).lte('period', to.slice(0, 7))),
     soft(db.from('kitchen_deliveries').select('delivery_date, status, total_amount, kitchen_vendors (display_name)').gte('delivery_date', from).lte('delivery_date', to).eq('status', 'confirmed')),
