@@ -82,8 +82,9 @@ export function checkBookings(input: {
   out.push(finding({ id: 'booking-bad-phone', area: 'bookings', severity: 'low', title: 'Guest phone number looks wrong (new bookings, last 30 days)' },
     recent.filter((b) => !validPhone(b.customer_phone)).map((b) => bk(b, `phone "${b.customer_phone ?? ''}"`))))
 
-  out.push(finding({ id: 'price-zero', area: 'bookings', severity: 'low', title: 'Room priced ৳0 on a package (means complimentary-only — check it\'s intended)' },
-    prices.filter((p) => p.price === 0 && p.room_type !== 'conference_room').map((p) => ({ ref: p.package_name, detail: p.room_type.replace(/_/g, ' '), link: '/settings/room-prices' }))))
+  out.push(finding({ id: 'price-zero', area: 'bookings', severity: 'low', title: 'Package room types priced ৳0 (complimentary only — check it\'s intended)' },
+    prices.filter((p) => p.price === 0 && p.room_type !== 'conference_room')
+      .map((p) => ({ ref: `${p.room_type.replace(/_/g, ' ')} on ${p.package_name.trim()}`, detail: 'room price ৳0 in Settings → Room prices', link: '/settings/room-prices' }))))
 
   return out.filter((f): f is Finding => f !== null)
 }
