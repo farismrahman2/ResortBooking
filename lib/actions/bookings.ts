@@ -1622,7 +1622,9 @@ export async function setBookingSalesRep(
       .eq('id', bookingId)
     if (error) return { success: false, error: error.message }
 
-    await db.from('history_log').insert({
+    // A Supabase query has no .catch — it returns { error } instead. Calling
+    // .catch threw here, after the rep was saved, so the change was never logged.
+    const { error: logErr } = await db.from('history_log').insert({
       entity_type: 'booking',
       entity_id:   bookingId,
       event:       'edited',
@@ -1633,7 +1635,8 @@ export async function setBookingSalesRep(
         to:     employeeId,
         by:     ctx?.user_id ?? null,
       },
-    }).catch((e: any) => console.warn(`[history_log] non-fatal: ${e?.message ?? e}`))
+    })
+    if (logErr) console.warn(`[history_log] non-fatal: ${logErr.message}`)
     await flagAlert({
       event_type:  'booking_edited',
       entity_type: 'booking',
