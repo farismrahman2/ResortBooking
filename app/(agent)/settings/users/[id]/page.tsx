@@ -3,6 +3,8 @@ import { notFound } from 'next/navigation'
 import { Mail, Phone, Calendar, Clock } from 'lucide-react'
 import { Topbar } from '@/components/layout/Topbar'
 import { UserDetailActions } from '@/components/settings/UserDetailActions'
+import { UserSessions } from '@/components/settings/UserSessions'
+import { listUserSessions } from '@/lib/actions/users'
 import { SalesStartDateEditor } from '@/components/crm/SalesStartDateEditor'
 import { getUserById } from '@/lib/queries/users'
 import { listRoles } from '@/lib/queries/roles'
@@ -34,6 +36,9 @@ export default async function UserDetailPage({ params }: PageProps) {
   if (!user) notFound()
 
   const isSelf = ctx?.user_id === user.user_id
+  // Devices: only for those who manage users (Settings write = the admin).
+  const canManage = ctx?.permissions.settings === 'write'
+  const sessions = canManage ? await listUserSessions(user.user_id) : null
 
   return (
     <div className="flex h-full flex-col">
@@ -78,6 +83,15 @@ export default async function UserDetailPage({ params }: PageProps) {
             <Field icon={<Clock size={12} />} label="Last login" value={user.last_login_at ? formatDate(user.last_login_at.slice(0, 10)) : 'Never'} />
           </Card>
         </div>
+
+        {sessions && (
+          <UserSessions
+            userId={user.user_id}
+            isSelf={isSelf}
+            sessions={sessions.success ? sessions.data : []}
+            error={sessions.success ? null : sessions.error}
+          />
+        )}
 
         {user.role.slug === 'corporate_sales' && ctx?.profile.role.slug === 'admin' && (
           <SalesStartDateEditor userId={user.user_id} initial={user.sales_start_date} />

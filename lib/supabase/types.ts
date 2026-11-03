@@ -700,6 +700,10 @@ export type AdminAlertEvent =
   | 'room_prices_changed'
   /** The revenue % staff see for a month was set or changed (admin only). */
   | 'revenue_display_changed'
+  /** A user was signed out of one or all devices, or everyone was (emergency). */
+  | 'sessions_revoked'
+  /** An admin reset a user's password. */
+  | 'password_reset'
 
 export interface AdminAlertRow {
   id: string

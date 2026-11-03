@@ -6,6 +6,7 @@ import { UsersTable } from '@/components/settings/UsersTable'
 import { listUsers } from '@/lib/queries/users'
 import { requirePermission, getCurrentUserContext } from '@/lib/auth/permissions'
 import { UsersFilterBar } from './UsersClient'
+import { EmergencySignOut } from '@/components/settings/EmergencySignOut'
 
 export const dynamic = 'force-dynamic'
 
@@ -30,12 +31,15 @@ export default async function UsersPage({ searchParams }: PageProps) {
           <p className="text-sm text-gray-500">
             <span className="font-medium text-gray-700">{rows.length}</span> user{rows.length === 1 ? '' : 's'} shown
           </p>
-          <Link href="/settings/users/new">
-            <Button variant="primary" size="md" className="gap-1.5">
-              <Plus size={14} />
-              Add User
-            </Button>
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            {ctx?.permissions.settings === 'write' && <EmergencySignOut />}
+            <Link href="/settings/users/new">
+              <Button variant="primary" size="md" className="gap-1.5">
+                <Plus size={14} />
+                Add User
+              </Button>
+            </Link>
+          </div>
         </div>
 
         <UsersFilterBar showInactive={showInactive} />

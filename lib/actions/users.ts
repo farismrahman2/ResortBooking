@@ -145,13 +145,31 @@ export async function resetPassword(userId: string, input: unknown): Promise<Act
   try {
     await requirePermission('settings', 'write')
     const parsed = resetPasswordSchema.parse(input)
+    const signOutAll = (input as { signOutAll?: boolean } | null)?.signOutAll !== false   // on unless turned off
     const admin = createServiceClient()
 
     const { error } = await admin.auth.admin.updateUserById(userId, { password: parsed.password })
     if (error) return { success: false, error: error.message }
 
+    // A stolen laptop that is already signed in keeps working after a
+    // password change — end its sessions too (keeping the admin's own).
+    let ended = 0
+    if (signOutAll) ended = await revokeSessions(userId, null, await currentSessionId())
+
     // NEVER log the password — only the event
-    await logHistory(userId, 'edited', 'password_reset', {})
+    await logHistory(userId, 'edited', 'password_reset', { signed_out_devices: ended })
+    const ctx = await getCurrentUserContext()
+    const target = await getUserById(userId)
+    const { flagAlert } = await import('@/lib/auth/alerts')
+    await flagAlert({
+      event_type:  'password_reset',
+      entity_type: 'user',
+      entity_id:   userId,
+      summary:     `Password reset — ${target?.full_name ?? userId}${signOutAll ? ` · signed out of ${ended} device${ended === 1 ? '' : 's'}` : ''}`,
+      payload:     { signed_out_devices: ended },
+      created_by:  ctx?.user_id ?? null,
+    })
+    revalidatePath(`/settings/users/${userId}`)
     return { success: true }
   } catch (err) {
     // requirePermission redirects on denial; that throw is Next control flow,
@@ -196,6 +214,8 @@ export async function deactivateUser(userId: string): Promise<ActionResult> {
       ban_duration: '876000h',
     })
     if (banErr) return { success: false, error: banErr.message }
+    // The ban stops new sign-ins; this ends the ones already open, at once.
+    await revokeSessions(userId)
 
     const { error } = await db
       .from('user_profiles')
@@ -312,4 +332,115 @@ export async function changeRole(userId: string, input: unknown): Promise<Action
       && ((err as { digest: string }).digest).startsWith('NEXT_')) throw err
     return { success: false, error: err instanceof Error ? err.message : String(err) }
   }
+}
+
+
+// ─── Signed-in devices (lost or stolen laptops) ─────────────────────────────
+
+/** The caller's own session id, from their access token — so signing others
+ *  out never signs the admin out of the device they're using. */
+async function currentSessionId(): Promise<string | null> {
+  try {
+    const { data } = await createClient().auth.getSession()
+    const token = data.session?.access_token
+    if (!token) return null
+    const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8'))
+    return typeof payload.session_id === 'string' ? payload.session_id : null
+  } catch {
+    return null
+  }
+}
+
+/** End one or all of a user's sessions (migrations/security/001). Returns how many. */
+async function revokeSessions(userId: string, sessionId: string | null = null, keepSessionId: string | null = null): Promise<number> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (createServiceClient() as any).rpc('admin_revoke_sessions', {
+    p_user: userId, p_session: sessionId, p_keep_session: keepSessionId,
+  })
+  if (error) throw new Error(`Could not sign out: ${error.message}`)
+  return Number(data ?? 0)
+}
+
+export interface UserSession {
+  id: string; created_at: string; last_active: string; device: string; ip: string | null; current: boolean
+}
+
+/** Devices this user is signed in on (admin only). */
+export async function listUserSessions(userId: string): Promise<ActionData<UserSession[]>> {
+  try {
+    await requirePermission('settings', 'write')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (createServiceClient() as any).rpc('admin_list_sessions', { p_user: userId })
+    if (error) return { success: false, error: error.message }
+    const mine = await currentSessionId()
+    const { describeUserAgent } = await import('@/lib/auth/user-agent')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return { success: true, data: ((data ?? []) as any[]).map((r) => ({
+      id: r.id, created_at: r.created_at, last_active: r.last_active, device: describeUserAgent(r.user_agent),
+      ip: r.ip ?? null, current: r.id === mine,
+    })) }
+  } catch (err) {
+    if (isNextControlFlow(err)) throw err
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/** Sign a user out of one device, or of all of them (never the admin's own). */
+export async function signOutUser(userId: string, sessionId?: string): Promise<ActionData<{ ended: number }>> {
+  try {
+    await requirePermission('settings', 'write')
+    const ctx = await getCurrentUserContext()
+    const ended = await revokeSessions(userId, sessionId ?? null, await currentSessionId())
+    const target = await getUserById(userId)
+    await logHistory(userId, 'edited', 'sessions_revoked', { ended, one_device: !!sessionId })
+    const { flagAlert } = await import('@/lib/auth/alerts')
+    await flagAlert({
+      event_type:  'sessions_revoked',
+      entity_type: 'user',
+      entity_id:   userId,
+      summary:     `Signed out — ${target?.full_name ?? userId}: ${sessionId ? 'one device' : `all devices (${ended})`}`,
+      payload:     { ended, session_id: sessionId ?? null },
+      created_by:  ctx?.user_id ?? null,
+    })
+    revalidatePath(`/settings/users/${userId}`)
+    return { success: true, data: { ended } }
+  } catch (err) {
+    if (isNextControlFlow(err)) throw err
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/** Emergency: sign out every user on every device except this one. */
+export async function signOutEveryone(confirmText: string): Promise<ActionData<{ ended: number }>> {
+  try {
+    await requirePermission('settings', 'write')
+    if (confirmText.trim().toUpperCase() !== 'SIGN OUT') return { success: false, error: 'Type SIGN OUT to confirm.' }
+    const keep = await currentSessionId()
+    if (!keep) return { success: false, error: 'Could not identify your own session — sign in again and retry.' }
+    const ctx = await getCurrentUserContext()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (createServiceClient() as any).rpc('admin_revoke_all_sessions', { p_keep_session: keep })
+    if (error) return { success: false, error: error.message }
+    const ended = Number(data ?? 0)
+    const { flagAlert } = await import('@/lib/auth/alerts')
+    await flagAlert({
+      event_type:  'sessions_revoked',
+      entity_type: 'user',
+      entity_id:   ctx?.user_id ?? 'all',
+      summary:     `Emergency sign-out — every user signed out (${ended} session${ended === 1 ? '' : 's'} ended)`,
+      payload:     { ended, everyone: true },
+      created_by:  ctx?.user_id ?? null,
+    })
+    revalidatePath('/settings/users')
+    return { success: true, data: { ended } }
+  } catch (err) {
+    if (isNextControlFlow(err)) throw err
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+function isNextControlFlow(err: unknown): boolean {
+  return !!err && typeof err === 'object' && 'digest' in err
+    && typeof (err as { digest?: unknown }).digest === 'string'
+    && (err as { digest: string }).digest.startsWith('NEXT_')
 }

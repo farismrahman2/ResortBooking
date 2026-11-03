@@ -20,7 +20,9 @@ export const updateUserSchema = z.object({
 export type UpdateUserInput = z.infer<typeof updateUserSchema>
 
 export const resetPasswordSchema = z.object({
-  password: passwordSchema,
+  password:   passwordSchema,
+  /** Also end every session the user has open (default on). */
+  signOutAll: z.boolean().optional(),
 })
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>
 

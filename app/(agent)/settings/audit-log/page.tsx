@@ -16,6 +16,7 @@ const VALID_FILTERS = [
   'booking_edited', 'advance_corrected', 'advance_removed',
   'room_block_created', 'room_block_changed', 'room_block_released',
   'room_prices_changed', 'revenue_display_changed',
+  'sessions_revoked', 'password_reset',
 ] as const
 
 interface PageProps {

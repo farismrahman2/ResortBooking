@@ -44,6 +44,7 @@ export function UserDetailActions({ user, roles, isSelf }: Props) {
   // Reset password state
   const [newPw, setNewPw] = useState('')
   const [pwShown, setPwShown] = useState<string | null>(null)
+  const [pwSignOut, setPwSignOut] = useState(true)
 
   function close() {
     setError(null)
@@ -75,9 +76,10 @@ export function UserDetailActions({ user, roles, isSelf }: Props) {
     setPwShown(null)
     if (newPw.length < 8) { setError('Password must be at least 8 characters'); return }
     startTransition(async () => {
-      const r = await safeCall(() => resetPassword(user.user_id, { password: newPw }))
+      const r = await safeCall(() => resetPassword(user.user_id, { password: newPw, signOutAll: pwSignOut }))
       if (!r.success) { setError(r.error); return }
       setPwShown(newPw)
+      router.refresh()   // the devices list changes when sessions were ended
       // Don't auto-close — show the password once
     })
   }
@@ -168,7 +170,7 @@ export function UserDetailActions({ user, roles, isSelf }: Props) {
           {pwShown ? (
             <>
               <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-3 space-y-1">
-                <p className="text-xs font-semibold text-emerald-800">Password reset.</p>
+                <p className="text-xs font-semibold text-emerald-800">Password reset{pwSignOut ? ' and signed out of all devices' : ''}.</p>
                 <p className="text-xs text-emerald-700">Share this with the user. It will not be shown again.</p>
                 <p className="mt-1 font-mono text-base font-bold text-emerald-900">{pwShown}</p>
               </div>
@@ -186,6 +188,13 @@ export function UserDetailActions({ user, roles, isSelf }: Props) {
                 placeholder="At least 8 characters"
                 hint="The user will see this once. Tell them to change it on first login."
               />
+              <label className="flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+                <input type="checkbox" className="mt-0.5 h-4 w-4 rounded border-gray-300" checked={pwSignOut} onChange={(e) => setPwSignOut(e.target.checked)} />
+                <span>
+                  <span className="font-medium text-gray-900">Also sign out of all devices</span>
+                  <span className="block text-xs text-gray-500">Use this for a lost or stolen laptop — it stops working on its next click.</span>
+                </span>
+              </label>
               {error && <ErrorBox text={error} />}
               <div className="flex justify-end gap-2 pt-2">
                 <Button variant="outline" size="md" onClick={close}>Cancel</Button>
