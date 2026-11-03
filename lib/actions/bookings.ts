@@ -2,7 +2,7 @@
 
 // Also refreshes the cached reports — see lib/revalidate.ts.
 import { revalidateMoneyPath as revalidatePath } from '@/lib/revalidate'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { generateBookingNumber, isUniqueViolation } from '@/lib/utils'
 import { calculateDaylong, calculateNight, calculateGroup } from '@/lib/engine/calculator'
 import { getHolidayDateStrings } from '@/lib/queries/settings'
@@ -177,7 +177,7 @@ export async function convertQuoteToBooking(
     let booking: { id: string; booking_number: string } | null = null
     let bErr: { message?: string } | null = null
     for (let attempt = 0; attempt < 3; attempt++) {
-      const booking_number = await generateBookingNumber(supabase as any)
+      const booking_number = await generateBookingNumber(createServiceClient() as any)   // highest number across all bookings, not just the caller's
       const res = await db
       .from('bookings')
       .insert({

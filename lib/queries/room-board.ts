@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/server'
 import { getDailyReport } from '@/lib/queries/daily-report'
 import { listBlocksOverlapping } from '@/lib/queries/room-blocks'
 import { getRoomInventory, getSettings } from '@/lib/queries/settings'
@@ -10,7 +10,10 @@ import { addDaysIso } from '@/lib/dates'
 
 /** Confirmed, not-yet-converted quotes covering the date — they hold rooms. */
 async function quoteHolds(date: string): Promise<BoardStayInput[]> {
-  const db = createClient() as any   // eslint-disable-line @typescript-eslint/no-explicit-any
+  // Server access: quotes are locked to Bookings in the database, but front
+  // desk (Availability, no Bookings) must still see which rooms a quote holds.
+  // The Room Board page checks Availability itself.
+  const db = createServiceClient({ fresh: true }) as any   // eslint-disable-line @typescript-eslint/no-explicit-any
   const { data } = await db.from('quotes')
     .select('id, quote_number, customer_name, customer_phone, package_type, visit_date, check_out_date, adults, children_paid, children_free, drivers, quote_rooms(room_type, qty, room_numbers, evening_rooms)')
     .eq('status', 'confirmed').is('converted_to_booking_id', null)

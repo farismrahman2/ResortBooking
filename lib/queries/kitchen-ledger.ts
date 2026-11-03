@@ -1,13 +1,21 @@
 import { cache } from 'react'
 import { selectWithOptionalEmbed } from '@/lib/supabase/optional-embed'
 import { opsUnitsForMeals } from '@/lib/bookings/group-ops'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { listKitchenVendors, getUnitLabels } from './kitchen'
 import { getMealsForBookingOnDate } from '@/lib/engine/meals'
 import type {
   DeliveryWithLines, DeliveryListRow, KitchenDelivery,
   PaymentWithAllocations, KitchenPayment, VendorLedgerRow,
 } from '@/lib/supabase/types-kitchen'
+
+/** Booking dates and headcounts for this section's own pages. bookings is
+ *  locked to Bookings/Checkout/Reports in the database, so these reads use
+ *  the server's access — callers sit behind this section's permission check,
+ *  and nothing here selects money. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const bookingFactsDb = () => createServiceClient({ fresh: true }) as any
+
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = () => createClient() as any
@@ -470,7 +478,7 @@ export async function getCoversInRange(from: string, to: string): Promise<{
   byDate: Record<string, number>
 }> {
   const { data, error } = await selectWithOptionalEmbed<any[]>(  // eslint-disable-line @typescript-eslint/no-explicit-any
-    (select) => db()
+    (select) => bookingFactsDb()
       .from('bookings')
       .select(select)
       .neq('status', 'cancelled')

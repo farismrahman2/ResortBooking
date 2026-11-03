@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { requirePermission, getCurrentUserContext } from '@/lib/auth/permissions'
 import {
   accountFormSchema, contactFormSchema, opportunityFormSchema, activityFormSchema,
@@ -220,7 +220,8 @@ export async function hardDeleteAccount(id: string, confirmName: string): Promis
     //    linked_booking_id references are unrecoverable.
     const bookingIds = impact.linkedBookings.map((b) => b.id)
     if (bookingIds.length > 0) {
-      const { error: orphanErr } = await db.from('bookings')
+      // Server access: unlinking is a CRM action, whatever the caller's booking rights.
+      const { error: orphanErr } = await createServiceClient().from('bookings')
         .update({ source_module: 'manual', source_id: null })
         .in('id', bookingIds)
       if (orphanErr) return { success: false, error: `Could not unlink bookings: ${orphanErr.message}` }
@@ -526,7 +527,7 @@ export async function markWon(
     let booking: { id: string; booking_number: string } | null = null
     let bErr: { message?: string } | null = null
     for (let attempt = 0; attempt < 3; attempt++) {
-    const bookingNumber = await generateBookingNumber(createClient())
+    const bookingNumber = await generateBookingNumber(createServiceClient() as any)   // highest number across all bookings
     const res = await db.from('bookings').insert({
       booking_number:     bookingNumber,
       customer_name:      opp.account?.company_name ?? opp.opportunity_name,

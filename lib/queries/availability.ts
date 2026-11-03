@@ -1,4 +1,14 @@
-import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/server'
+
+/**
+ * Occupancy must count EVERY booking and confirmed quote, whoever is asking:
+ * bookings/quotes are locked to their own section in the database
+ * (migrations/security/006), and a guard that sees fewer stays approves
+ * double bookings. These reads take dates, rooms and guest counts only — no
+ * money — and every caller sits behind its own page/action permission check.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const occupancyDb = () => createServiceClient({ fresh: true }) as any
 import { COMPOSITE_ROOMS, ROOM_NUMBERS, ROOM_NUMBER_TO_TYPE, isWholeDay } from '@/lib/config/rooms'
 import { addDaysIso } from '@/lib/dates'
 import {
@@ -48,8 +58,7 @@ interface FetchOpts {
  * fell out of the occupancy sum — the capacity guard approved overbookings.
  */
 async function fetchStays(rangeStart: string, rangeEnd: string, opts: FetchOpts = {}): Promise<StayLike[]> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db = createClient() as any
+  const db = occupancyDb()
   const overlapOr = `check_out_date.gt.${rangeStart},and(check_out_date.is.null,visit_date.gte.${rangeStart})`
 
   let bookingQ = db
@@ -539,8 +548,7 @@ export interface DayGuestCounts {
  * no-show excluded. Powers the tap-a-date summary on the availability page.
  */
 export async function getGuestsOnDate(date: string): Promise<DayGuestCounts> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = createClient() as any
+  const sb = occupancyDb()
   const [{ data, error }, { data: segs }] = await Promise.all([
     sb.from('bookings')
       .select('package_type, visit_date, check_out_date, status, adults, children_paid, children_free, drivers, booking_rooms(qty)')

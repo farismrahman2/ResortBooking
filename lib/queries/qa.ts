@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/server'
 import { normalizePhone } from '@/lib/queries/guest-numbers'
 import type {
   GuestFeedbackSummary,
@@ -10,7 +10,10 @@ import type {
 } from '@/lib/supabase/types-qa'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const dbc = () => createClient() as any
+// QA reads checked-out bookings (dates, guest names) for its call queue; the
+// bookings table is locked to Bookings/Checkout/Reports, and QA pages check
+// the QA permission themselves.
+const dbc = () => createServiceClient({ fresh: true }) as any
 
 /** How many days after checkout a guest stays in the call queue. Two days so
  *  a guest missed on the first day isn't lost — anyone older ages out. */

@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { selectWithOptionalEmbed } from '@/lib/supabase/optional-embed'
 import { opsUnitsForMeals } from '@/lib/bookings/group-ops'
 import { getMealsForBookingOnDate } from '@/lib/engine/meals'
@@ -13,6 +13,14 @@ import type {
   MenuStatus,
   MenuTemplateRow,
 } from '@/lib/supabase/types-menus'
+
+/** Booking dates and headcounts for this section's own pages. bookings is
+ *  locked to Bookings/Checkout/Reports in the database, so these reads use
+ *  the server's access — callers sit behind this section's permission check,
+ *  and nothing here selects money. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const bookingFactsDb = () => createServiceClient({ fresh: true }) as any
+
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const dbc = () => createClient() as any
@@ -144,7 +152,7 @@ export async function listTemplates(mealTypeId?: string): Promise<MenuTemplateRo
  *  occasion_note ← customer_name. Confirmed bookings only — filtered
  *  explicitly so future status additions never leak in. */
 export async function getBookingPrefill(bookingId: string): Promise<MenuBookingPrefill | null> {
-  const { data, error } = await dbc()
+  const { data, error } = await bookingFactsDb()
     .from('bookings')
     .select('id, booking_number, customer_name, visit_date, status, adults, children_paid, children_free, drivers')
     .eq('id', bookingId)
@@ -201,7 +209,7 @@ export async function getDayMealHeadcounts(date: string): Promise<DayMealHeadcou
   // A booking feeds meals from visit_date through check_out_date INCLUSIVE
   // (checkout-morning breakfast), or just visit_date for daylong.
   const { data, error } = await selectWithOptionalEmbed<any[]>(  // eslint-disable-line @typescript-eslint/no-explicit-any
-    (select) => dbc()
+    (select) => bookingFactsDb()
       .from('bookings')
       .select(select)
       .neq('status', 'cancelled')
@@ -264,7 +272,7 @@ export async function listBookingsForMenuPicker(): Promise<Array<{
 }>> {
   const from = new Date()
   from.setDate(from.getDate() - 7)
-  const { data, error } = await dbc()
+  const { data, error } = await bookingFactsDb()
     .from('bookings')
     .select('id, booking_number, customer_name, visit_date')
     .eq('status', 'confirmed')

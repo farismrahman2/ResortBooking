@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { checkPermission, getCurrentUserContext } from '@/lib/auth/permissions'
 import { normalizePhone } from '@/lib/queries/guest-numbers'
 import {
@@ -9,6 +9,14 @@ import {
   type QaReviewFormInput, type QaSkipInput,
 } from '@/lib/validators/qa'
 import type { ActionResult } from './types'
+
+/** Booking dates and headcounts for this section's own pages. bookings is
+ *  locked to Bookings/Checkout/Reports in the database, so these reads use
+ *  the server's access — callers sit behind this section's permission check,
+ *  and nothing here selects money. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const bookingFactsDb = () => createServiceClient({ fresh: true }) as any
+
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const dbc = () => createClient() as any
@@ -32,7 +40,7 @@ interface BookingSlim {
 }
 
 async function loadBooking(bookingId: string): Promise<BookingSlim | null> {
-  const { data } = await dbc()
+  const { data } = await bookingFactsDb()
     .from('bookings')
     .select('id, customer_name, customer_phone, status')
     .eq('id', bookingId)

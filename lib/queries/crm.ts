@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { getCrmVisibility, ownerFilterId } from '@/lib/crm/visibility'
 import type {
   CrmSector, CrmTier, CrmAccount, CrmContact, CrmAccountWithRelations, AccountStatus,
@@ -10,6 +10,14 @@ import { getKpiPeriods } from '@/lib/crm/kpi-dates'
 import { todayDhaka, addDaysIso } from '@/lib/dates'
 import { sanitizeSearch } from '@/lib/utils'
 import { KPI_METRICS, kpiStatus, type KpiMetric, type KpiStatus } from '@/lib/crm/kpi-metrics'
+
+/** Booking dates and headcounts for this section's own pages. bookings is
+ *  locked to Bookings/Checkout/Reports in the database, so these reads use
+ *  the server's access — callers sit behind this section's permission check,
+ *  and nothing here selects money. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const bookingFactsDb = () => createServiceClient({ fresh: true }) as any
+
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = () => createClient() as any
@@ -175,7 +183,7 @@ export async function getAccountDeleteImpact(id: string): Promise<AccountDeleteI
 
   const bookingIds = new Set<string>(cachedBookingIds)
   if (oppIds.length > 0) {
-    const { data: sourced } = await db().from('bookings').select('id')
+    const { data: sourced } = await bookingFactsDb().from('bookings').select('id')
       .eq('source_module', 'crm_handoff').in('source_id', oppIds)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const b of (sourced ?? []) as any[]) bookingIds.add(b.id)
@@ -183,7 +191,7 @@ export async function getAccountDeleteImpact(id: string): Promise<AccountDeleteI
 
   let linkedBookings: AccountDeleteImpact['linkedBookings'] = []
   if (bookingIds.size > 0) {
-    const { data } = await db().from('bookings').select('id, booking_number, status')
+    const { data } = await bookingFactsDb().from('bookings').select('id, booking_number, status')
       .in('id', [...bookingIds])
     linkedBookings = (data ?? []) as AccountDeleteImpact['linkedBookings']
   }

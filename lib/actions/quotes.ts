@@ -2,7 +2,7 @@
 
 // Also refreshes the cached reports — see lib/revalidate.ts.
 import { revalidateMoneyPath as revalidatePath } from '@/lib/revalidate'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { CreateQuoteSchema, type CreateQuoteInput } from '@/lib/validators/quote'
 import { calculateDaylong, calculateNight, calculateGroup } from '@/lib/engine/calculator'
 import { buildPackageSnapshot } from '@/lib/engine/snapshot'
@@ -162,7 +162,7 @@ export async function createQuote(
     let quote: { id: string; quote_number: string } | null = null
     let quoteError: { message?: string } | null = null
     for (let attempt = 0; attempt < 3; attempt++) {
-      const quote_number = await generateQuoteNumber(supabase as any)
+      const quote_number = await generateQuoteNumber(createServiceClient() as any)   // highest number across all quotes, not just the caller's
       const res = await supabase
       .from('quotes')
       .insert({

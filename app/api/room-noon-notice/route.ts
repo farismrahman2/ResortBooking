@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/server'
+import { hasPermission } from '@/lib/auth/permissions'
 
 /**
  * GET /api/room-noon-notice?visitDate=YYYY-MM-DD&roomTypes=cottage,deluxe
@@ -16,8 +17,14 @@ export async function GET(req: NextRequest) {
   if (!visitDate || roomTypes.length === 0) {
     return NextResponse.json({ hasConflict: false })
   }
+  if (!(await hasPermission('bookings', 'read'))) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
 
-  const supabase = createClient()
+  // A yes/no over EVERY stay (bookings are locked per role in the database,
+  // and Corporate Sales would otherwise only see their own). No booking data
+  // leaves this route.
+  const supabase = createServiceClient({ fresh: true })
 
   // Check bookings: night stay checking out on this date with matching room types
   const { data: bookingRows } = await supabase
