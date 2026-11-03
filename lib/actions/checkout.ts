@@ -2,7 +2,7 @@
 
 // Also refreshes the cached reports — see lib/revalidate.ts.
 import { revalidateMoneyPath as revalidatePath } from '@/lib/revalidate'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import {
   addPaymentSchema,
   recordRefundSchema,
@@ -18,6 +18,13 @@ import { todayDhaka } from '@/lib/dates'
 import { requiresAccount, missingAccountError } from '@/lib/payments/account-rules'
 import { listAccountsForMethod } from '@/lib/queries/payment-accounts'
 import type { ActionResult, ActionData } from './types'
+
+/** Expense rows this section posts automatically. The expenses table is locked
+ *  to the Expenses module, so the post goes through the server's service
+ *  client — always after this action's own permission check. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const expenseDb = () => createServiceClient() as any
+
 
 async function logHistory(
   entityId: string,
@@ -465,7 +472,7 @@ export async function recordRefund(
     const today = todayDhaka()
     const description = `Refund: ${checkout.booking.customer_name} (${checkout.booking.booking_number})`
 
-    const { data: exp, error: expErr } = await db
+    const { data: exp, error: expErr } = await expenseDb()
       .from('expenses')
       .insert({
         expense_date:     today,
@@ -492,7 +499,7 @@ export async function recordRefund(
       .select('id')
     if (error) return { success: false, error: error.message }
     if (!claimed?.length) {
-      await db.from('expenses').delete().eq('id', exp.id)
+      await expenseDb().from('expenses').delete().eq('id', exp.id)
       return { success: false, error: 'A refund was already recorded for this checkout.' }
     }
 

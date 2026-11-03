@@ -2,7 +2,7 @@
 
 // Also refreshes the cached reports — see lib/revalidate.ts.
 import { revalidateMoneyPath as revalidatePath } from '@/lib/revalidate'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { computePayrollLine, type PayrollLine, type AttendanceCounts } from '@/lib/engine/payroll'
 import { summariseAttendanceForMonth } from '@/lib/queries/attendance'
 import type { ActionResult, ActionData } from './types'
@@ -13,6 +13,13 @@ import type {
   SalaryAdjustmentRow,
   SalaryStructureRow,
 } from '@/lib/supabase/types'
+
+/** Expense rows this section posts automatically. The expenses table is locked
+ *  to the Expenses module, so the post goes through the server's service
+ *  client — always after this action's own permission check. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const expenseDb = () => createServiceClient() as any
+
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -576,7 +583,7 @@ export async function finalizePayrollRun(
       }]
     })
     if (expensePlans.length > 0) {
-      const { data: insertedExpenses, error: expErr } = await db
+      const { data: insertedExpenses, error: expErr } = await expenseDb()
         .from('expenses')
         .insert(expensePlans.map((p) => p.row))
         .select('id, description')

@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath, revalidateTag } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { requirePermission } from '@/lib/auth/permissions'
 import {
   itemFormSchema, supplierFormSchema,
@@ -17,6 +17,13 @@ import { computeAvgPurchasePrice } from '@/lib/inventory/avg-price'
 import { expenseCategoryForStore } from '@/lib/inventory/expense-category-mapping'
 import { todayDhaka } from '@/lib/dates'
 import type { ActionResult, ActionData } from './types'
+
+/** Expense rows this section posts automatically. The expenses table is locked
+ *  to the Expenses module, so the post goes through the server's service
+ *  client — always after this action's own permission check. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const expenseDb = () => createServiceClient() as any
+
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const dbc = () => createClient() as any
@@ -379,7 +386,7 @@ export async function createReceipt(raw: ReceiptFormInput): Promise<ActionData<{
         db.from('inv_suppliers').select('name, expense_payee_id').eq('id', input.supplier_id).maybeSingle(),
       ])
       if (cat?.id) {
-        const { data: expense, error: expErr } = await db.from('expenses').insert({
+        const { data: expense, error: expErr } = await expenseDb().from('expenses').insert({
           expense_date:   input.movement_date,
           category_id:    cat.id,
           payee_id:       supplier?.expense_payee_id ?? null,
@@ -406,7 +413,7 @@ export async function createReceipt(raw: ReceiptFormInput): Promise<ActionData<{
         // against the expense so it shows there in the usual attachment style.
         // Non-fatal: the receipt + expense stand even if this row fails.
         if (input.attachment) {
-          const { error: attErr } = await db.from('expense_attachments').insert({
+          const { error: attErr } = await expenseDb().from('expense_attachments').insert({
             expense_id:   expenseId,
             storage_path: input.attachment.storage_path,
             file_name:    input.attachment.file_name,
@@ -620,7 +627,7 @@ export async function voidMovement(id: string, reason: string): Promise<ActionRe
 
     // Receipts: delete the linked expense + recompute prices from remaining receipts.
     if (m.movement_type === 'receipt') {
-      if (m.expense_id) await db.from('expenses').delete().eq('id', m.expense_id)
+      if (m.expense_id) await expenseDb().from('expenses').delete().eq('id', m.expense_id)
       const uniqueItems = [...new Set(allLines.map((l) => l.item_id))]
       for (const itemId of uniqueItems) await recomputePurchasePrices(db, itemId)
     }

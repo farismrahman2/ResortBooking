@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath, revalidateTag } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { requirePermission, getCurrentUserContext } from '@/lib/auth/permissions'
 import {
   deliveryDraftSchema, deliveryConfirmSchema, paymentSchema,
@@ -10,6 +10,13 @@ import { formatDeliveryNo, formatPaymentNo } from '@/lib/kitchen/requisition-num
 import { getDeliveryById } from '@/lib/queries/kitchen-ledger'
 import { KITCHEN_CATALOGUE_TAG } from '@/lib/queries/kitchen'
 import type { ActionResult, ActionData } from './types'
+
+/** Expense rows this section posts automatically. The expenses table is locked
+ *  to the Expenses module, so the post goes through the server's service
+ *  client — always after this action's own permission check. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const expenseDb = () => createServiceClient() as any
+
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const dbc = () => createClient() as any
@@ -342,7 +349,7 @@ async function syncPaymentExpense(
 ): Promise<string | null> {
   try {
     if (p.method === 'adjustment') {
-      await db.from('expenses').delete()
+      await expenseDb().from('expenses').delete()
         .eq('source_module', 'kitchen').eq('source_id', paymentId)
       return null
     }
@@ -386,11 +393,11 @@ async function syncPaymentExpense(
       source_id:        paymentId,
     }
 
-    const { data: existing } = await db.from('expenses')
+    const { data: existing } = await expenseDb().from('expenses')
       .select('id').eq('source_module', 'kitchen').eq('source_id', paymentId).maybeSingle()
     const { error } = existing
-      ? await db.from('expenses').update(row).eq('id', existing.id)
-      : await db.from('expenses').insert(row)
+      ? await expenseDb().from('expenses').update(row).eq('id', existing.id)
+      : await expenseDb().from('expenses').insert(row)
     if (error) {
       console.warn(`[kitchen] payment expense not posted: ${error.message}`)
       return `Payment saved, but it was NOT posted to Expenses (${error.message}). Run migrations/kitchen-module/009_payment_expenses.sql and re-save the payment.`
@@ -549,7 +556,7 @@ export async function cancelPayment(id: string, reason: string): Promise<ActionR
     if (error) return { success: false, error: error.message }
 
     // A bounced cheque means the money never left — remove its expense row.
-    await db.from('expenses').delete()
+    await expenseDb().from('expenses').delete()
       .eq('source_module', 'kitchen').eq('source_id', id)
 
     await logHistory('kitchen_payment', id, 'edited', 'payment_cancelled', {

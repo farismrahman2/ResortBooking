@@ -1,10 +1,17 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { requirePermission, isAdmin } from '@/lib/auth/permissions'
 import { KITCHEN_DOCS_BUCKET } from '@/lib/kitchen/documents'
 import type { ActionResult } from './types'
+
+/** Expense rows this section posts automatically. The expenses table is locked
+ *  to the Expenses module, so the post goes through the server's service
+ *  client — always after this action's own permission check. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const expenseDb = () => createServiceClient() as any
+
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const dbc = () => createClient() as any
@@ -127,7 +134,7 @@ export async function deletePaymentPermanently(id: string): Promise<ActionResult
     if (!pay) return { success: false, error: 'Payment not found' }
 
     await purgeDocuments(db, 'payment', [id])
-    await db.from('expenses').delete()
+    await expenseDb().from('expenses').delete()
       .eq('source_module', 'kitchen').eq('source_id', id)
     const { error } = await db.from('kitchen_vendor_payments').delete().eq('id', id)
     if (error) return { success: false, error: error.message }

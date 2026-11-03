@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { sanitizeSearch } from '@/lib/utils'
 import type { BookingWithRooms, BookingStatus, GroupDayWithRooms } from '@/lib/supabase/types'
 
@@ -121,8 +121,11 @@ export async function getBookingStats(): Promise<{
   pending_advance: number
 }> {
   const supabase = createClient()
+  // Whole-resort totals: run with the server's access — checkout tables are
+  // locked to Checkout/Reports, and the dashboard only calls this for
+  // bookings readers (money figures are admin-only on screen).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: rpcData, error: rpcError } = await (supabase as any).rpc('get_booking_stats')
+  const { data: rpcData, error: rpcError } = await (createServiceClient({ fresh: true }) as any).rpc('get_booking_stats')
   if (!rpcError && rpcData) {
     const row = Array.isArray(rpcData) ? rpcData[0] : rpcData
     if (row) {

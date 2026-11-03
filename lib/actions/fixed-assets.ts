@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { requirePermission } from '@/lib/auth/permissions'
 import {
   assetFormSchema, maintenanceFormSchema, disposalFormSchema,
@@ -10,6 +10,13 @@ import {
 import { formatAssetTag } from '@/lib/fixed-assets/asset-tag'
 import { computeDepreciation } from '@/lib/fixed-assets/depreciation'
 import type { ActionResult, ActionData } from './types'
+
+/** Expense rows this section posts automatically. The expenses table is locked
+ *  to the Expenses module, so the post goes through the server's service
+ *  client — always after this action's own permission check. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const expenseDb = () => createServiceClient() as any
+
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const dbc = () => createClient() as any
@@ -80,7 +87,7 @@ export async function createAsset(raw: AssetFormInput): Promise<ActionData<{ id:
     // Capitalize → expense row (bidirectional link, mirror of inventory receipt)
     const catId = await faExpenseCategoryId(db)
     if (catId) {
-      const { data: expense } = await db.from('expenses').insert({
+      const { data: expense } = await expenseDb().from('expenses').insert({
         expense_date:   input.acquisition_date,
         category_id:    catId,
         payee_id:       input.vendor_id ?? null,
@@ -141,7 +148,7 @@ export async function updateAsset(id: string, raw: AssetFormInput): Promise<Acti
 
     // Keep the linked capitalized expense in sync with cost.
     if (existing?.expense_id && Number(existing.acquisition_cost) !== input.acquisition_cost) {
-      await db.from('expenses').update({ amount: input.acquisition_cost, updated_at: new Date().toISOString() }).eq('id', existing.expense_id)
+      await expenseDb().from('expenses').update({ amount: input.acquisition_cost, updated_at: new Date().toISOString() }).eq('id', existing.expense_id)
     }
 
     await logHistory('fa_asset', id, 'edited', { name: input.name })
@@ -249,7 +256,7 @@ export async function recordMaintenance(raw: MaintenanceFormInput): Promise<Acti
     if (input.create_expense && input.cost > 0) {
       const catId = await faExpenseCategoryId(db)
       if (catId) {
-        const { data: exp } = await db.from('expenses').insert({
+        const { data: exp } = await expenseDb().from('expenses').insert({
           expense_date:   input.maintenance_date,
           category_id:    catId,
           payee_id:       input.vendor_id ?? null,
@@ -280,7 +287,7 @@ export async function recordMaintenance(raw: MaintenanceFormInput): Promise<Acti
       notes:             input.notes ?? null,
       created_by:        userId,
     }).select('id').single()
-    if (error) { if (expenseId) await db.from('expenses').delete().eq('id', expenseId); return { success: false, error: error.message } }
+    if (error) { if (expenseId) await expenseDb().from('expenses').delete().eq('id', expenseId); return { success: false, error: error.message } }
 
     await logHistory('fa_maintenance', data.id, 'created', { asset_id: input.asset_id, type: input.maintenance_type, cost: input.cost })
     revalidatePath(`/fixed-assets/assets/${input.asset_id}`)
