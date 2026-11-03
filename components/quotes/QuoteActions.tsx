@@ -18,9 +18,11 @@ import { formatBDT } from '@/lib/formatters/currency'
 interface QuoteActionsProps {
   quote: QuoteRow
   bookingId?: string
+  /** Corporate Sales: make and finish their own quote, never cancel one. */
+  createOnly?: boolean
 }
 
-export function QuoteActions({ quote, bookingId }: QuoteActionsProps) {
+export function QuoteActions({ quote, bookingId, createOnly = false }: QuoteActionsProps) {
   const confirm = useConfirm()
   const router = useRouter()
   const [loading, setLoading] = useState<string | null>(null)
@@ -176,16 +178,18 @@ export function QuoteActions({ quote, bookingId }: QuoteActionsProps) {
           >
             Confirm Quote
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            loading={loading === 'cancelled'}
-            onClick={() =>
-              handleAction(() => updateQuoteStatus(quote.id, 'cancelled'), 'cancelled')
-            }
-          >
-            Cancel
-          </Button>
+          {!createOnly && (
+            <Button
+              variant="outline"
+              size="sm"
+              loading={loading === 'cancelled'}
+              onClick={() =>
+                handleAction(() => updateQuoteStatus(quote.id, 'cancelled'), 'cancelled')
+              }
+            >
+              Cancel
+            </Button>
+          )}
         </>
       )}
 

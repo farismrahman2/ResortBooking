@@ -9,6 +9,8 @@ import { WhatsAppOutput } from '@/components/quotes/WhatsAppOutput'
 import { ItineraryCard } from '@/components/bookings/ItineraryCard'
 import { getEffectiveQuoteForDisplay } from '@/lib/queries/quotes'
 import { getSettings } from '@/lib/queries/settings'
+import { requireRecordAccess } from '@/lib/auth/permissions'
+import { isCreateOnlyRole } from '@/lib/auth/create-only'
 import { createClient } from '@/lib/supabase/server'
 import { formatDate, formatDateRange, formatTime12h } from '@/lib/formatters/dates'
 import { WhatsAppLink } from '@/components/ui/WhatsAppLink'
@@ -29,6 +31,9 @@ export default async function QuoteDetailPage({ params }: PageProps) {
   ])
 
   if (!quote) notFound()
+  // Corporate Sales open only the quotes they made.
+  const ctx = await requireRecordAccess((quote as { created_by?: string | null }).created_by)
+  const createOnly = isCreateOnlyRole(ctx.profile.role.slug)
 
   // Check if any selected rooms have a night stay checking out on the visit date
   let roomAvailableAfterNoon = false
@@ -80,6 +85,7 @@ export default async function QuoteDetailPage({ params }: PageProps) {
           <QuoteActions
             quote={quote}
             bookingId={quote.converted_to_booking_id ?? undefined}
+            createOnly={createOnly}
           />
         </div>
 

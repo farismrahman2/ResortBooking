@@ -1,4 +1,6 @@
+import { redirect } from 'next/navigation'
 import { requirePermission } from '@/lib/auth/permissions'
+import { isCreateOnlyRole } from '@/lib/auth/create-only'
 import { getDailyReport, computeFreeRooms } from '@/lib/queries/daily-report'
 import { DailyReportPrint } from '@/components/print/DailyReportPrint'
 import type { Lang } from '@/lib/i18n/daily-report'
@@ -15,7 +17,9 @@ interface PageProps {
 
 export default async function DailyReportPrintPage({ searchParams }: PageProps) {
   // Gate via the same permission as the availability page.
-  await requirePermission('availability', 'read')
+  const ctx = await requirePermission('availability', 'read')
+  // Every guest's name and phone — not for Corporate Sales (create-only).
+  if (isCreateOnlyRole(ctx.profile.role.slug)) redirect('/403?from=availability')
 
   const date = searchParams.date && /^\d{4}-\d{2}-\d{2}$/.test(searchParams.date)
     ? searchParams.date

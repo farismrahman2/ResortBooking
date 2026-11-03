@@ -14,7 +14,7 @@ const MIDDLEWARE_PROFILE_DEADLINE_MS = 3000
  * before `/hr` so front_desk users (who have `attendance` but not `hr`) don't
  * get 403'd on the attendance page.
  */
-type RoleSlug = 'admin' | 'manager' | 'front_desk' | 'accountant' | 'reservation' | 'corporate_sales' | 'operations_manager' | 'md' | 'review_collector'
+type RoleSlug = 'admin' | 'manager' | 'front_desk' | 'accountant' | 'reservation' | 'corporate_sales' | 'operations_manager' | 'md' | 'review_collector' | 'inventory'
 
 /**
  * Per-role route deny-list. Used when a role passes the module-level check
@@ -25,6 +25,10 @@ type RoleSlug = 'admin' | 'manager' | 'front_desk' | 'accountant' | 'reservation
  */
 const ROLE_DENY: Array<{ prefix: string; roles: RoleSlug[] }> = [
   { prefix: '/packages', roles: ['reservation'] },
+  // Corporate Sales make bookings only (lib/auth/create-only.ts): the Room
+  // Board shows every guest's name, phone and balance. (The day's guest-list
+  // printout checks this itself — /print has no module mapping.)
+  { prefix: '/availability/rooms',  roles: ['corporate_sales'] },
 ]
 
 /**

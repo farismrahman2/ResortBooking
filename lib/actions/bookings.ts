@@ -15,7 +15,8 @@ import { rowsToSegments, deriveGroupHeader, type GroupSegment } from '@/lib/book
 import { insertGroupDays, replaceGroupDays } from '@/lib/bookings/group-days-db'
 import { findDuplicateBookings } from '@/lib/queries/duplicate-bookings'
 import { ROOM_NUMBERS } from '@/lib/config/rooms'
-import { requirePermission, getCurrentUserContext } from '@/lib/auth/permissions'
+import { requirePermission, requireBookingEditor, getCurrentUserContext } from '@/lib/auth/permissions'
+import { canSeeRecord, isCreateOnlyRole, maskDuplicates } from '@/lib/auth/create-only'
 import { isMissingRelation, roomRowError } from '@/lib/supabase/errors'
 import { flagAlert } from '@/lib/auth/alerts'
 import { formatBDT } from '@/lib/formatters/currency'
@@ -34,7 +35,7 @@ export async function convertQuoteToBooking(
   quoteId: string,
   allowDuplicate: boolean = false,
 ): Promise<ActionData<{ bookingId: string; bookingNumber: string }>> {
-  await requirePermission('bookings', 'write')
+  const ctx = await requirePermission('bookings', 'write')
   try {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -48,6 +49,10 @@ export async function convertQuoteToBooking(
       .single()
 
     if (qErr || !quote) return { success: false, error: 'Quote not found' }
+    // Corporate Sales convert only the quotes they made.
+    if (!canSeeRecord({ user_id: ctx.user_id, roleSlug: ctx.profile.role.slug }, quote.created_by)) {
+      return { success: false, error: 'Quote not found' }
+    }
 
     // Already converted (double-click, two agents, a retry after a timeout):
     // hand back the existing booking instead of minting a second one.
@@ -72,10 +77,13 @@ export async function convertQuoteToBooking(
         exclude_quote_id: quoteId,
       })
       if (dupes.length > 0) {
+        const createOnly = isCreateOnlyRole(ctx.profile.role.slug)
         return {
           success: false,
-          error:   `An existing ${dupes[0].kind} (${dupes[0].number}) was found for this guest on the same date. Please confirm before converting.`,
-          duplicate: { existing: dupes },
+          error:   createOnly
+            ? 'A booking already exists for this guest on the same date. Please check with Reservations before converting.'
+            : `An existing ${dupes[0].kind} (${dupes[0].number}) was found for this guest on the same date. Please confirm before converting.`,
+          duplicate: { existing: maskDuplicates(dupes, ctx.profile.role.slug) },
         }
       }
     }
@@ -175,6 +183,8 @@ export async function convertQuoteToBooking(
       .insert({
         booking_number,
         quote_id:         quote.id,
+        // The booking belongs to whoever made the quote, not whoever converts it.
+        created_by:       quote.created_by ?? ctx.user_id,
         customer_name:    quote.customer_name,
         customer_phone:   quote.customer_phone,
         customer_notes:   quote.customer_notes,
@@ -305,7 +315,7 @@ export async function updateAdvancePaid(
   advance_required: number,
   advance_method?: 'bkash' | 'bank_transfer',
 ): Promise<ActionResult> {
-  await requirePermission('bookings', 'write')
+  await requireBookingEditor()
   try {
     // Client-supplied money — validate before it reaches the row.
     for (const [label, v] of [['Advance paid', advance_paid], ['Advance required', advance_required]] as const) {
@@ -397,7 +407,7 @@ export async function addAdvancePayment(
     account_id?: string | null
   },
 ): Promise<ActionData<{ advance_paid: number }>> {
-  await requirePermission('bookings', 'write')
+  await requireBookingEditor()
   try {
     const amount = Number(input.amount)
     if (!Number.isFinite(amount) || amount <= 0 || amount > 10_000_000) {
@@ -484,7 +494,7 @@ export async function updateAdvancePayment(
     account_id?: string | null
   },
 ): Promise<ActionData<{ advance_paid: number }>> {
-  await requirePermission('bookings', 'write')
+  await requireBookingEditor()
   try {
     const amount = Number(input.amount)
     if (!Number.isFinite(amount) || amount <= 0 || amount > 10_000_000) {
@@ -568,7 +578,7 @@ export async function updateAdvancePayment(
 
 /** Remove a mis-keyed instalment. The total re-derives from what's left. */
 export async function deleteAdvancePayment(paymentId: string): Promise<ActionResult> {
-  await requirePermission('bookings', 'write')
+  await requireBookingEditor()
   try {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -608,7 +618,7 @@ export async function deleteAdvancePayment(paymentId: string): Promise<ActionRes
 
 /** Cancel a booking */
 export async function cancelBooking(bookingId: string): Promise<ActionResult> {
-  await requirePermission('bookings', 'write')
+  await requireBookingEditor()
   try {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -806,7 +816,7 @@ export async function updateBooking(
     day_package_snapshot?: PackageSnapshot | null
   },
 ): Promise<ActionResult> {
-  await requirePermission('bookings', 'write')
+  await requireBookingEditor()
   try {
     const supabase   = createClient()
     const holidayDates = await getHolidayDateStrings()
@@ -1033,7 +1043,7 @@ export async function confirmDateChange(
     cleared_room_numbers: Record<string, string[]>
   },
 ): Promise<ActionResult> {
-  await requirePermission('bookings', 'write')
+  await requireBookingEditor()
   try {
     const supabase     = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1227,7 +1237,7 @@ export async function swapRoomAssignment(
   bookingId: string,
   input: SwapInput,
 ): Promise<ActionResult> {
-  await requirePermission('bookings', 'write')
+  await requireBookingEditor()
   try {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1595,8 +1605,8 @@ export async function setBookingSalesRep(
   employeeId: string | null,
 ): Promise<ActionResult> {
   try {
-    const { requirePermission, getCurrentUserContext } = await import('@/lib/auth/permissions')
-    await requirePermission('bookings', 'write')
+    const { requireBookingEditor, getCurrentUserContext } = await import('@/lib/auth/permissions')
+    await requireBookingEditor()
     const ctx = await getCurrentUserContext()
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

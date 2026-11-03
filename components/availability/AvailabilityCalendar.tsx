@@ -13,6 +13,8 @@ interface AvailabilityCalendarProps {
   inventory: RoomInventoryRow[]
   /** "6:00 PM" — the evening handover time, for the grid's footnotes. */
   handoverLabel?: string
+  /** The day's guest list (names, phones) — off for Corporate Sales. */
+  guestList?: boolean
 }
 
 type PackageFilter = 'all' | 'daylong' | 'night'
@@ -91,7 +93,7 @@ interface DayGuests {
   daylong_no_room_bookings?: number; daylong_no_room_guests?: number
 }
 
-export function AvailabilityCalendar({ inventory, handoverLabel = '6:00 PM' }: AvailabilityCalendarProps) {
+export function AvailabilityCalendar({ inventory, handoverLabel = '6:00 PM', guestList = true }: AvailabilityCalendarProps) {
   const today = new Date().toISOString().split('T')[0]
   const [selectedDate,  setSelectedDate]  = useState(today)
   const [packageType,   setPackageType]   = useState<PackageFilter>('all')
@@ -280,7 +282,7 @@ export function AvailabilityCalendar({ inventory, handoverLabel = '6:00 PM' }: A
           <Button onClick={() => check()} loading={loading} disabled={!selectedDate}>
             Check Availability
           </Button>
-          <div ref={menuRef} className="relative">
+          {guestList && <div ref={menuRef} className="relative">
             <Button
               variant="outline"
               onClick={() => setMenuOpen((v) => !v)}
@@ -317,7 +319,7 @@ export function AvailabilityCalendar({ inventory, handoverLabel = '6:00 PM' }: A
                 </button>
               </div>
             )}
-          </div>
+          </div>}
         </div>
       </div>
 

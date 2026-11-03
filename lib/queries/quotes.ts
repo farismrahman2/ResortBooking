@@ -16,6 +16,8 @@ export interface QuoteFilters {
   from_date?:    string
   to_date?:      string
   corporate?:    boolean   // when true, returns only corporate quotes
+  /** Only quotes this user made (Corporate Sales see their own only). */
+  created_by?:   string
   limit?:        number
   offset?:       number
 }
@@ -47,6 +49,7 @@ export async function getQuotes(filters: QuoteFilters = {}): Promise<QuoteRow[]>
 
   if (filters.status) query = query.eq('status', filters.status)
   if (filters.corporate) query = query.eq('is_corporate', true)
+  if (filters.created_by) query = query.eq('created_by', filters.created_by)
   if (filters.from_date) query = query.gte('visit_date', filters.from_date)
   if (filters.to_date) query = query.lte('visit_date', filters.to_date)
   if (filters.search) {

@@ -1,4 +1,5 @@
 import { notFound, redirect } from 'next/navigation'
+import { requireRecordAccess } from '@/lib/auth/permissions'
 import { Topbar } from '@/components/layout/Topbar'
 import { QuoteForm } from '@/components/quotes/QuoteForm'
 import { getQuoteById } from '@/lib/queries/quotes'
@@ -41,6 +42,8 @@ export default async function EditQuotePage({ params }: PageProps) {
   ])
 
   if (!quote) notFound()
+  // Corporate Sales open only what they made.
+  await requireRecordAccess((quote as { created_by?: string | null }).created_by)
 
   // Draft and sent quotes are always editable. A `confirmed` quote is also
   // editable ONLY while it hasn't been converted to a booking yet — this is

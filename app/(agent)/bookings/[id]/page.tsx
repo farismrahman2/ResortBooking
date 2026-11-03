@@ -1,4 +1,6 @@
 import { notFound } from 'next/navigation'
+import { requireRecordAccess } from '@/lib/auth/permissions'
+import { isCreateOnlyRole } from '@/lib/auth/create-only'
 import { PdfLink } from '@/components/ui/PdfLink'
 import { chargedNights, isWholeDay } from '@/lib/config/rooms'
 import Link from 'next/link'
@@ -59,6 +61,9 @@ export default async function BookingDetailPage({ params }: PageProps) {
   ])
 
   if (!booking) notFound()
+  // Corporate Sales open only the bookings they made, and see them read-only.
+  const viewer = await requireRecordAccess((booking as { created_by?: string | null }).created_by)
+  const createOnly = isCreateOnlyRole(viewer.profile.role.slug)
 
   // Everything else the page needs depends only on the booking, so it is
   // fetched in ONE parallel round — it used to be five sequential steps.
@@ -374,15 +379,17 @@ export default async function BookingDetailPage({ params }: PageProps) {
               </Card>
             )}
 
-            {/* 5. Actions */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Actions</CardTitle>
-              </CardHeader>
-              <BookingActions booking={booking} holidayDates={holidayDates} inventory={inventory} bookedRoomNumbers={bookedRoomNumbers}
-          eveningOnlyRoomNumbers={roomBuckets.eveningOnly}
-          handoverTime={internalHandoverTime(settings)} advancePayments={advancePayments} paymentAccounts={paymentAccounts} />
-            </Card>
+            {/* 5. Actions — not for Corporate Sales (create-only) */}
+            {!createOnly && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Actions</CardTitle>
+                </CardHeader>
+                <BookingActions booking={booking} holidayDates={holidayDates} inventory={inventory} bookedRoomNumbers={bookedRoomNumbers}
+            eveningOnlyRoomNumbers={roomBuckets.eveningOnly}
+            handoverTime={internalHandoverTime(settings)} advancePayments={advancePayments} paymentAccounts={paymentAccounts} />
+              </Card>
+            )}
           </div>
 
           {/* RIGHT column */}
@@ -393,7 +400,7 @@ export default async function BookingDetailPage({ params }: PageProps) {
                 bookingId={booking.id}
                 current={currentRep}
                 options={salesEmployees}
-                canEdit={canEditBooking}
+                canEdit={canEditBooking && !createOnly}
               />
             )}
 

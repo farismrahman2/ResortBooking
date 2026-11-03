@@ -15,9 +15,26 @@ import type { PackageSnapshot } from '@/lib/supabase/types'
 import { findDuplicateBookings } from '@/lib/queries/duplicate-bookings'
 import { roomRowError } from '@/lib/supabase/errors'
 import { requirePermission, getCurrentUserContext } from '@/lib/auth/permissions'
+import { canSeeRecord, isCreateOnlyRole, maskDuplicates, CREATE_ONLY_MESSAGE } from '@/lib/auth/create-only'
 import { flagAlert } from '@/lib/auth/alerts'
 import type { ActionResult, ActionData } from './types'
 import type { BookingStatus, RoomType } from '@/lib/supabase/types'
+
+/**
+ * bookings: write, and — for Corporate Sales (create-only) — the quote must be
+ * one they made. Returns an error result to hand back, or null to carry on.
+ */
+async function guardQuote(id: string, opts: { forbidCreateOnly?: boolean } = {}): Promise<ActionResult | null> {
+  const ctx = await requirePermission('bookings', 'write')
+  if (!isCreateOnlyRole(ctx.profile.role.slug)) return null
+  if (opts.forbidCreateOnly) return { success: false, error: CREATE_ONLY_MESSAGE }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await (createClient() as any).from('quotes').select('created_by').eq('id', id).maybeSingle()
+  if (!data || !canSeeRecord({ user_id: ctx.user_id, roleSlug: ctx.profile.role.slug }, data.created_by)) {
+    return { success: false, error: 'Quote not found' }
+  }
+  return null
+}
 
 /** Create a new quote with full calculation and snapshot.
  *
@@ -44,10 +61,14 @@ export async function createQuote(
         package_type: validated.package_type,
       })
       if (dupes.length > 0) {
+        const role = (await getCurrentUserContext())?.profile.role.slug
+        const shown = maskDuplicates(dupes, role)
         return {
           success: false,
-          error:   `An existing ${dupes[0].kind} (${dupes[0].number}) was found for this guest on the same date. Please confirm before creating another.`,
-          duplicate: { existing: dupes },
+          error:   isCreateOnlyRole(role)
+            ? 'A booking already exists for this guest on the same date. Please check with Reservations before creating another.'
+            : `An existing ${dupes[0].kind} (${dupes[0].number}) was found for this guest on the same date. Please confirm before creating another.`,
+          duplicate: { existing: shown },
         }
       }
     }
@@ -234,7 +255,8 @@ export async function updateQuote(
   id: string,
   input: CreateQuoteInput,
 ): Promise<ActionResult> {
-  await requirePermission('bookings', 'write')
+  const denied = await guardQuote(id)
+  if (denied) return denied
   try {
     const validated = CreateQuoteSchema.parse(input)
     const supabase  = createClient()
@@ -440,7 +462,9 @@ export async function updateQuoteStatus(
   id: string,
   status: BookingStatus,
 ): Promise<ActionResult> {
-  await requirePermission('bookings', 'write')
+  // Corporate Sales may send and confirm their own quote, never cancel one.
+  const denied = await guardQuote(id, { forbidCreateOnly: status === 'cancelled' })
+  if (denied) return denied
   try {
     const supabase = createClient()
 
@@ -488,7 +512,8 @@ export async function updateQuoteAdvance(
   advance_paid: number,
   advance_required: number,
 ): Promise<ActionResult> {
-  await requirePermission('bookings', 'write')
+  const denied = await guardQuote(id)
+  if (denied) return denied
   try {
     const supabase = createClient()
     const { error } = await supabase
@@ -515,7 +540,8 @@ export async function updateQuoteAdvance(
 
 /** Delete a draft quote */
 export async function deleteQuote(id: string): Promise<ActionResult> {
-  await requirePermission('bookings', 'write')
+  const denied = await guardQuote(id)
+  if (denied) return denied
   try {
     const supabase = createClient()
 

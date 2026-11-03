@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import { requireRecordAccess } from '@/lib/auth/permissions'
 import Link from 'next/link'
 import { getQuoteById } from '@/lib/queries/quotes'
 import { getSettings } from '@/lib/queries/settings'
@@ -16,6 +17,8 @@ export default async function QuotePrintPage({ params }: PrintPageProps) {
   ])
 
   if (!quote) notFound()
+  // Corporate Sales open only what they made.
+  await requireRecordAccess((quote as { created_by?: string | null }).created_by)
 
   return (
     <>

@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import { requireRecordAccess } from '@/lib/auth/permissions'
 import Link from 'next/link'
 import { getBookingById } from '@/lib/queries/bookings'
 import { getSettings } from '@/lib/queries/settings'
@@ -18,6 +19,8 @@ export default async function BookingPrintPage({ params }: PrintPageProps) {
   ])
 
   if (!booking) notFound()
+  // Corporate Sales open only what they made.
+  await requireRecordAccess((booking as { created_by?: string | null }).created_by)
 
   return (
     <>

@@ -50,12 +50,12 @@ interface NavItem {
 const navItems: NavItem[] = [
   { href: '/',             label: 'Dashboard',    icon: LayoutDashboard, module: 'bookings', hideForRoles: ['corporate_sales'] },
   { href: '/enquiries',    label: 'Enquiries',    icon: MailQuestion,   module: 'enquiries' },
-  { href: '/quotes',       label: 'Quotes',       icon: FileText,       module: 'bookings' },
+  { href: '/quotes',       label: 'Quotes',       icon: FileText,       module: 'bookings' },   // Corporate Sales: their own only
   { href: '/bookings',     label: 'Bookings',     icon: CalendarCheck,  module: 'bookings' },
   { href: '/checkout',     label: 'Checkout',     icon: Receipt,        module: 'checkout' },
   { href: '/qa',           label: 'Guest Feedback', icon: MessageSquareHeart, module: 'qa' },
   { href: '/availability', label: 'Availability', icon: CalendarSearch, module: 'availability' },
-  { href: '/availability/rooms', label: 'Room Board', icon: LayoutGrid, module: 'availability' },
+  { href: '/availability/rooms', label: 'Room Board', icon: LayoutGrid, module: 'availability', hideForRoles: ['corporate_sales'] },
   { href: '/coffee-shop',  label: 'Coffee Shop',  icon: Coffee,         module: 'coffee_shop' },
   { href: '/menus',        label: 'Meal Menus',   icon: UtensilsCrossed, module: 'menus' },
   { href: '/kitchen/requisitions', label: 'Kitchen Orders',    icon: ClipboardList, module: 'kitchen' },

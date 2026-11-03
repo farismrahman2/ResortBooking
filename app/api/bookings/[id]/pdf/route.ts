@@ -3,7 +3,8 @@ import { versionedPdfName } from '@/lib/pdf/filename'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { getBookingById } from '@/lib/queries/bookings'
 import { getSettings, getRoomInventory } from '@/lib/queries/settings'
-import { hasPermission } from '@/lib/auth/permissions'
+import { hasPermission, getCurrentUserContext } from '@/lib/auth/permissions'
+import { canSeeRecord } from '@/lib/auth/create-only'
 import { QuotationPdfDocument } from '@/lib/pdf/quotation'
 import { buildQuotationPdfInput } from '@/lib/pdf/quotation-builder'
 import { loadResortLogo, loadRoutesImage } from '@/lib/pdf/logo'
@@ -29,6 +30,13 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     loadRoutesImage(),
   ])
   if (!booking) return NextResponse.json({ error: 'Booking not found' }, { status: 404 })
+  // Corporate Sales download only what they made.
+  {
+    const ctx = await getCurrentUserContext()
+    if (!ctx || !canSeeRecord({ user_id: ctx.user_id, roleSlug: ctx.profile.role.slug }, (booking as { created_by?: string | null }).created_by)) {
+      return NextResponse.json({ error: 'Booking not found' }, { status: 404 })
+    }
+  }
 
   const input = buildQuotationPdfInput({
     source: booking,

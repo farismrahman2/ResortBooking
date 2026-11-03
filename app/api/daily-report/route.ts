@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDailyReport } from '@/lib/queries/daily-report'
 import { getCurrentUserContext } from '@/lib/auth/permissions'
+import { isCreateOnlyRole } from '@/lib/auth/create-only'
 
 export async function GET(req: NextRequest) {
   // Was unauthenticated beyond the middleware's blanket 401 — see the note in
@@ -8,7 +9,8 @@ export async function GET(req: NextRequest) {
   const ctx = await getCurrentUserContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   const lvl = ctx.permissions.bookings
-  if (lvl !== 'read' && lvl !== 'write') {
+  // Every guest's name and phone for the day — not for Corporate Sales.
+  if ((lvl !== 'read' && lvl !== 'write') || isCreateOnlyRole(ctx.profile.role.slug)) {
     return NextResponse.json({ error: 'Bookings access required' }, { status: 403 })
   }
 

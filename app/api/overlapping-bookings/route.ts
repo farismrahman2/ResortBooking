@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getCurrentUserContext } from '@/lib/auth/permissions'
+import { isCreateOnlyRole } from '@/lib/auth/create-only'
 import { createClient } from '@/lib/supabase/server'
 import { nextDay } from '@/lib/config/rooms'
 
@@ -9,6 +11,14 @@ import { nextDay } from '@/lib/config/rooms'
  * along with their room assignments. Used for "swap between bookings" UI.
  */
 export async function GET(req: NextRequest) {
+  // Booking editors only — never Corporate Sales (create-only).
+  {
+    const ctx = await getCurrentUserContext()
+    if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+    if (ctx.permissions.bookings !== 'write' || isCreateOnlyRole(ctx.profile.role.slug)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+  }
   const { searchParams } = new URL(req.url)
   const bookingId = searchParams.get('bookingId')
 

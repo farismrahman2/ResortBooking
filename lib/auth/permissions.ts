@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { cachedRef } from '@/lib/cache'
 import { withDeadline, isTransientFailure } from '@/lib/supabase/deadline'
 import type { ActionResult } from '@/lib/actions/types'
+import { isCreateOnlyRole, canSeeRecord } from './create-only'
 import type {
   ModuleSlug,
   PermissionLevel,
@@ -170,4 +171,32 @@ export async function checkPermission(
 export async function isAdmin(): Promise<boolean> {
   const ctx = await getCurrentUserContext()
   return ctx?.profile.role.slug === 'admin'
+}
+
+// ─── Create-only booking access (Corporate Sales) ───────────────────────────
+
+
+/** True when the signed-in user may only create bookings (lib/auth/create-only.ts). */
+export async function isCreateOnly(): Promise<boolean> {
+  const ctx = await getCurrentUserContext()
+  return isCreateOnlyRole(ctx?.profile.role.slug)
+}
+
+/**
+ * Guard for actions that change an existing booking (edit, cancel, advances,
+ * dates, rooms, sales rep): bookings: write, and not a create-only user.
+ * Redirects like requirePermission does — the buttons are hidden from
+ * create-only users, so this is the server-side backstop.
+ */
+export async function requireBookingEditor(): Promise<UserContext> {
+  const ctx = await requirePermission('bookings', 'write')
+  if (isCreateOnlyRole(ctx.profile.role.slug)) redirect('/403?from=bookings')
+  return ctx
+}
+
+/** Page guard for a quote/booking detail, print or PDF: create-only users see their own only. */
+export async function requireRecordAccess(createdBy: string | null | undefined): Promise<UserContext> {
+  const ctx = await requirePermission('bookings', 'read')
+  if (!canSeeRecord({ user_id: ctx.user_id, roleSlug: ctx.profile.role.slug }, createdBy)) redirect('/403?from=bookings')
+  return ctx
 }

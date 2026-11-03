@@ -1,4 +1,6 @@
 import { getBookings } from '@/lib/queries/bookings'
+import { requirePermission } from '@/lib/auth/permissions'
+import { isCreateOnlyRole } from '@/lib/auth/create-only'
 import { Topbar } from '@/components/layout/Topbar'
 import { BookingsClient } from './BookingsClient'
 
@@ -10,13 +12,16 @@ export default async function BookingsPage() {
   // bookings — newly created bookings stopped appearing in this list at all.
   // Descending keeps every recent and upcoming booking; only deep history
   // falls off the end once the resort has 1000+ bookings.
-  const bookings = await getBookings({ order: 'desc', limit: 1000 })
+  const ctx = await requirePermission('bookings', 'read')
+  // Corporate Sales see only the bookings they made.
+  const mine = isCreateOnlyRole(ctx.profile.role.slug)
+  const bookings = await getBookings({ order: 'desc', limit: 1000, ...(mine ? { created_by: ctx.user_id } : {}) })
 
   return (
     <div className="flex flex-col">
       <Topbar
-        title="Bookings"
-        subtitle="Track all confirmed reservations"
+        title={mine ? 'My bookings' : 'Bookings'}
+        subtitle={mine ? 'Bookings you made' : 'Track all confirmed reservations'}
       />
       <div className="flex flex-col gap-0 p-4 sm:p-6">
         <BookingsClient bookings={bookings} />

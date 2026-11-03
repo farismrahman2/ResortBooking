@@ -35,6 +35,8 @@ export default async function DashboardPage() {
   // would be meaningless to them. Review collectors only have Guest Feedback.
   if (ctx?.profile.role.slug === 'corporate_sales')  redirect('/crm')
   if (ctx?.profile.role.slug === 'review_collector') redirect('/qa')
+  // Store / kitchen / coffee shop staff: no bookings or money on the dashboard.
+  if (ctx?.profile.role.slug === 'inventory')        redirect('/inventory')
 
   const canRead = (m: keyof NonNullable<typeof ctx>['permissions']) =>
     ctx?.permissions[m] === 'read' || ctx?.permissions[m] === 'write'

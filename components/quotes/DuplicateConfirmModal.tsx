@@ -55,22 +55,24 @@ export function DuplicateConfirmModal({
                 const dateLabel = m.check_out_date
                   ? `${formatDate(m.visit_date)} → ${formatDate(m.check_out_date)}`
                   : `${formatDate(m.visit_date)} (Daylong)`
+                // A masked row (create-only users): no number, total or link.
+                const masked = m.id === ''
                 return (
-                  <tr key={`${m.kind}-${m.id}`}>
+                  <tr key={`${m.kind}-${m.id}-${m.visit_date}`}>
                     <td className="px-3 py-2 font-mono text-xs text-gray-700">{m.number}</td>
                     <td className="px-3 py-2 text-xs uppercase text-gray-500">{m.kind}</td>
                     <td className="px-3 py-2"><StatusBadge status={m.status} /></td>
                     <td className="px-3 py-2 text-xs text-gray-600">{dateLabel}</td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums">{formatBDT(m.total)}</td>
+                    <td className="px-3 py-2 text-right font-mono tabular-nums">{masked ? '—' : formatBDT(m.total)}</td>
                     <td className="px-3 py-2 text-right">
-                      <Link
+                      {!masked && <Link
                         href={href}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1 text-xs text-forest-700 hover:underline"
                       >
                         Open <ExternalLink size={11} />
-                      </Link>
+                      </Link>}
                     </td>
                   </tr>
                 )
