@@ -704,6 +704,10 @@ export type AdminAlertEvent =
   | 'sessions_revoked'
   /** An admin reset a user's password. */
   | 'password_reset'
+  /** Corporate Sales asked for a money/cancel change on their booking. */
+  | 'change_requested'
+  /** The admin approved or rejected such a request. */
+  | 'change_request_decided'
 
 export interface AdminAlertRow {
   id: string

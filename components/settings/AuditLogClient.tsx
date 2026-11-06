@@ -52,6 +52,8 @@ const EVENT_BADGE: Record<AdminAlertEvent, string> = {
   revenue_display_changed: 'bg-gray-100 text-gray-800 border-gray-300',
   sessions_revoked:        'bg-red-50 text-red-800 border-red-200',
   password_reset:          'bg-amber-50 text-amber-800 border-amber-200',
+  change_requested:        'bg-sky-50 text-sky-800 border-sky-200',
+  change_request_decided:  'bg-emerald-50 text-emerald-800 border-emerald-200',
 }
 
 const EVENT_LABELS: Record<AdminAlertEvent, string> = {
@@ -73,6 +75,8 @@ const EVENT_LABELS: Record<AdminAlertEvent, string> = {
   revenue_display_changed: 'Revenue Display Changed',
   sessions_revoked:        'Signed Out',
   password_reset:          'Password Reset',
+  change_requested:        'Change Requested',
+  change_request_decided:  'Change Request Decided',
 }
 
 export function AuditLogClient({ alerts, filter }: Props) {

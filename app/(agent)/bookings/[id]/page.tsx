@@ -1,6 +1,8 @@
 import { notFound } from 'next/navigation'
 import { requireRecordAccess } from '@/lib/auth/permissions'
 import { isCreateOnlyRole } from '@/lib/auth/create-only'
+import { ChangeRequestPanel } from '@/components/bookings/ChangeRequestPanel'
+import { listBookingChangeRequests } from '@/lib/actions/change-requests'
 import { PdfLink } from '@/components/ui/PdfLink'
 import { chargedNights, isWholeDay } from '@/lib/config/rooms'
 import Link from 'next/link'
@@ -64,6 +66,7 @@ export default async function BookingDetailPage({ params }: PageProps) {
   // Corporate Sales open only the bookings they made, and see them read-only.
   const viewer = await requireRecordAccess((booking as { created_by?: string | null }).created_by)
   const createOnly = isCreateOnlyRole(viewer.profile.role.slug)
+  const changeRequests = createOnly ? await listBookingChangeRequests(booking.id).catch(() => []) : []
 
   // Everything else the page needs depends only on the booking, so it is
   // fetched in ONE parallel round — it used to be five sequential steps.
@@ -379,17 +382,19 @@ export default async function BookingDetailPage({ params }: PageProps) {
               </Card>
             )}
 
-            {/* 5. Actions — not for Corporate Sales (create-only) */}
-            {!createOnly && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Actions</CardTitle>
-                </CardHeader>
-                <BookingActions booking={booking} holidayDates={holidayDates} inventory={inventory} bookedRoomNumbers={bookedRoomNumbers}
-            eveningOnlyRoomNumbers={roomBuckets.eveningOnly}
-            handoverTime={internalHandoverTime(settings)} advancePayments={advancePayments} paymentAccounts={paymentAccounts} />
-              </Card>
-            )}
+            {/* 5. Actions — Corporate Sales get the safe subset on their own booking */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Actions</CardTitle>
+              </CardHeader>
+              <BookingActions booking={booking} holidayDates={holidayDates} inventory={inventory} bookedRoomNumbers={bookedRoomNumbers}
+          eveningOnlyRoomNumbers={roomBuckets.eveningOnly}
+          handoverTime={internalHandoverTime(settings)} advancePayments={createOnly ? [] : advancePayments}
+          paymentAccounts={createOnly ? [] : paymentAccounts} createOnly={createOnly} />
+            </Card>
+
+            {/* Corporate Sales: money and cancel changes go to the admin */}
+            {createOnly && <ChangeRequestPanel bookingId={booking.id} requests={changeRequests} />}
           </div>
 
           {/* RIGHT column */}

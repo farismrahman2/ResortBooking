@@ -16,7 +16,7 @@ import { insertGroupDays, replaceGroupDays } from '@/lib/bookings/group-days-db'
 import { findDuplicateBookings } from '@/lib/queries/duplicate-bookings'
 import { ROOM_NUMBERS } from '@/lib/config/rooms'
 import { requirePermission, requireBookingEditor, getCurrentUserContext } from '@/lib/auth/permissions'
-import { canSeeRecord, isCreateOnlyRole, maskDuplicates } from '@/lib/auth/create-only'
+import { canSeeRecord, isCreateOnlyRole, maskDuplicates, lockMoneyFields } from '@/lib/auth/create-only'
 import { isMissingRelation, roomRowError } from '@/lib/supabase/errors'
 import { flagAlert } from '@/lib/auth/alerts'
 import { formatBDT } from '@/lib/formatters/currency'
@@ -787,6 +787,29 @@ export async function reverseNoShow(bookingId: string): Promise<ActionResult> {
 }
 
 /** Update a booking with recalculation (last-minute changes including rooms/guests) */
+// ─── Who may change a booking, and with which database access ───────────────
+
+/**
+ * Booking editors change any booking with their own access. Corporate Sales
+ * (create-only) may change only bookings they made: the database refuses
+ * their direct updates, so after this ownership check the change is written
+ * with the server's access — and updateBooking first puts every money term
+ * back (lockMoneyFields), so a price, discount or advance can't move.
+ */
+async function bookingWriter(bookingId: string): Promise<
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  | { ok: true; db: any; createOnly: boolean }
+  | { ok: false; error: string }
+> {
+  const ctx = await requirePermission('bookings', 'write')
+  if (!isCreateOnlyRole(ctx.profile.role.slug)) return { ok: true, db: createClient(), createOnly: false }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const svc = createServiceClient() as any
+  const { data } = await svc.from('bookings').select('created_by').eq('id', bookingId).maybeSingle()
+  if (!data || data.created_by !== ctx.user_id) return { ok: false, error: 'Booking not found' }
+  return { ok: true, db: svc, createOnly: true }
+}
+
 export async function updateBooking(
   bookingId: string,
   input: {
@@ -816,10 +839,21 @@ export async function updateBooking(
     day_package_snapshot?: PackageSnapshot | null
   },
 ): Promise<ActionResult> {
-  await requireBookingEditor()
+  const writer = await bookingWriter(bookingId)
+  if (!writer.ok) return { success: false, error: writer.error }
   try {
-    const supabase   = createClient()
+    const supabase   = writer.db as ReturnType<typeof createClient>
     const holidayDates = await getHolidayDateStrings()
+
+    if (writer.createOnly) {
+      // Corporate Sales: keep every money term of the stored booking.
+      const { data: stored } = await writer.db.from('bookings')
+        .select('subtotal, discount, discount_pct, service_charge_pct, vat_pct, advance_paid, advance_required, extra_items, package_type, visit_date, check_out_date, package_snapshot, booking_rooms(room_type, unit_price, qty, room_numbers, evening_rooms)')
+        .eq('id', bookingId).maybeSingle()
+      if (!stored) return { success: false, error: 'Booking not found' }
+      if (stored.package_type === 'group') return { success: false, error: 'Group bookings are changed by Reservations — send a change request.' }
+      input = lockMoneyFields(input, { ...stored, rooms: stored.booking_rooms ?? [] })
+    }
 
     const { rooms, extra_items, package_type, visit_date, check_out_date, package_snapshot, ...guestData } = input
     const groupDays: GroupSegment[] = package_type === 'group' ? (input.days ?? []) : []
@@ -1043,11 +1077,13 @@ export async function confirmDateChange(
     cleared_room_numbers: Record<string, string[]>
   },
 ): Promise<ActionResult> {
-  await requireBookingEditor()
+  // Corporate Sales may move their own booking's dates; prices are recomputed
+  // from the stored booking only, so no money term comes from the request.
+  const writer = await bookingWriter(bookingId)
+  if (!writer.ok) return { success: false, error: writer.error }
   try {
-    const supabase     = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const db           = supabase as any
+    const db           = writer.db as any
     const holidayDates = await getHolidayDateStrings()
 
     // Fetch booking

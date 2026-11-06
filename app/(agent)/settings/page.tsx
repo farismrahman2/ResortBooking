@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Users, ShieldCheck, ListChecks, Settings as SettingsIcon, Calendar, ArrowRight, Copy, Bell, Building2, Phone, Download, Sparkles, Ban, Tags, Percent, Bot } from 'lucide-react'
+import { Users, ShieldCheck, ListChecks, Settings as SettingsIcon, Calendar, ArrowRight, Copy, Bell, Building2, Phone, Download, Sparkles, Ban, Tags, Percent, Bot, Inbox } from 'lucide-react'
 import { getSettings, getHolidayDates } from '@/lib/queries/settings'
 import { getUnreadAlertCount } from '@/lib/auth/alerts'
 import { Topbar } from '@/components/layout/Topbar'
@@ -8,6 +8,7 @@ import { HolidayManager } from '@/components/settings/HolidayManager'
 import { BusinessDataExport } from '@/components/settings/BusinessDataExport'
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card'
 import { requirePermission, getCurrentUserContext, hasPermission } from '@/lib/auth/permissions'
+import { pendingChangeRequestCount } from '@/lib/actions/change-requests'
 
 export const dynamic = 'force-dynamic'
 
@@ -22,6 +23,7 @@ export default async function SettingsPage() {
     hasPermission('reports', 'read'),
   ])
   const isAdmin = ctx?.profile.role.slug === 'admin'
+  const pendingRequests = isAdmin ? await pendingChangeRequestCount().catch(() => 0) : 0
 
   return (
     <div className="flex flex-col">
@@ -35,6 +37,14 @@ export default async function SettingsPage() {
               icon={<Percent size={18} />}
               title="Revenue display"
               description="The revenue figure staff see — a % of the real one, per month"
+            />
+          )}
+          {isAdmin && (
+            <HubTile
+              href="/settings/change-requests"
+              icon={<Inbox size={18} />}
+              title={pendingRequests > 0 ? `Change requests (${pendingRequests} waiting)` : 'Change requests'}
+              description="Discounts, payments and cancellations Corporate Sales asked for"
             />
           )}
           {isAdmin && (

@@ -55,11 +55,15 @@ interface BookingActionsProps {
   advancePayments?:   AdvancePaymentRow[]
   /** Destination accounts for the instalment form. */
   paymentAccounts?:   Array<{ id: string; display_name: string; method: string; bank_name: string | null }>
+  /** Corporate Sales on their own booking: guest details, headcount, rooms and
+   *  dates only. Prices, discounts, extras, free rooms, payments, swaps and
+   *  cancelling are not offered (the server enforces the same). */
+  createOnly?:        boolean
 }
 
 export function BookingActions({
   booking, holidayDates, inventory, bookedRoomNumbers, advancePayments = [],
-  paymentAccounts = [], eveningOnlyRoomNumbers = [], handoverTime = '18:00',
+  paymentAccounts = [], eveningOnlyRoomNumbers = [], handoverTime = '18:00', createOnly = false,
 }: BookingActionsProps) {
   const handoverLabel = to12Hour(handoverTime)
   const router  = useRouter()
@@ -387,9 +391,13 @@ export function BookingActions({
       {/* ── Edit Booking ─────────────────────────────────────── */}
       <div className="space-y-2">
         <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Edit Booking</h4>
-        <Button variant="outline" size="sm" onClick={() => { setEditOpen(true); setEditError(null) }} className="w-full">
-          Edit Details
-        </Button>
+        {createOnly && isGroup ? (
+          <p className="text-xs text-gray-500">Group bookings are changed by Reservations — use “Request a change”.</p>
+        ) : (
+          <Button variant="outline" size="sm" onClick={() => { setEditOpen(true); setEditError(null) }} className="w-full">
+            Edit Details
+          </Button>
+        )}
       </div>
 
       {/* ── Change Dates ─────────────────────────────────────── */}
@@ -404,7 +412,7 @@ export function BookingActions({
       )}
 
       {/* ── Swap Rooms ───────────────────────────────────────── */}
-      {booking.status === 'confirmed' && !isGroup && booking.rooms.length > 0 && (
+      {!createOnly && booking.status === 'confirmed' && !isGroup && booking.rooms.length > 0 && (
         <div className="space-y-2">
           <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Room Assignment</h4>
           <Button variant="outline" size="sm" onClick={() => setSwapRoomsOpen(true)} className="w-full gap-1.5">
@@ -415,7 +423,7 @@ export function BookingActions({
       )}
 
       {/* ── Payment Section ─────────────────────────────────── */}
-      <div className="space-y-3 border-t border-gray-100 pt-4">
+      {!createOnly && <div className="space-y-3 border-t border-gray-100 pt-4">
         <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-500">Update Payment</h4>
         <div className="grid grid-cols-2 gap-3">
           {/* Advance Paid stays editable ONLY while no instalment ledger
@@ -478,10 +486,10 @@ export function BookingActions({
           cancelled={booking.status === 'cancelled'}
           accounts={paymentAccounts}
         />
-      </div>
+      </div>}
 
       {/* ── Cancel Booking ───────────────────────────────────── */}
-      {booking.status === 'confirmed' && (
+      {!createOnly && booking.status === 'confirmed' && (
         <div className="border-t border-gray-100 pt-4">
           <Button variant="danger" size="sm" onClick={() => setCancelOpen(true)} className="w-full">
             Cancel Booking
@@ -641,8 +649,8 @@ export function BookingActions({
             </div>
           </div>
 
-          {/* Complimentary Rooms (daylong only) */}
-          {booking.package_type === 'daylong' && (() => {
+          {/* Complimentary Rooms (daylong only) — not for Corporate Sales */}
+          {!createOnly && booking.package_type === 'daylong' && (() => {
             // Build locally-taken set from paid rooms (each comp row also excludes others)
             const locallyTakenByPaid = new Set<string>()
             for (const nums of Object.values(roomNums)) {
@@ -780,15 +788,23 @@ export function BookingActions({
                 <NumberInput label="Extra Beds"     value={extraBeds}    onChange={setExtraBeds}    min={0} />
               )}
               </>)}
+              {!createOnly && (<>
               <NumberInput label="Flat Discount (৳)"    value={discount}          onChange={setDiscount}          min={0} prefix="৳" />
               <NumberInput label="Discount %"          value={discountPct}       onChange={setDiscountPct}       min={0} suffix="%" />
               <NumberInput label="Service Charge (%)"  value={serviceChargePct}  onChange={setServiceChargePct}  min={0} suffix="%" />
               <PercentInput label="VAT (%)" value={vatPct} onChange={setVatPct} />
+              </>)}
             </div>
+            {createOnly && (
+              <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                Prices, discount, service charge and VAT stay as booked. Need a discount or price change? Use
+                <b> Request a change</b> on this page — the admin approves it.
+              </p>
+            )}
           </div>
 
-          {/* Extra Items */}
-          <div>
+          {/* Extra Items — priced charges, not for Corporate Sales to change */}
+          {!createOnly && <div>
             <h5 className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-3">Extra Items</h5>
             <div className="space-y-2">
               {extraItems.length === 0 && (
@@ -842,7 +858,7 @@ export function BookingActions({
                 Add Extra Item
               </button>
             </div>
-          </div>
+          </div>}
 
           {/* Live pricing preview */}
           {liveCalc && (

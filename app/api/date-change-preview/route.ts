@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserContext } from '@/lib/auth/permissions'
 import { isCreateOnlyRole } from '@/lib/auth/create-only'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { checkAvailabilityConflict, findRoomNumberConflicts, loadStaySnapshot, stayWindow } from '@/lib/queries/availability'
 import { calculateDaylong, calculateNight } from '@/lib/engine/calculator'
 import { getHolidayDateStrings } from '@/lib/queries/settings'
@@ -16,14 +16,11 @@ import type { RoomType } from '@/lib/supabase/types'
  * - recalculated pricing with new dates
  */
 export async function GET(req: NextRequest) {
-  // Booking editors only — never Corporate Sales (create-only).
-  {
-    const ctx = await getCurrentUserContext()
-    if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-    if (ctx.permissions.bookings !== 'write' || isCreateOnlyRole(ctx.profile.role.slug)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
-  }
+  const ctx = await getCurrentUserContext()
+  if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  if (ctx.permissions.bookings !== 'write') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const createOnly = isCreateOnlyRole(ctx.profile.role.slug)
+
   const { searchParams } = new URL(req.url)
   const bookingId   = searchParams.get('bookingId')
   const visitDate   = searchParams.get('visitDate')
@@ -34,9 +31,14 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const supabase = createClient()
+    // Corporate Sales: their own booking only, read with the server's access
+    // (the preview needs nothing beyond that booking and room occupancy).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const db = supabase as any
+    const db = (createOnly ? createServiceClient() : createClient()) as any
+    if (createOnly) {
+      const { data: own } = await db.from('bookings').select('created_by').eq('id', bookingId).maybeSingle()
+      if (!own || own.created_by !== ctx.user_id) return NextResponse.json({ error: 'Booking not found' }, { status: 404 })
+    }
 
     // Fetch booking with rooms
     const { data: booking, error: bErr } = await db
