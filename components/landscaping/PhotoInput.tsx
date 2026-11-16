@@ -35,8 +35,11 @@ export function PhotoInput({ value, onChange, label = 'Photo of the bill' }: {
       <label className="field-label">{label}</label>
       {value ? (
         <div className="flex min-h-[42px] items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 text-sm text-emerald-800">
-          Photo attached
-          <button type="button" onClick={() => onChange(null)} className="ml-auto text-emerald-700"><X size={14} /></button>
+          <span className="min-w-0 flex-1 truncate">Photo attached</span>
+          <button type="button" onClick={() => onChange(null)} aria-label="Remove photo"
+            className="-mr-2 inline-flex min-h-[40px] flex-shrink-0 items-center gap-1 rounded-lg px-3 text-sm font-medium text-emerald-800 hover:bg-emerald-100">
+            <X size={15} /> Remove
+          </button>
         </div>
       ) : (
         <button type="button" onClick={() => ref.current?.click()} disabled={busy}

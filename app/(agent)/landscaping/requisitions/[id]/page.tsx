@@ -27,7 +27,7 @@ export default async function RequisitionPage({ params }: { params: { id: string
   const canBill = req.status === 'approved' && (me.can_prepare || me.can_pay || me.is_admin)
   const canEdit = editRule(req.status, mine, me.is_admin).ok
   const leftToBill = Math.max(0, spend.approved - spend.billed)
-  const billForm = canBill ? <BillForm fixedRequisitionId={req.id} requisitions={[]} suppliers={suppliers} /> : null
+  const billForm = canBill ? <BillForm fixedRequisitionId={req.id} fixedLeft={spend.remainingBudget} requisitions={[]} suppliers={suppliers} /> : null
 
   // What happens next, in one line, for this person.
   const next = (() => {
