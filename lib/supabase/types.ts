@@ -712,6 +712,8 @@ export type AdminAlertEvent =
   | 'landscaping_over_budget'
   /** Landscaping: a recorded payment or expense was removed (admin correction). */
   | 'landscaping_money_changed'
+  /** Landscaping: a past paper requisition (with its bills and payments) was entered. */
+  | 'landscaping_past_entry'
 
 export interface AdminAlertRow {
   id: string

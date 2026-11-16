@@ -28,6 +28,8 @@ export default async function RequisitionPage({ params }: { params: { id: string
       <LsPage tab="requisitions">
         <div className="flex flex-wrap items-center gap-3">
           <LsStatus status={req.status} />
+          {req.from_paper && <span className="rounded-full border border-gray-300 bg-gray-50 px-2 py-0.5 text-[10px] font-semibold uppercase text-gray-600">Entered from paper{names.prepared ? ` by ${names.prepared}` : ''}</span>}
+          {req.slip_photo_path && <ViewPhoto path={req.slip_photo_path} />}
           <span className="text-sm text-gray-600">{req.project ? `${req.project.parent?.code ? `${req.project.parent.code} › ` : ''}${req.project.code} · ${req.project.title}` : 'No project'} · {req.req_date}</span>
           <div className="ml-auto"><RequisitionActions req={req} me={me} hasBills={bills.length > 0} /></div>
         </div>
@@ -74,9 +76,15 @@ export default async function RequisitionPage({ params }: { params: { id: string
           </table>
           {req.remarks && <p className="border-t border-gray-100 px-4 py-2 text-sm text-gray-600">Remarks: {req.remarks}</p>}
           <div className="grid grid-cols-1 gap-2 border-t border-gray-100 px-4 py-3 text-xs text-gray-600 sm:grid-cols-3">
-            <p><b className="text-gray-800">Prepared</b> {names.prepared ?? '—'}{req.submitted_at ? ` · ${when(req.submitted_at)}` : ''}</p>
-            <p><b className="text-gray-800">Checked</b> {names.checked ?? '—'}{req.checked_at ? ` · ${when(req.checked_at)}` : ''}</p>
-            <p><b className="text-gray-800">Approved</b> {names.approved ?? '—'}{req.approved_at ? ` · ${when(req.approved_at)}` : ''}</p>
+            {req.from_paper ? (<>
+              <p><b className="text-gray-800">Prepared</b> {req.paper_prepared_by ?? '—'} (on paper)</p>
+              <p><b className="text-gray-800">Checked</b> {req.paper_checked_by ?? '—'} (on paper)</p>
+              <p><b className="text-gray-800">Approved</b> {req.paper_approved_by ?? '—'} (on paper) · {req.req_date}</p>
+            </>) : (<>
+              <p><b className="text-gray-800">Prepared</b> {names.prepared ?? '—'}{req.submitted_at ? ` · ${when(req.submitted_at)}` : ''}</p>
+              <p><b className="text-gray-800">Checked</b> {names.checked ?? '—'}{req.checked_at ? ` · ${when(req.checked_at)}` : ''}</p>
+              <p><b className="text-gray-800">Approved</b> {names.approved ?? '—'}{req.approved_at ? ` · ${when(req.approved_at)}` : ''}</p>
+            </>)}
           </div>
         </div>
 

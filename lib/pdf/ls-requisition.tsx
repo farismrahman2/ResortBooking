@@ -59,6 +59,8 @@ export interface LsRequisitionPdfInput {
   prepared: { name: string | null; at: string | null }
   checked:  { name: string | null; at: string | null }
   approved: { name: string | null; at: string | null }
+  /** Entered from a paper slip: names as signed on paper. */
+  fromPaper?: boolean
 }
 
 export function LsRequisitionPdf(p: LsRequisitionPdfInput) {
@@ -105,7 +107,7 @@ export function LsRequisitionPdf(p: LsRequisitionPdfInput) {
             <View key={label} style={s.sign}>
               <Text style={s.signL}>{label}</Text>
               <Text style={s.signN}>{who.name ?? ' '}</Text>
-              <Text style={s.signD}>{who.at ? `In the system · ${stampDay(who.at)}` : 'Signature'}</Text>
+              <Text style={s.signD}>{who.at ? `In the system · ${stampDay(who.at)}` : p.fromPaper ? 'Signed on the paper slip' : 'Signature'}</Text>
             </View>
           ))}
         </View>

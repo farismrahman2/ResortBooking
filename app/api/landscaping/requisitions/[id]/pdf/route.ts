@@ -25,7 +25,10 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       ? [req.project.parent ? `${req.project.parent.code} › ${req.project.code}` : null, req.project.title, req.project.site].filter(Boolean).join(' · ')
       : null,
     area: req.area_note, items, total: req.total, remarks: req.remarks, status: req.status,
-    prepared: { name: names.prepared, at: req.submitted_at }, checked: { name: names.checked, at: req.checked_at }, approved: { name: names.approved, at: req.approved_at },
+    // A slip entered from paper shows the names written on the paper.
+    ...(req.from_paper
+      ? { prepared: { name: req.paper_prepared_by, at: null }, checked: { name: req.paper_checked_by, at: null }, approved: { name: req.paper_approved_by, at: null }, fromPaper: true }
+      : { prepared: { name: names.prepared, at: req.submitted_at }, checked: { name: names.checked, at: req.checked_at }, approved: { name: names.approved, at: req.approved_at } }),
   }))
   return new NextResponse(buffer as unknown as BodyInit, {
     headers: {

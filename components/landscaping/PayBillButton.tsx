@@ -17,12 +17,12 @@ export function PayBillButton({ billId, due, label }: { billId: string; due: num
   const [pending, start] = useTransition()
   const [amount, setAmount] = useState(String(due))
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
-  const [method, setMethod] = useState<'cash' | 'bkash' | 'bank' | 'cheque'>('cash')
+  const [method, setMethod] = useState<'cash' | 'cash_past' | 'bkash' | 'bank' | 'cheque'>('cash')
   const [reference, setReference] = useState('')
 
   function save() {
     start(async () => {
-      const r = await safeCall(() => payBill({ bill_id: billId, amount: Number(amount), pay_date: date, method, reference }))
+      const r = await safeCall(() => payBill({ bill_id: billId, amount: Number(amount), pay_date: date, method: method === 'cash_past' ? 'cash' : method, from_float: method !== 'cash_past', reference }))
       if (!r.success) { toast.error(r.error); return }
       toast.success(Number(amount) >= due ? 'Bill paid' : 'Part payment recorded')
       setOpen(false); router.refresh()
@@ -44,6 +44,7 @@ export function PayBillButton({ billId, due, label }: { billId: string; due: num
             <select value={method} onChange={(e) => setMethod(e.target.value as typeof method)}
               className="min-h-[42px] w-full rounded-lg border border-gray-300 bg-white px-3 text-sm focus:border-forest-600 focus:outline-none">
               <option value="cash">Cash (from my cash in hand)</option>
+              <option value="cash_past">Cash — paid before the system (not from my cash in hand)</option>
               <option value="bkash">bKash</option>
               <option value="bank">Bank transfer</option>
               <option value="cheque">Cheque</option>

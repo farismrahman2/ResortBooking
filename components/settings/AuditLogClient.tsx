@@ -56,6 +56,7 @@ const EVENT_BADGE: Record<AdminAlertEvent, string> = {
   change_request_decided:  'bg-emerald-50 text-emerald-800 border-emerald-200',
   landscaping_over_budget:   'bg-red-50 text-red-800 border-red-200',
   landscaping_money_changed: 'bg-amber-50 text-amber-800 border-amber-200',
+  landscaping_past_entry:    'bg-gray-100 text-gray-800 border-gray-300',
 }
 
 const EVENT_LABELS: Record<AdminAlertEvent, string> = {
@@ -81,6 +82,7 @@ const EVENT_LABELS: Record<AdminAlertEvent, string> = {
   change_request_decided:  'Change Request Decided',
   landscaping_over_budget:   'Landscaping Over Budget',
   landscaping_money_changed: 'Landscaping Money Changed',
+  landscaping_past_entry:    'Landscaping Past Entry',
 }
 
 export function AuditLogClient({ alerts, filter }: Props) {

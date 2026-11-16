@@ -8,7 +8,7 @@ import { formatBDT } from '@/lib/formatters/currency'
 
 export const dynamic = 'force-dynamic'
 
-const CAT: Record<string, string> = { labour: 'Daily labour', food: 'Food', transport: 'Transport', tools: 'Tools', other: 'Other' }
+const CAT: Record<string, string> = { labour: 'Daily labour', food: 'Food', transport: 'Transport', tools: 'Tools', other: 'Other', before_system: 'Before the system' }
 
 export default async function CashPage() {
   await requirePermission('landscaping', 'read')

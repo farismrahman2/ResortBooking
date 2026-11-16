@@ -11,7 +11,7 @@ import { formatReqNo } from '@/lib/landscaping/money'
 import { formatBDT } from '@/lib/formatters/currency'
 
 export const dynamic = 'force-dynamic'
-const CAT: Record<string, string> = { labour: 'Daily labour', food: 'Food', transport: 'Transport', tools: 'Tools', other: 'Other' }
+const CAT: Record<string, string> = { labour: 'Daily labour', food: 'Food', transport: 'Transport', tools: 'Tools', other: 'Other', before_system: 'Before the system' }
 
 const Stat = ({ label, value, tone }: { label: string; value: string; tone?: 'good' | 'bad' }) => (
   <div className="rounded-xl border border-gray-200 bg-white px-4 py-3">

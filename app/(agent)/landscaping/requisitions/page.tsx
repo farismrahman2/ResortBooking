@@ -4,7 +4,7 @@ import { Topbar } from '@/components/layout/Topbar'
 import { LsPage } from '@/components/landscaping/LsNav'
 import { LsStatus } from '@/components/landscaping/LsStatus'
 import { requirePermission } from '@/lib/auth/permissions'
-import { listRequisitions } from '@/lib/queries/landscaping'
+import { getLsMe, listRequisitions } from '@/lib/queries/landscaping'
 import { formatReqNo } from '@/lib/landscaping/money'
 import { formatBDT } from '@/lib/formatters/currency'
 
@@ -18,7 +18,7 @@ const FILTERS = [
 export default async function RequisitionsPage({ searchParams }: { searchParams: { status?: string } }) {
   await requirePermission('landscaping', 'read')
   const status = searchParams.status ?? ''
-  const rows = await listRequisitions(status ? { status } : {})
+  const [rows, me] = await Promise.all([listRequisitions(status ? { status } : {}), getLsMe()])
   return (
     <div className="flex h-full flex-col">
       <Topbar title="Requisitions" subtitle="Landscaping · prepared → checked → approved → ordered" />
@@ -30,7 +30,12 @@ export default async function RequisitionsPage({ searchParams }: { searchParams:
               {f.label}
             </Link>
           ))}
-          <Link href="/landscaping/requisitions/new" className="ml-auto inline-flex min-h-[36px] items-center gap-1.5 rounded-lg bg-forest-700 px-3 text-sm font-medium text-white">
+          {me?.is_admin && (
+            <Link href="/landscaping/requisitions/past" className="ml-auto inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-700">
+              Record past requisition
+            </Link>
+          )}
+          <Link href="/landscaping/requisitions/new" className={`${me?.is_admin ? '' : 'ml-auto '}inline-flex min-h-[36px] items-center gap-1.5 rounded-lg bg-forest-700 px-3 text-sm font-medium text-white`}>
             <Plus size={14} /> New requisition
           </Link>
         </div>
@@ -42,6 +47,7 @@ export default async function RequisitionsPage({ searchParams }: { searchParams:
                   <Link href={`/landscaping/requisitions/${r.id}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 hover:bg-gray-50">
                     <span className="font-mono text-sm font-semibold text-gray-900">{formatReqNo(r.req_no)}</span>
                     <LsStatus status={r.status} />
+                    {r.from_paper && <span className="rounded border border-gray-300 px-1.5 text-[10px] font-semibold uppercase text-gray-500">paper</span>}
                     <span className="min-w-0 flex-1 truncate text-sm text-gray-700">{r.description}</span>
                     <span className="text-xs text-gray-500">{r.project_code ?? '—'} · {r.req_date}</span>
                     <span className="w-full text-xs text-gray-500 sm:w-auto">

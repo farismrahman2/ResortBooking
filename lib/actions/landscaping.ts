@@ -265,7 +265,7 @@ export async function recordCash(input: { holder: string; kind: 'given' | 'retur
 
 /** Daily labour, food, transport, tools or other — paid from the payer's float or by bKash/bank. */
 export async function addExpense(input: {
-  project_id: string | null; exp_date: string; category: 'labour' | 'food' | 'transport' | 'tools' | 'other'
+  project_id: string | null; exp_date: string; category: 'labour' | 'food' | 'transport' | 'tools' | 'other' | 'before_system'
   description?: string; workers?: number | null; rate?: number | null; amount?: number
   payee?: string; method: Method; from_float?: boolean; photo_path?: string | null
 }): Promise<ActionResult> {
@@ -394,4 +394,122 @@ export async function photoUrl(path: string): Promise<string | null> {
   await requirePermission('landscaping', 'read')
   const { data } = await createClient().storage.from('landscaping-bills').createSignedUrl(path, 600)
   return data?.signedUrl ?? null
+}
+
+// ─── Bringing past paper records into the system (admin) ────────────────────
+
+export interface PastRequisitionInput {
+  req_no: number
+  project_id: string | null
+  req_date: string
+  department?: string | null
+  description: string
+  area_note?: string | null
+  remarks?: string | null
+  requested_by_name?: string | null
+  paper_prepared_by?: string | null
+  paper_checked_by?: string | null
+  paper_approved_by?: string | null
+  slip_photo_path?: string | null
+  items: Array<{ description: string; qty: number; unit?: string | null; unit_price: number }>
+  bills: Array<{
+    supplier_id?: string; new_supplier?: string; bill_no?: string; bill_date: string; amount: number
+    note?: string; photo_path?: string | null
+    paid_amount?: number; paid_date?: string; paid_method?: Method; paid_reference?: string
+  }>
+}
+
+/**
+ * A requisition already signed on paper, with its bills and payments, entered
+ * in one go — saved as approved and marked "from paper". Past cash payments
+ * are not taken from anyone's current cash in hand. All or nothing: if any
+ * step fails, what was saved is removed again.
+ */
+export async function recordPastRequisition(input: PastRequisitionInput): Promise<ActionData<{ id: string }>> {
+  const me = await gate('admin'); if (typeof me === 'string') return fail(me)
+  const reqNo = Math.floor(Number(input.req_no))
+  if (!(reqNo > 0)) return fail('Enter the Req. No. from the paper slip')
+  if (!input.description?.trim()) return fail('Add the description')
+  const items = (input.items ?? []).filter((i) => i.description.trim() && Number(i.qty) > 0)
+  if (items.length === 0) return fail('Add at least one item')
+  const total = requisitionTotal(items)
+  const bills = (input.bills ?? []).filter((b) => Number(b.amount) > 0)
+  for (const [k, b] of bills.entries()) {
+    if (!b.supplier_id && !b.new_supplier?.trim()) return fail(`Bill ${k + 1}: pick or add the supplier`)
+    const paid = money(b.paid_amount)
+    if (paid > money(b.amount) + 0.005) return fail(`Bill ${k + 1}: paid is more than the bill`)
+    if (paid > 0 && !METHODS.includes(b.paid_method as Method)) return fail(`Bill ${k + 1}: how was it paid?`)
+  }
+  const { data: taken } = await db().from('ls_requisitions').select('id').eq('req_no', reqNo).maybeSingle()
+  if (taken) return fail(`Requisition no. ${formatReqNo(reqNo)} is already in the system`)
+
+  const reqDate = input.req_date || todayIso()
+  const stamp = new Date(`${reqDate}T06:00:00Z`).toISOString()   // noon in Dhaka on the slip date
+  const { data: req, error } = await db().from('ls_requisitions').insert({
+    req_no: reqNo, project_id: input.project_id || null, req_date: reqDate,
+    department: input.department?.trim() || null, description: input.description.trim(),
+    area_note: input.area_note?.trim() || null, remarks: input.remarks?.trim() || null,
+    requested_by_name: input.requested_by_name?.trim() || null, total,
+    status: 'approved', from_paper: true, prepared_by: me.user_id,
+    submitted_at: stamp, checked_at: stamp, approved_at: stamp,
+    paper_prepared_by: input.paper_prepared_by?.trim() || null,
+    paper_checked_by: input.paper_checked_by?.trim() || null,
+    paper_approved_by: input.paper_approved_by?.trim() || null,
+    slip_photo_path: input.slip_photo_path || null,
+  }).select('id').single()
+  if (error) return fail(/duplicate|unique/i.test(error.message) ? `Requisition no. ${formatReqNo(reqNo)} is already in the system` : error.message)
+
+  const billIds: string[] = []
+  const undo = async (why: string) => {
+    if (billIds.length) {
+      await db().from('ls_bill_payments').delete().in('bill_id', billIds)
+      await db().from('ls_bills').delete().in('id', billIds)
+    }
+    await db().from('ls_requisitions').delete().eq('id', req.id)   // items go with it
+    return fail(`Nothing was saved — ${why}`)
+  }
+
+  const { error: itemErr } = await db().from('ls_requisition_items').insert(items.map((i, k) => ({
+    requisition_id: req.id, line_no: k + 1, description: i.description.trim(), qty: Number(i.qty),
+    unit: i.unit?.trim() || null, unit_price: Number(i.unit_price), amount: lineAmount(i),
+  })))
+  if (itemErr) return undo(itemErr.message)
+
+  let billed = 0, paidTotal = 0
+  for (const b of bills) {
+    let supplierId = b.supplier_id
+    if (!supplierId) {
+      const { data: existing } = await db().from('ls_suppliers').select('id').ilike('name', b.new_supplier!.trim()).maybeSingle()
+      if (existing) supplierId = existing.id
+      else {
+        const sres = await saveSupplier({ name: b.new_supplier! })
+        if (!sres.success) return undo(sres.error)
+        supplierId = sres.data.id
+      }
+    }
+    const { data: bill, error: billErr } = await db().from('ls_bills').insert({
+      requisition_id: req.id, supplier_id: supplierId, bill_no: b.bill_no?.trim() || null,
+      bill_date: b.bill_date || reqDate, amount: money(b.amount), note: b.note?.trim() || null, photo_path: b.photo_path || null,
+    }).select('id').single()
+    if (billErr) return undo(billErr.message)
+    billIds.push(bill.id)
+    billed += money(b.amount)
+    const paid = money(b.paid_amount)
+    if (paid > 0) {
+      const { error: payErr } = await db().from('ls_bill_payments').insert({
+        bill_id: bill.id, amount: paid, pay_date: b.paid_date || b.bill_date || reqDate, method: b.paid_method,
+        reference: b.paid_reference?.trim() || null, float_holder: null,   // paid before the system
+      })
+      if (payErr) return undo(payErr.message)
+      paidTotal += paid
+    }
+  }
+
+  await flagAlert({
+    event_type: 'landscaping_past_entry', entity_type: 'ls_requisition', entity_id: req.id,
+    summary: `Landscaping Req ${formatReqNo(reqNo)} entered from paper — ${formatBDT(total)}, ${bills.length} bill${bills.length === 1 ? '' : 's'} (${formatBDT(billed)}), ${formatBDT(paidTotal)} paid`,
+    payload: { req_no: reqNo, total, bills: bills.length, billed, paid: paidTotal }, created_by: me.user_id,
+  })
+  refresh('/landscaping/requisitions', `/landscaping/requisitions/${req.id}`, '/landscaping/bills', '/landscaping/suppliers', '/landscaping/projects')
+  return { success: true, data: { id: req.id } }
 }

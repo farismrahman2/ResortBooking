@@ -181,7 +181,7 @@ export async function getProject(id: string) {
       label: `${p.bill?.supplier?.name ?? 'Supplier'} · bill ${p.bill?.bill_no ?? '—'} · Req ${String(p.bill?.req?.req_no ?? '').padStart(5, '0')} · ${p.method}`, where: where(p.bill?.req?.project_id) })),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ...((expenses ?? []) as any[]).map((e) => ({ date: e.exp_date, direction: 'out' as const, amount: n(e.amount),
-      label: `${e.category === 'labour' ? 'Daily labour' : e.category[0].toUpperCase() + e.category.slice(1)}${e.workers ? ` (${e.workers} × ${n(e.rate)})` : ''}${e.description ? ` · ${e.description}` : ''}`, where: where(e.project_id) })),
+      label: `${e.category === 'labour' ? 'Daily labour' : e.category === 'before_system' ? 'Spent before the system' : e.category[0].toUpperCase() + e.category.slice(1)}${e.workers ? ` (${e.workers} × ${n(e.rate)})` : ''}${e.description ? ` · ${e.description}` : ''}`, where: where(e.project_id) })),
   ]
   const parent = project.parent_id ? all.find((p) => p.id === project.parent_id) ?? null : null
   return {
@@ -200,11 +200,13 @@ export interface LsRequisitionRow {
   status: string; total: number; project_id: string | null; project_code: string | null
   requested_by_name: string | null; prepared_by: string | null
   billed: number; paid: number; overBudget: boolean; billCount: number
+  /** Entered by the admin from an old paper slip. */
+  from_paper: boolean
 }
 
 export async function listRequisitions(opts: { status?: string; projectId?: string; projectIds?: string[] } = {}): Promise<LsRequisitionRow[]> {
   let q = db().from('ls_requisitions')
-    .select('id, req_no, req_date, department, description, status, total, project_id, requested_by_name, prepared_by, project:ls_projects(code, parent:ls_projects!parent_id(code)), ls_bills(amount, ls_bill_payments(amount))')
+    .select('id, req_no, req_date, department, description, status, total, project_id, requested_by_name, prepared_by, from_paper, project:ls_projects(code, parent:ls_projects!parent_id(code)), ls_bills(amount, ls_bill_payments(amount))')
     .order('req_no', { ascending: false }).limit(500)
   if (opts.status) q = q.eq('status', opts.status)
   if (opts.projectId) q = q.eq('project_id', opts.projectId)
@@ -219,7 +221,7 @@ export async function listRequisitions(opts: { status?: string; projectId?: stri
       id: r.id, req_no: r.req_no, req_date: r.req_date, department: r.department, description: r.description,
       status: r.status, total: n(r.total), project_id: r.project_id, project_code: r.project ? (r.project.parent?.code ? `${r.project.parent.code} › ${r.project.code}` : r.project.code) : null,
       requested_by_name: r.requested_by_name, prepared_by: r.prepared_by,
-      billed: s.billed, paid: s.paid, overBudget: s.overBudget, billCount: bills.length,
+      billed: s.billed, paid: s.paid, overBudget: s.overBudget, billCount: bills.length, from_paper: !!r.from_paper,
     }
   })
 }

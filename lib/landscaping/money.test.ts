@@ -83,3 +83,14 @@ describe('sub-projects and accounts', () => {
     expect(a).toMatchObject({ totalIn: 1050000, totalOut: 304500, balance: 745500 })
   })
 })
+
+describe('past paper slips', () => {
+  it('entering old slip numbers does not move new numbering backwards', () => {
+    expect(nextReqNo(20)).toBe(33)      // old 00020 entered: new slips still start at 00033
+    expect(nextReqNo(32)).toBe(33)
+    expect(nextReqNo(41)).toBe(42)
+  })
+  it('a past slip with one paid bill reads as fully paid', () => {
+    expect(requisitionSpend(257000, [{ amount: 257000, paid: 257000 }])).toMatchObject({ billed: 257000, paid: 257000, unpaid: 0, overBudget: false })
+  })
+})

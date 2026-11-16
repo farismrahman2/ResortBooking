@@ -63,7 +63,7 @@ export function ExpenseForm({ projects }: { projects: Array<{ id: string; code: 
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [pending, start] = useTransition()
-  const [category, setCategory] = useState<'labour' | 'food' | 'transport' | 'tools' | 'other'>('labour')
+  const [category, setCategory] = useState<'labour' | 'food' | 'transport' | 'tools' | 'other' | 'before_system'>('labour')
   const [projectId, setProjectId] = useState(projects.length === 1 ? projects[0].id : '')
   const [date, setDate] = useState(today())
   const [workers, setWorkers] = useState('')
@@ -71,14 +71,16 @@ export function ExpenseForm({ projects }: { projects: Array<{ id: string; code: 
   const [amount, setAmount] = useState('')
   const [description, setDescription] = useState('')
   const [payee, setPayee] = useState('')
-  const [method, setMethod] = useState<'cash' | 'bkash' | 'bank' | 'cheque'>('cash')
+  const [method, setMethod] = useState<'cash' | 'cash_past' | 'bkash' | 'bank' | 'cheque'>('cash')
   const [photo, setPhoto] = useState<string | null>(null)
   const labourTotal = Number(workers) * Number(rate)
 
   function save() {
     start(async () => {
       const r = await safeCall(() => addExpense({
-        project_id: projectId || null, exp_date: date, category, description, payee, method, photo_path: photo,
+        project_id: projectId || null, exp_date: date, category, description, payee, photo_path: photo,
+        // Spent before the system: never from anyone's current cash in hand.
+        method: method === 'cash_past' ? 'cash' : method, from_float: method !== 'cash_past' && category !== 'before_system',
         workers: category === 'labour' && workers ? Number(workers) : null, rate: category === 'labour' && rate ? Number(rate) : null,
         amount: category === 'labour' && labourTotal > 0 ? labourTotal : Number(amount),
       }))
@@ -96,6 +98,7 @@ export function ExpenseForm({ projects }: { projects: Array<{ id: string; code: 
               <select className={select} value={category} onChange={(e) => setCategory(e.target.value as typeof category)}>
                 <option value="labour">Daily labour</option><option value="food">Food (managers / staff)</option>
                 <option value="transport">Transport</option><option value="tools">Tools & small items</option><option value="other">Other</option>
+                <option value="before_system">Spent before the system (one lump)</option>
               </select></div>
             <Input label="Date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           </div>
@@ -118,7 +121,7 @@ export function ExpenseForm({ projects }: { projects: Array<{ id: string; code: 
             <Input label="Paid to (optional)" placeholder="Sardar / shop" value={payee} onChange={(e) => setPayee(e.target.value)} />
             <div><label className="field-label">Paid by</label>
               <select className={select} value={method} onChange={(e) => setMethod(e.target.value as typeof method)}>
-                <option value="cash">Cash (from my cash in hand)</option><option value="bkash">bKash</option><option value="bank">Bank</option><option value="cheque">Cheque</option>
+                <option value="cash">Cash (from my cash in hand)</option><option value="cash_past">Cash — paid before the system</option><option value="bkash">bKash</option><option value="bank">Bank</option><option value="cheque">Cheque</option>
               </select></div>
           </div>
           <PhotoInput value={photo} onChange={setPhoto} label="Photo of the slip (optional)" />
