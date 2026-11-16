@@ -11,6 +11,7 @@ import { formatBDT } from '@/lib/formatters/currency'
 import { safeCall } from '@/lib/actions/safe-call'
 import { toast } from '@/lib/toast'
 import { PhotoInput } from './PhotoInput'
+import { recall, remember, type CategoryOpt } from './Picks'
 
 const select = 'min-h-[42px] w-full rounded-lg border border-gray-300 bg-white px-3 text-sm focus:border-forest-600 focus:outline-none'
 const today = () => new Date().toISOString().slice(0, 10)
@@ -59,7 +60,7 @@ export function GiveCashForm({ holders }: { holders: Array<{ user_id: string; na
 }
 
 /** Daily labour, managers' food, transport, tools or other — paid from my cash or by bKash/bank. */
-export function ExpenseForm({ projects }: { projects: Array<{ id: string; code: string; title: string; label?: string }> }) {
+export function ExpenseForm({ projects, categories = [] }: { projects: Array<{ id: string; code: string; title: string; label?: string }>; categories?: CategoryOpt[] }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [pending, start] = useTransition()
@@ -73,6 +74,12 @@ export function ExpenseForm({ projects }: { projects: Array<{ id: string; code: 
   const [payee, setPayee] = useState('')
   const [method, setMethod] = useState<'cash' | 'cash_past' | 'bkash' | 'bank' | 'cheque'>('cash')
   const [photo, setPhoto] = useState<string | null>(null)
+  const [workCategory, setWorkCategory] = useState('')
+  /** Labour, food and transport usually go under site running; a different category can still be picked. */
+  const suggestFor = (c: typeof category) => {
+    const want = c === 'tools' ? /^tools/i : ['labour', 'food', 'transport'].includes(c) ? /^site running/i : null
+    return want ? categories.find((x) => want.test(x.name))?.id ?? '' : ''
+  }
   const labourTotal = Number(workers) * Number(rate)
 
   function save() {
@@ -83,19 +90,24 @@ export function ExpenseForm({ projects }: { projects: Array<{ id: string; code: 
         method: method === 'cash_past' ? 'cash' : method, from_float: method !== 'cash_past' && category !== 'before_system',
         workers: category === 'labour' && workers ? Number(workers) : null, rate: category === 'labour' && rate ? Number(rate) : null,
         amount: category === 'labour' && labourTotal > 0 ? labourTotal : Number(amount),
+        work_category_id: workCategory || null,
       }))
       if (!r.success) { toast.error(r.error); return }
+      remember(`exp.category.${category}`, workCategory)
       toast.success('Recorded'); setOpen(false); setWorkers(''); setRate(''); setAmount(''); setDescription(''); setPayee(''); setPhoto(null); router.refresh()
     })
   }
   return (
     <>
-      <Button variant="primary" size="sm" className="gap-1.5" onClick={() => setOpen(true)}><HardHat size={14} /> Labour / food / other</Button>
+      <Button variant="primary" size="sm" className="gap-1.5" onClick={() => { setWorkCategory(recall(`exp.category.${category}`) ?? suggestFor(category)); setOpen(true) }}><HardHat size={14} /> Labour / food / other</Button>
       <Modal open={open} onClose={() => setOpen(false)} title="Record spending">
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div><label className="field-label">What for</label>
-              <select className={select} value={category} onChange={(e) => setCategory(e.target.value as typeof category)}>
+              <select className={select} value={category} onChange={(e) => {
+                const c = e.target.value as typeof category
+                setCategory(c); setWorkCategory(recall(`exp.category.${c}`) ?? suggestFor(c))
+              }}>
                 <option value="labour">Daily labour</option><option value="food">Food (managers / staff)</option>
                 <option value="transport">Transport</option><option value="tools">Tools & small items</option><option value="other">Other</option>
                 <option value="before_system">Spent before the system (one lump)</option>
@@ -107,6 +119,14 @@ export function ExpenseForm({ projects }: { projects: Array<{ id: string; code: 
               <option value="">— Business overhead (no project) —</option>
               {projects.map((p) => <option key={p.id} value={p.id}>{p.label ?? p.code} · {p.title}</option>)}
             </select></div>
+          {categories.length > 0 && (
+            <div><label className="field-label">Work category</label>
+              <select className={select} value={workCategory} onChange={(e) => setWorkCategory(e.target.value)}>
+                <option value="">— Not set —</option>
+                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <p className="mt-1 text-xs text-gray-500">e.g. masons for paving → Hardscape &amp; paving; tree planting labour → Trees &amp; plants</p></div>
+          )}
           {category === 'labour' ? (
             <div className="grid grid-cols-3 gap-3">
               <Input label="Workers" type="number" inputMode="numeric" value={workers} onChange={(e) => setWorkers(e.target.value)} />

@@ -3,7 +3,7 @@ import { Topbar } from '@/components/layout/Topbar'
 import { LsPage } from '@/components/landscaping/LsNav'
 import { PastRequisitionForm } from '@/components/landscaping/PastRequisitionForm'
 import { requirePermission } from '@/lib/auth/permissions'
-import { getLsMe, listProjects, listSuppliers } from '@/lib/queries/landscaping'
+import { getLsMe, itemSuggestions, listPeople, listProjects, listSuppliers, listWorkCategories } from '@/lib/queries/landscaping'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,12 +12,13 @@ export default async function PastRequisitionPage() {
   await requirePermission('landscaping', 'write')
   const me = await getLsMe()
   if (!me?.is_admin) redirect('/landscaping/requisitions')
-  const [projects, suppliers] = await Promise.all([listProjects(), listSuppliers()])
+  const [projects, suppliers, people, categories, suggestions] = await Promise.all([listProjects(), listSuppliers(), listPeople(), listWorkCategories(), itemSuggestions()])
   return (
     <div className="flex h-full flex-col">
       <Topbar title="Record past requisition" subtitle="Landscaping · bring old paper slips, bills and payments into the system" />
       <LsPage tab="requisitions">
-        <PastRequisitionForm projects={projects.map((p) => ({ id: p.id, label: p.label, title: p.title }))} suppliers={suppliers.map((s) => ({ id: s.id, name: s.name }))} />
+        <PastRequisitionForm projects={projects.map((p) => ({ id: p.id, label: p.label, title: p.title }))} suppliers={suppliers.map((s) => ({ id: s.id, name: s.name }))}
+          people={people} categories={categories} suggestions={suggestions} />
       </LsPage>
     </div>
   )

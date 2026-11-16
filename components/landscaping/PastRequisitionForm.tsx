@@ -11,6 +11,7 @@ import { formatBDT } from '@/lib/formatters/currency'
 import { safeCall } from '@/lib/actions/safe-call'
 import { toast } from '@/lib/toast'
 import { PhotoInput } from './PhotoInput'
+import { CategoryPick, ItemDatalist, PersonPick, RateHint, findSuggestion, remember, type CategoryOpt, type ItemSuggestion, type PersonOpt } from './Picks'
 
 type Item = { description: string; qty: string; unit: string; unit_price: string }
 type Bill = {
@@ -26,23 +27,28 @@ const select = 'min-h-[42px] w-full rounded-lg border border-gray-300 bg-white p
 const H = ({ children }: { children: React.ReactNode }) => <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">{children}</h3>
 
 /** Admin: one paper slip — requisition, its bills and what was paid — typed in at once. */
-export function PastRequisitionForm({ projects, suppliers }: {
+export function PastRequisitionForm({ projects, suppliers, people, categories, suggestions }: {
   projects: Array<{ id: string; label: string; title: string }>
   suppliers: Array<{ id: string; name: string }>
+  people: PersonOpt[]
+  categories: CategoryOpt[]
+  suggestions: ItemSuggestion[]
 }) {
   const router = useRouter()
   const [pending, start] = useTransition()
   const [reqNo, setReqNo] = useState('')
   const [date, setDate] = useState('')
   const [projectId, setProjectId] = useState('')
-  const [department, setDepartment] = useState('')
+  const [categoryId, setCategoryId] = useState('')
   const [description, setDescription] = useState('')
   const [area, setArea] = useState('')
   const [remarks, setRemarks] = useState('')
-  const [requestedBy, setRequestedBy] = useState('')
-  const [prepared, setPrepared] = useState('')
-  const [checked, setChecked] = useState('')
-  const [approved, setApproved] = useState('MD')
+  const blank = { personId: '', name: '' }
+  const [requester, setRequester] = useState(blank)
+  const [prepared, setPrepared] = useState(blank)
+  const [checked, setChecked] = useState(blank)
+  const [approved, setApproved] = useState(blank)
+  const nameOf = (v: { personId: string; name: string }) => (v.personId ? people.find((p) => p.id === v.personId)?.name ?? '' : v.name.trim())
   const [slipPhoto, setSlipPhoto] = useState<string | null>(null)
   const [items, setItems] = useState<Item[]>([blankItem()])
   const [bills, setBills] = useState<Bill[]>([])
@@ -52,13 +58,19 @@ export function PastRequisitionForm({ projects, suppliers }: {
   const billed = bills.reduce((s, b) => s + (Number(b.amount) || 0), 0)
   const paid = bills.reduce((s, b) => s + (Number(b.paid_amount) || 0), 0)
   const setItem = (k: number, p: Partial<Item>) => setItems((xs) => xs.map((x, i) => (i === k ? { ...x, ...p } : x)))
+  const setItemName = (k: number, description: string) => {
+    const s = findSuggestion(suggestions, description)
+    setItems((xs) => xs.map((x, i) => (i !== k ? x : { ...x, description, unit: x.unit || (s?.unit ?? ''), unit_price: x.unit_price || (s ? String(s.rate) : '') })))
+  }
   const setBill = (k: number, p: Partial<Bill>) => setBills((xs) => xs.map((x, i) => (i === k ? { ...x, ...p } : x)))
 
   function save(another: boolean) {
+    if (!categoryId) { toast.error('Pick the work category'); return }
     start(async () => {
       const r = await safeCall(() => recordPastRequisition({
-        req_no: Number(reqNo), project_id: projectId || null, req_date: date, department, description, area_note: area, remarks,
-        requested_by_name: requestedBy, paper_prepared_by: prepared, paper_checked_by: checked, paper_approved_by: approved,
+        req_no: Number(reqNo), project_id: projectId || null, req_date: date, category_id: categoryId, description, area_note: area, remarks,
+        requested_by_person: requester.personId || null, requested_by_name: requester.name,
+        paper_prepared_by: nameOf(prepared), paper_checked_by: nameOf(checked), paper_approved_by: nameOf(approved),
         slip_photo_path: slipPhoto, items: parsed,
         bills: bills.map((b) => ({
           supplier_id: b.supplier_id && b.supplier_id !== '__new' ? b.supplier_id : undefined,
@@ -68,6 +80,8 @@ export function PastRequisitionForm({ projects, suppliers }: {
         })),
       }))
       if (!r.success) { toast.error(r.error); return }
+      remember('past.category', categoryId); remember('past.requester', requester.personId)
+      remember('past.prepared', prepared.personId); remember('past.checked', checked.personId); remember('past.approved', approved.personId)
       toast.success(`Req ${reqNo.padStart(5, '0')} entered from paper`)
       if (another) {
         // Keep the project, department and names — the next slip usually shares them.
@@ -98,8 +112,8 @@ export function PastRequisitionForm({ projects, suppliers }: {
             </select></div>
         </div>
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Input label="Department / Section" placeholder="Civil Works" value={department} onChange={(e) => setDepartment(e.target.value)} />
-          <Input label="Requested by" placeholder="Liton" value={requestedBy} onChange={(e) => setRequestedBy(e.target.value)} />
+          <CategoryPick categories={categories} value={categoryId} onChange={setCategoryId} rememberKey="past.category" label="Work category (Department / Section)" />
+          <PersonPick label="Requested by" people={people} personId={requester.personId} name={requester.name} onChange={setRequester} rememberKey="past.requester" placeholder="Liton" />
         </div>
         <div className="mt-3 space-y-3">
           <Input label="Description" placeholder="Materials requisition for parking area" value={description} onChange={(e) => setDescription(e.target.value)} />
@@ -112,7 +126,7 @@ export function PastRequisitionForm({ projects, suppliers }: {
         <div className="space-y-2">
           {items.map((it, k) => (
             <div key={k} className="grid grid-cols-12 items-end gap-2 rounded-lg border border-gray-200 bg-gray-50 p-2">
-              <div className="col-span-12 sm:col-span-5"><Input label={k === 0 ? 'Item' : undefined} value={it.description} onChange={(e) => setItem(k, { description: e.target.value })} /></div>
+              <div className="col-span-12 sm:col-span-5"><Input label={k === 0 ? 'Item' : undefined} list="ls-items" value={it.description} onChange={(e) => setItemName(k, e.target.value)} /></div>
               <div className="col-span-4 sm:col-span-2"><Input label={k === 0 ? 'Qty' : undefined} type="number" step="any" inputMode="decimal" value={it.qty} onChange={(e) => setItem(k, { qty: e.target.value })} /></div>
               <div className="col-span-4 sm:col-span-2"><Input label={k === 0 ? 'Unit' : undefined} list="ls-units" value={it.unit} onChange={(e) => setItem(k, { unit: e.target.value })} /></div>
               <div className="col-span-4 sm:col-span-2"><Input label={k === 0 ? 'Rate (Tk)' : undefined} type="number" step="any" inputMode="decimal" value={it.unit_price} onChange={(e) => setItem(k, { unit_price: e.target.value })} /></div>
@@ -120,9 +134,11 @@ export function PastRequisitionForm({ projects, suppliers }: {
                 <span className="text-xs font-semibold tabular-nums sm:hidden">{formatBDT(lineAmount(parsed[k]))}</span>
                 <button type="button" onClick={() => setItems((xs) => (xs.length > 1 ? xs.filter((_, i) => i !== k) : [blankItem()]))} className="flex h-9 w-9 items-center justify-center rounded-lg text-gray-400 hover:text-red-600" aria-label="Remove item"><Trash2 size={15} /></button>
               </div>
+              <RateHint list={suggestions} description={it.description} rate={it.unit_price} />
             </div>
           ))}
           <datalist id="ls-units">{['CFT', 'SFT', 'RFT', 'Gari', 'Bag', 'Kg', 'Ton', 'Pcs', 'Nos', 'Day', 'Job'].map((u) => <option key={u} value={u} />)}</datalist>
+          <ItemDatalist list={suggestions} />
           <button type="button" onClick={() => setItems((xs) => [...xs, blankItem()])} className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-forest-400 bg-forest-50 px-3 py-1.5 text-xs font-medium text-forest-700"><Plus size={12} /> Add item</button>
         </div>
         <div className="mt-3 flex items-center justify-between rounded-lg bg-forest-50 px-4 py-3">
@@ -134,9 +150,9 @@ export function PastRequisitionForm({ projects, suppliers }: {
       <section>
         <H>Signed on paper by</H>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <Input label="Prepared by" placeholder="Rifat" value={prepared} onChange={(e) => setPrepared(e.target.value)} />
-          <Input label="Checked by" placeholder="Faris" value={checked} onChange={(e) => setChecked(e.target.value)} />
-          <Input label="Approved by" placeholder="MD" value={approved} onChange={(e) => setApproved(e.target.value)} />
+          <PersonPick label="Prepared by" people={people} personId={prepared.personId} name={prepared.name} onChange={setPrepared} rememberKey="past.prepared" placeholder="Rifat" />
+          <PersonPick label="Checked by" people={people} personId={checked.personId} name={checked.name} onChange={setChecked} rememberKey="past.checked" placeholder="Faris" />
+          <PersonPick label="Approved by" people={people} personId={approved.personId} name={approved.name} onChange={setApproved} rememberKey="past.approved" fallbackName="MD" />
         </div>
         <div className="mt-3"><PhotoInput value={slipPhoto} onChange={setSlipPhoto} label="Photo of the signed slip (optional)" /></div>
       </section>

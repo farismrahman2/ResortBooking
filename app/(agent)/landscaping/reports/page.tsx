@@ -2,7 +2,7 @@ import { Download } from 'lucide-react'
 import { Topbar } from '@/components/layout/Topbar'
 import { LsPage } from '@/components/landscaping/LsNav'
 import { requirePermission } from '@/lib/auth/permissions'
-import { cashFloats, listSuppliers, monthlyPnl, projectsWithFinancials } from '@/lib/queries/landscaping'
+import { cashFloats, itemPriceHistory, listSuppliers, monthlyPnl, projectsWithFinancials, spendAnalysis } from '@/lib/queries/landscaping'
 import { formatBDT } from '@/lib/formatters/currency'
 
 export const dynamic = 'force-dynamic'
@@ -19,7 +19,7 @@ const Box = ({ title, csv, children }: { title: string; csv?: string; children: 
 
 export default async function LandscapingReports() {
   await requirePermission('landscaping', 'read')
-  const [months, projects, suppliers, { floats }] = await Promise.all([monthlyPnl(), projectsWithFinancials(), listSuppliers(), cashFloats()])
+  const [months, projects, suppliers, { floats }, spend, prices] = await Promise.all([monthlyPnl(), projectsWithFinancials(), listSuppliers(), cashFloats(), spendAnalysis(), itemPriceHistory()])
   return (
     <div className="flex h-full flex-col">
       <Topbar title="Reports" subtitle="Landscaping only — never mixed with the resort" />
@@ -51,6 +51,47 @@ export default async function LandscapingReports() {
             ))}</tbody>
           </table>
         </Box>
+        <Box title="Where the money went — by work category" csv="categories">
+          <p className="px-4 pt-3 text-xs text-gray-500">Supplier bills (by their requisition’s category) plus labour, food and other spending. Sub-projects count in their main project.</p>
+          <div className="grid grid-cols-1 gap-4 p-4 md:grid-cols-2">
+            {[{ project: 'All projects', total: spend.overall.reduce((s, r) => s + r.amount, 0), rows: spend.overall }, ...spend.byProject].map((p) => (
+              <div key={p.project} className="rounded-lg border border-gray-100">
+                <div className="flex border-b border-gray-100 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-700"><span>{p.project}</span><span className="ml-auto tabular-nums">{formatBDT(p.total)}</span></div>
+                <ul className="space-y-1.5 p-3">{p.rows.map((r) => (
+                  <li key={r.key} className="text-xs">
+                    <div className="flex"><span className={r.key === 'Not set' ? 'italic text-gray-400' : 'text-gray-700'}>{r.key}</span><span className="ml-auto tabular-nums text-gray-900">{formatBDT(r.amount)} <span className="text-gray-400">· {r.pct}%</span></span></div>
+                    <div className="mt-0.5 h-1.5 rounded-full bg-gray-100"><div className="h-1.5 rounded-full bg-forest-600" style={{ width: `${Math.max(r.pct, 1)}%` }} /></div>
+                  </li>
+                ))}</ul>
+              </div>
+            ))}
+          </div>
+        </Box>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <Box title="Requisitions by who asked" csv="requesters">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-left text-xs text-gray-500"><tr><th className="px-4 py-2">Requested by</th><th className="px-2 py-2 text-right">Approved</th><th className="px-2 py-2 text-right">Approved total</th><th className="px-4 py-2 text-right">Billed</th></tr></thead>
+              <tbody>{spend.byRequester.map((r) => (
+                <tr key={r.name} className="border-t border-gray-100"><td className="px-4 py-2">{r.name}</td><td className="px-2 py-2 text-right tabular-nums">{r.count}</td>
+                  <td className="px-2 py-2 text-right tabular-nums">{formatBDT(r.approved)}</td>
+                  <td className={`px-4 py-2 text-right tabular-nums ${r.billed > r.approved + 0.005 ? 'font-semibold text-red-600' : ''}`}>{formatBDT(r.billed)}</td></tr>
+              ))}</tbody>
+            </table>
+          </Box>
+          <Box title="Item rates over time" csv="prices">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-left text-xs text-gray-500"><tr><th className="px-4 py-2">Item</th><th className="px-2 py-2 text-right">Times</th><th className="px-2 py-2 text-right">First → last</th><th className="px-2 py-2 text-right">Low – high</th><th className="px-4 py-2 text-right">Change</th></tr></thead>
+              <tbody>{prices.slice(0, 40).map((i) => (
+                <tr key={i.item} className="border-t border-gray-100"><td className="px-4 py-2">{i.item}{i.unit ? <span className="text-xs text-gray-500"> / {i.unit}</span> : null}</td>
+                  <td className="px-2 py-2 text-right tabular-nums">{i.times}</td>
+                  <td className="px-2 py-2 text-right tabular-nums">{formatBDT(i.first)} → {formatBDT(i.last)}</td>
+                  <td className="px-2 py-2 text-right tabular-nums text-gray-500">{formatBDT(i.low)} – {formatBDT(i.high)}</td>
+                  <td className={`px-4 py-2 text-right tabular-nums ${i.changePct && i.changePct > 15 ? 'font-semibold text-red-600' : i.changePct && i.changePct < 0 ? 'text-emerald-700' : ''}`}>{i.changePct === null || i.times < 2 ? '—' : `${i.changePct > 0 ? '+' : ''}${i.changePct}%`}</td></tr>
+              ))}</tbody>
+            </table>
+            {prices.length > 40 && <p className="px-4 py-2 text-xs text-gray-500">Showing the 40 most-bought items — the CSV has every line with supplier and project.</p>}
+          </Box>
+        </div>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Box title="Owed to suppliers" csv="suppliers">
             <ul className="divide-y divide-gray-100">{suppliers.filter((s) => s.owed > 0).map((s) => (

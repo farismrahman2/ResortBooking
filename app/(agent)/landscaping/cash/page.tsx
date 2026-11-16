@@ -3,7 +3,7 @@ import { LsPage } from '@/components/landscaping/LsNav'
 import { ExpenseForm, GiveCashForm } from '@/components/landscaping/CashForms'
 import { ViewPhoto } from '@/components/landscaping/ViewPhoto'
 import { requirePermission } from '@/lib/auth/permissions'
-import { cashFloats, getLsMe, listExpenses, listLsMembers, listProjects } from '@/lib/queries/landscaping'
+import { cashFloats, getLsMe, listExpenses, listLsMembers, listProjects, listWorkCategories } from '@/lib/queries/landscaping'
 import { formatBDT } from '@/lib/formatters/currency'
 
 export const dynamic = 'force-dynamic'
@@ -12,7 +12,7 @@ const CAT: Record<string, string> = { labour: 'Daily labour', food: 'Food', tran
 
 export default async function CashPage() {
   await requirePermission('landscaping', 'read')
-  const [me, { floats, movements }, expenses, members, projects] = await Promise.all([getLsMe(), cashFloats(), listExpenses(), listLsMembers(), listProjects()])
+  const [me, { floats, movements }, expenses, members, projects, categories] = await Promise.all([getLsMe(), cashFloats(), listExpenses(), listLsMembers(), listProjects(), listWorkCategories()])
   const open = projects.filter((p) => p.status !== 'completed' && p.status !== 'cancelled')
   return (
     <div className="flex h-full flex-col">
@@ -20,7 +20,7 @@ export default async function CashPage() {
       <LsPage tab="cash">
         <div className="flex flex-wrap gap-2">
           {me?.is_admin && <GiveCashForm holders={members.filter((m) => m.can_pay).map((m) => ({ user_id: m.user_id, name: m.name }))} />}
-          {me && (me.can_pay || me.is_admin) && <ExpenseForm projects={open} />}
+          {me && (me.can_pay || me.is_admin) && <ExpenseForm projects={open} categories={categories} />}
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">

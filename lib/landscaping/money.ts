@@ -136,3 +136,58 @@ export function accountStatement(entries: AccountEntry[]) {
   const totalOut = sum(sorted.filter((e) => e.direction === 'out').map((e) => e.amount))
   return { lines, totalIn, totalOut, balance: r2(totalIn - totalOut) }
 }
+
+// ─── Pick lists & analysis ──────────────────────────────────────────────────
+
+/** Item names compared loosely: "Brick  Chips " and "brick chips" are the same item. */
+export const itemKey = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
+
+export interface RateRow { description: string; unit: string | null; unit_price: number; date: string; req_no?: number; project?: string | null; suppliers?: string[] }
+
+/** The latest unit and rate for each item, newest first — what the form suggests next time. */
+export function lastRates(rows: RateRow[]) {
+  const latest = new Map<string, RateRow>()
+  for (const r of [...rows].sort((a, b) => b.date.localeCompare(a.date) || (b.req_no ?? 0) - (a.req_no ?? 0))) {
+    const k = itemKey(r.description)
+    if (k && r.unit_price > 0 && !latest.has(k)) latest.set(k, r)
+  }
+  return latest
+}
+
+/** How much higher than last time, in percent, when it is more than `limit` percent; otherwise null. */
+export function rateJump(rate: number, lastRate: number | null | undefined, limit = 15): number | null {
+  if (!lastRate || lastRate <= 0 || !(rate > 0)) return null
+  const pct = Math.round(((rate - lastRate) / lastRate) * 1000) / 10
+  return pct > limit ? pct : null
+}
+
+/** Each item's rate over time: first, last, lowest, highest and the change. */
+export function priceHistory(rows: RateRow[]) {
+  const groups = new Map<string, RateRow[]>()
+  for (const r of rows) {
+    const k = itemKey(r.description)
+    if (!k || !(r.unit_price > 0)) continue
+    if (!groups.has(k)) groups.set(k, [])
+    groups.get(k)!.push(r)
+  }
+  return [...groups.values()].map((g) => {
+    const s = [...g].sort((a, b) => a.date.localeCompare(b.date) || (a.req_no ?? 0) - (b.req_no ?? 0))
+    const first = s[0], last = s[s.length - 1]
+    const rates = s.map((x) => x.unit_price)
+    return {
+      item: last.description.trim(), unit: last.unit, times: s.length,
+      first: first.unit_price, last: last.unit_price, low: Math.min(...rates), high: Math.max(...rates),
+      changePct: first.unit_price > 0 ? Math.round(((last.unit_price - first.unit_price) / first.unit_price) * 1000) / 10 : null,
+      lines: s.reverse(),
+    }
+  }).sort((a, b) => b.times - a.times || a.item.localeCompare(b.item))
+}
+
+/** Money grouped by a label (category, requester…), largest first, with each one's share. */
+export function groupSpend(rows: Array<{ key: string; amount: number }>) {
+  const m = new Map<string, number>()
+  for (const r of rows) m.set(r.key, (m.get(r.key) ?? 0) + r.amount)
+  const total = sum([...m.values()])
+  return [...m.entries()].map(([key, amount]) => ({ key, amount: r2(amount), pct: total > 0 ? Math.round((amount / total) * 1000) / 10 : 0 }))
+    .sort((a, b) => b.amount - a.amount)
+}

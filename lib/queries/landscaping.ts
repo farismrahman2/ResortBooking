@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getCurrentUserContext } from '@/lib/auth/permissions'
 import {
   accountStatement, billStatus, floatBalance, projectFinancials, requisitionSpend, subProjectBudget, supplierBalance,
-  nextReqNo, withSubProjects, type AccountEntry, type BillStatus, type ProjectInputs,
+  nextReqNo, withSubProjects, groupSpend, lastRates, priceHistory, type AccountEntry, type BillStatus, type ProjectInputs, type RateRow,
 } from '@/lib/landscaping/money'
 
 /**
@@ -64,6 +64,105 @@ async function namesFor(ids: Array<string | null | undefined>): Promise<Map<stri
   if (!uniq.length) return new Map()
   const { data } = await db().from('user_profiles').select('user_id, full_name').in('user_id', uniq)
   return new Map(((data ?? []) as Array<{ user_id: string; full_name: string }>).map((p) => [p.user_id, p.full_name]))
+}
+
+// ─── Pick lists: people and work categories ─────────────────────────────────
+
+export interface LsPerson { id: string; name: string; designation: string | null; phone: string | null; is_active: boolean }
+export interface LsCategory { id: string; name: string; sort_order: number; is_active: boolean }
+
+/** Everyone involved (requested by, signed on paper, sardars) — names to pick, not logins. */
+export async function listPeople(includeInactive = false): Promise<LsPerson[]> {
+  let q = db().from('ls_people').select('id, name, designation, phone, is_active').order('name')
+  if (!includeInactive) q = q.eq('is_active', true)
+  const { data } = await q
+  return (data ?? []) as LsPerson[]
+}
+
+/** What the money was for — Civil works, Trees & plants… */
+export async function listWorkCategories(includeInactive = false): Promise<LsCategory[]> {
+  let q = db().from('ls_work_categories').select('id, name, sort_order, is_active').order('sort_order').order('name')
+  if (!includeInactive) q = q.eq('is_active', true)
+  const { data } = await q
+  return (data ?? []) as LsCategory[]
+}
+
+/** Every priced item line on a live requisition, with date, project and the suppliers billed. */
+async function itemRateRows(): Promise<RateRow[]> {
+  const { data } = await db().from('ls_requisition_items')
+    .select('description, unit, unit_price, req:ls_requisitions!inner(req_no, req_date, status, project:ls_projects(code), ls_bills(supplier:ls_suppliers(name)))')
+    .not('req.status', 'in', '(cancelled,rejected)').limit(5000)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((data ?? []) as any[]).map((i) => ({
+    description: i.description, unit: i.unit, unit_price: n(i.unit_price), date: i.req?.req_date ?? '', req_no: i.req?.req_no,
+    project: i.req?.project?.code ?? null,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    suppliers: [...new Set(((i.req?.ls_bills ?? []) as any[]).map((b) => b.supplier?.name).filter(Boolean))] as string[],
+  }))
+}
+
+/** Last unit and rate for each item, for the requisition form to fill in. */
+export async function itemSuggestions() {
+  return [...lastRates(await itemRateRows()).values()].map((r) => ({ description: r.description.trim(), unit: r.unit, rate: r.unit_price, date: r.date }))
+    .sort((a, b) => a.description.localeCompare(b.description))
+}
+
+export async function itemPriceHistory() {
+  return priceHistory(await itemRateRows())
+}
+
+const EXPENSE_FALLBACK: Record<string, string> = {
+  labour: 'Site running (labour, food, transport)', food: 'Site running (labour, food, transport)',
+  transport: 'Site running (labour, food, transport)', tools: 'Tools & equipment',
+}
+
+/**
+ * Where the money went: supplier bills (by their requisition's category) plus
+ * labour/food/other spending (by its own category), overall and per main
+ * project (sub-projects counted in their main project). Also by requester.
+ */
+export async function spendAnalysis() {
+  const [{ data: bills }, { data: exps }, { data: reqs }, cats, projects] = await Promise.all([
+    db().from('ls_bills').select('amount, req:ls_requisitions(project_id, category_id)'),
+    db().from('ls_expenses').select('amount, category, project_id, work_category_id'),
+    db().from('ls_requisitions').select('requested_by_name, total, status, ls_bills(amount)').eq('status', 'approved'),
+    listWorkCategories(true), listProjects(),
+  ])
+  const catName = new Map(cats.map((c) => [c.id, c.name]))
+  const mainOf = new Map(projects.map((p) => [p.id, p.parent_id ?? p.id]))
+  const label = new Map(projects.map((p) => [p.id, `${p.code} · ${p.title}`]))
+  const lines: Array<{ key: string; amount: number; main: string | null }> = []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const b of (bills ?? []) as any[]) {
+    lines.push({ key: catName.get(b.req?.category_id) ?? 'Not set', amount: n(b.amount), main: b.req?.project_id ? mainOf.get(b.req.project_id) ?? null : null })
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const e of (exps ?? []) as any[]) {
+    const key = catName.get(e.work_category_id) ?? (e.category === 'before_system' ? 'Spent before the system' : EXPENSE_FALLBACK[e.category] ?? 'Not set')
+    lines.push({ key, amount: n(e.amount), main: e.project_id ? mainOf.get(e.project_id) ?? null : null })
+  }
+  const mains = [...new Set(lines.map((l) => l.main))]
+  const byProject = mains.map((m) => ({
+    project: m ? label.get(m) ?? 'Unknown project' : 'No project',
+    total: lines.filter((l) => l.main === m).reduce((s, l) => s + l.amount, 0),
+    rows: groupSpend(lines.filter((l) => l.main === m)),
+  })).sort((a, b) => b.total - a.total)
+
+  const byRequester = new Map<string, { name: string; count: number; approved: number; billed: number }>()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const r of (reqs ?? []) as any[]) {
+    const name = r.requested_by_name?.trim() || 'Not set'
+    const cur = byRequester.get(name) ?? { name, count: 0, approved: 0, billed: 0 }
+    cur.count += 1; cur.approved += n(r.total)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    cur.billed += ((r.ls_bills ?? []) as any[]).reduce((s, b) => s + n(b.amount), 0)
+    byRequester.set(name, cur)
+  }
+  return {
+    overall: groupSpend(lines),
+    byProject,
+    byRequester: [...byRequester.values()].sort((a, b) => b.approved - a.approved),
+  }
 }
 
 // ─── Projects & clients ─────────────────────────────────────────────────────

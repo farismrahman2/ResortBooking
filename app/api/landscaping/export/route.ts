@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { hasPermission } from '@/lib/auth/permissions'
-import { listSuppliers, monthlyPnl, projectsWithFinancials } from '@/lib/queries/landscaping'
+import { itemPriceHistory, listSuppliers, monthlyPnl, projectsWithFinancials, spendAnalysis } from '@/lib/queries/landscaping'
 
 export const dynamic = 'force-dynamic'
 
 const csv = (rows: Array<Array<string | number>>) =>
   rows.map((r) => r.map((c) => { const s = String(c ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s }).join(',')).join('\n')
 
-/** GET /api/landscaping/export?report=monthly|projects|suppliers — landscaping CSVs. */
+/** GET /api/landscaping/export?report=monthly|projects|suppliers|categories|requesters|prices — landscaping CSVs. */
 export async function GET(req: NextRequest) {
   if (!(await hasPermission('landscaping', 'read'))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const report = req.nextUrl.searchParams.get('report')
@@ -25,6 +25,18 @@ export async function GET(req: NextRequest) {
   } else if (report === 'suppliers') {
     const s = await listSuppliers()
     body = csv([['Supplier', 'Opening dues', 'Billed', 'Paid', 'Owed'], ...s.map((x) => [x.name, x.opening, x.billed, x.paid, x.owed])])
+  } else if (report === 'categories') {
+    const a = await spendAnalysis()
+    body = csv([['Project', 'Work category', 'Spent (bills + labour/food/other)', 'Share %'],
+      ...a.byProject.flatMap((p) => p.rows.map((r) => [p.project, r.key, r.amount, r.pct])),
+      ...a.overall.map((r) => ['ALL PROJECTS', r.key, r.amount, r.pct])])
+  } else if (report === 'requesters') {
+    const a = await spendAnalysis()
+    body = csv([['Requested by', 'Approved requisitions', 'Approved total', 'Billed so far'], ...a.byRequester.map((r) => [r.name, r.count, r.approved, r.billed])])
+  } else if (report === 'prices') {
+    const h = await itemPriceHistory()
+    body = csv([['Item', 'Unit', 'Date', 'Req. No.', 'Project', 'Rate', 'Suppliers billed'],
+      ...h.flatMap((i) => i.lines.map((l) => [i.item, l.unit ?? '', l.date, l.req_no ? String(l.req_no).padStart(5, '0') : '', l.project ?? '', l.unit_price, (l.suppliers ?? []).join('; ')]))])
   } else {
     return NextResponse.json({ error: 'Unknown report' }, { status: 400 })
   }

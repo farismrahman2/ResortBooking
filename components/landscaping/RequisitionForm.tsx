@@ -11,28 +11,36 @@ import { lineAmount, requisitionTotal, formatReqNo } from '@/lib/landscaping/mon
 import { formatBDT } from '@/lib/formatters/currency'
 import { safeCall } from '@/lib/actions/safe-call'
 import { toast } from '@/lib/toast'
+import { CategoryPick, ItemDatalist, PersonPick, RateHint, findSuggestion, remember, type CategoryOpt, type ItemSuggestion, type PersonOpt } from './Picks'
 
 type Item = { description: string; qty: string; unit: string; unit_price: string }
 const blank = (): Item => ({ description: '', qty: '', unit: '', unit_price: '' })
 const UNITS = ['CFT', 'SFT', 'RFT', 'Gari', 'Bag', 'Kg', 'Ton', 'Pcs', 'Nos', 'Litre', 'Day', 'Job']
 
 /** New or sent-back requisition — the ASU Requisition Slip, typed on a phone. */
-export function RequisitionForm({ initial, projects, nextNo, myName }: {
+export function RequisitionForm({ initial, projects, nextNo, myName, people, categories, suggestions }: {
   initial?: RequisitionInput & { id: string; req_no: number }
   projects: Array<{ id: string; code: string; title: string; label?: string }>
   nextNo: number
   myName: string
+  people: PersonOpt[]
+  categories: CategoryOpt[]
+  suggestions: ItemSuggestion[]
 }) {
   const router = useRouter()
   const [pending, start] = useTransition()
   const [reqNo, setReqNo] = useState(String(initial?.req_no ?? nextNo))
   const [projectId, setProjectId] = useState(initial?.project_id ?? (projects.length === 1 ? projects[0].id : ''))
   const [date, setDate] = useState(initial?.req_date ?? new Date().toISOString().slice(0, 10))
-  const [department, setDepartment] = useState(initial?.department ?? '')
+  const [categoryId, setCategoryId] = useState(initial?.category_id ?? '')
+  const legacyDepartment = !initial?.category_id ? initial?.department ?? '' : ''
   const [description, setDescription] = useState(initial?.description ?? '')
   const [area, setArea] = useState(initial?.area_note ?? '')
   const [remarks, setRemarks] = useState(initial?.remarks ?? '')
-  const [requestedBy, setRequestedBy] = useState(initial?.requested_by_name ?? myName)
+  const [requester, setRequester] = useState({
+    personId: initial?.requested_by_person ?? '',
+    name: initial && !initial.requested_by_person ? initial.requested_by_name ?? '' : '',
+  })
   const [items, setItems] = useState<Item[]>(
     initial?.items.map((i) => ({ description: i.description, qty: String(i.qty), unit: i.unit ?? '', unit_price: String(i.unit_price) })) ?? [blank()],
   )
@@ -40,14 +48,27 @@ export function RequisitionForm({ initial, projects, nextNo, myName }: {
   const parsed = useMemo(() => items.map((i) => ({ description: i.description, qty: Number(i.qty) || 0, unit: i.unit, unit_price: Number(i.unit_price) || 0 })), [items])
   const total = requisitionTotal(parsed.filter((i) => i.qty > 0))
   const set = (k: number, patch: Partial<Item>) => setItems((xs) => xs.map((x, i) => (i === k ? { ...x, ...patch } : x)))
+  /** Typing a known item fills in its last unit and rate (only into empty boxes). */
+  const setDescriptionAt = (k: number, description: string) => {
+    const s = findSuggestion(suggestions, description)
+    setItems((xs) => xs.map((x, i) => (i !== k ? x : {
+      ...x, description,
+      unit: x.unit || (s?.unit ?? ''), unit_price: x.unit_price || (s ? String(s.rate) : ''),
+    })))
+  }
 
   function save(submit: boolean) {
+    if (!categoryId && !legacyDepartment) { toast.error('Pick the work category'); return }
+    if (!requester.personId && !requester.name.trim()) { toast.error('Pick who requested it'); return }
     start(async () => {
       const r = await safeCall(() => saveRequisition({
         id: initial?.id, req_no: Number(reqNo) || undefined, project_id: projectId || null, req_date: date,
-        department, description, area_note: area, remarks, requested_by_name: requestedBy, items: parsed, submit,
+        category_id: categoryId || null, department: legacyDepartment || null,
+        requested_by_person: requester.personId || null, requested_by_name: requester.name,
+        description, area_note: area, remarks, items: parsed, submit,
       }))
       if (!r.success) { toast.error(r.error); return }
+      remember('req.category', categoryId); remember('req.requester', requester.personId)
       toast.success(submit ? 'Sent for checking' : 'Saved as draft')
       router.push(`/landscaping/requisitions/${r.data.id}`)
       router.refresh()
@@ -70,8 +91,10 @@ export function RequisitionForm({ initial, projects, nextNo, myName }: {
         </div>
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Input label="Department / Section" placeholder="Civil Works" value={department} onChange={(e) => setDepartment(e.target.value)} />
-        <Input label="Requested by" value={requestedBy} onChange={(e) => setRequestedBy(e.target.value)} />
+        <CategoryPick categories={categories} value={categoryId} onChange={setCategoryId} rememberKey="req.category"
+          label="Work category (Department / Section)" hint={legacyDepartment ? `Was typed as “${legacyDepartment}”` : 'Printed on the slip as the department'} />
+        <PersonPick label="Requested by" people={people} personId={requester.personId} name={requester.name} onChange={setRequester}
+          rememberKey="req.requester" fallbackName={initial ? undefined : myName} />
       </div>
       <Input label="Description" placeholder="Materials requisition for parking area" value={description} onChange={(e) => setDescription(e.target.value)} />
       <Input label="Area / size (optional)" placeholder="Parking Area – 5,670 SFT · Ramp – 825 SFT" value={area} onChange={(e) => setArea(e.target.value)} />
@@ -82,7 +105,7 @@ export function RequisitionForm({ initial, projects, nextNo, myName }: {
           {items.map((it, k) => (
             <div key={k} className="grid grid-cols-12 items-end gap-2 rounded-lg border border-gray-200 bg-gray-50 p-2">
               <div className="col-span-12 sm:col-span-5">
-                <Input label={k === 0 ? 'Item' : undefined} placeholder="Brick chips" value={it.description} onChange={(e) => set(k, { description: e.target.value })} />
+                <Input label={k === 0 ? 'Item' : undefined} list="ls-items" placeholder="Brick chips" value={it.description} onChange={(e) => setDescriptionAt(k, e.target.value)} />
               </div>
               <div className="col-span-4 sm:col-span-2">
                 <Input label={k === 0 ? 'Qty' : undefined} type="number" step="any" inputMode="decimal" value={it.qty} onChange={(e) => set(k, { qty: e.target.value })} />
@@ -101,9 +124,11 @@ export function RequisitionForm({ initial, projects, nextNo, myName }: {
                 </button>
               </div>
               <p className="col-span-12 hidden text-right text-xs tabular-nums text-gray-600 sm:block">= {formatBDT(lineAmount(parsed[k]))}</p>
+              <RateHint list={suggestions} description={it.description} rate={it.unit_price} />
             </div>
           ))}
           <datalist id="ls-units">{UNITS.map((u) => <option key={u} value={u} />)}</datalist>
+          <ItemDatalist list={suggestions} />
           <button type="button" onClick={() => setItems((xs) => [...xs, blank()])}
             className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-forest-400 bg-forest-50 px-3 py-1.5 text-xs font-medium text-forest-700">
             <Plus size={12} /> Add item

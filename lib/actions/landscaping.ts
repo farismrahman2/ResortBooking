@@ -49,8 +49,25 @@ export interface RequisitionInput {
   area_note?: string | null
   remarks?: string | null
   requested_by_name?: string | null
+  /** From the pick lists — the names are filled in from them. */
+  category_id?: string | null
+  requested_by_person?: string | null
   items: Array<{ description: string; qty: number; unit?: string | null; unit_price: number }>
   submit?: boolean
+}
+
+/** Category and requester picked from the lists → their ids plus the names printed on the slip. */
+async function picks(input: { category_id?: string | null; requested_by_person?: string | null; department?: string | null; requested_by_name?: string | null }) {
+  const [{ data: cat }, { data: person }] = await Promise.all([
+    input.category_id ? db().from('ls_work_categories').select('id, name').eq('id', input.category_id).maybeSingle() : Promise.resolve({ data: null }),
+    input.requested_by_person ? db().from('ls_people').select('id, name').eq('id', input.requested_by_person).maybeSingle() : Promise.resolve({ data: null }),
+  ])
+  return {
+    category_id: cat?.id ?? null,
+    department: cat?.name ?? (input.department?.trim() || null),
+    requested_by_person: person?.id ?? null,
+    requested_by_name: person?.name ?? (input.requested_by_name?.trim() || null),
+  }
 }
 
 /** Create or edit a requisition (draft or sent back), optionally submitting it for checking. */
@@ -64,9 +81,8 @@ export async function saveRequisition(input: RequisitionInput): Promise<ActionDa
 
   const header = {
     project_id: input.project_id || null, req_date: input.req_date || todayIso(),
-    department: input.department?.trim() || null, description: input.description.trim(),
-    area_note: input.area_note?.trim() || null, remarks: input.remarks?.trim() || null,
-    requested_by_name: input.requested_by_name?.trim() || null, total,
+    ...(await picks(input)), description: input.description.trim(),
+    area_note: input.area_note?.trim() || null, remarks: input.remarks?.trim() || null, total,
     ...(input.submit ? { status: 'submitted', submitted_at: new Date().toISOString() } : {}),
   }
 
@@ -268,6 +284,7 @@ export async function addExpense(input: {
   project_id: string | null; exp_date: string; category: 'labour' | 'food' | 'transport' | 'tools' | 'other' | 'before_system'
   description?: string; workers?: number | null; rate?: number | null; amount?: number
   payee?: string; method: Method; from_float?: boolean; photo_path?: string | null
+  work_category_id?: string | null
 }): Promise<ActionResult> {
   const me = await gate('pay'); if (typeof me === 'string') return fail(me)
   if (!METHODS.includes(input.method)) return fail('Pick how it was paid')
@@ -279,7 +296,7 @@ export async function addExpense(input: {
     project_id: input.project_id || null, exp_date: input.exp_date || todayIso(), category: input.category,
     description: input.description?.trim() || null, workers, rate, amount, payee: input.payee?.trim() || null,
     method: input.method, float_holder: input.method === 'cash' && input.from_float !== false ? me.user_id : null,
-    photo_path: input.photo_path || null,
+    photo_path: input.photo_path || null, work_category_id: input.work_category_id || null,
   })
   if (error) return fail(error.message)
   refresh('/landscaping/cash', '/landscaping/expenses', ...(input.project_id ? [`/landscaping/projects/${input.project_id}`] : []))
@@ -396,6 +413,36 @@ export async function photoUrl(path: string): Promise<string | null> {
   return data?.signedUrl ?? null
 }
 
+// ─── Pick lists (admin) ─────────────────────────────────────────────────────
+
+/** Add or edit someone on the people list (requested by, signed on paper, sardars). */
+export async function savePerson(input: { id?: string; name: string; designation?: string; phone?: string; is_active?: boolean }): Promise<ActionData<{ id: string }>> {
+  const me = await gate('admin'); if (typeof me === 'string') return fail(me)
+  const name = input.name?.trim().replace(/\s+/g, ' ')
+  if (!name) return fail('Enter the name')
+  const row = { name, designation: input.designation?.trim() || null, phone: input.phone?.trim() || null, is_active: input.is_active ?? true }
+  const res = input.id
+    ? await db().from('ls_people').update(row).eq('id', input.id).select('id').single()
+    : await db().from('ls_people').insert(row).select('id').single()
+  if (res.error) return fail(/duplicate|unique/i.test(res.error.message) ? `${name} is already on the list` : res.error.message)
+  refresh('/landscaping/team', '/landscaping/requisitions/new', '/landscaping/requisitions/past')
+  return { success: true, data: { id: res.data.id } }
+}
+
+/** Add, rename, reorder or hide a work category. Hidden ones stay on old records. */
+export async function saveWorkCategory(input: { id?: string; name: string; sort_order?: number; is_active?: boolean }): Promise<ActionData<{ id: string }>> {
+  const me = await gate('admin'); if (typeof me === 'string') return fail(me)
+  const name = input.name?.trim().replace(/\s+/g, ' ')
+  if (!name) return fail('Enter the category name')
+  const row = { name, sort_order: Math.floor(Number(input.sort_order ?? 100)) || 100, is_active: input.is_active ?? true }
+  const res = input.id
+    ? await db().from('ls_work_categories').update(row).eq('id', input.id).select('id').single()
+    : await db().from('ls_work_categories').insert(row).select('id').single()
+  if (res.error) return fail(/duplicate|unique/i.test(res.error.message) ? `${name} already exists` : res.error.message)
+  refresh('/landscaping/team', '/landscaping/reports')
+  return { success: true, data: { id: res.data.id } }
+}
+
 // ─── Bringing past paper records into the system (admin) ────────────────────
 
 export interface PastRequisitionInput {
@@ -407,6 +454,8 @@ export interface PastRequisitionInput {
   area_note?: string | null
   remarks?: string | null
   requested_by_name?: string | null
+  category_id?: string | null
+  requested_by_person?: string | null
   paper_prepared_by?: string | null
   paper_checked_by?: string | null
   paper_approved_by?: string | null
@@ -447,9 +496,8 @@ export async function recordPastRequisition(input: PastRequisitionInput): Promis
   const stamp = new Date(`${reqDate}T06:00:00Z`).toISOString()   // noon in Dhaka on the slip date
   const { data: req, error } = await db().from('ls_requisitions').insert({
     req_no: reqNo, project_id: input.project_id || null, req_date: reqDate,
-    department: input.department?.trim() || null, description: input.description.trim(),
-    area_note: input.area_note?.trim() || null, remarks: input.remarks?.trim() || null,
-    requested_by_name: input.requested_by_name?.trim() || null, total,
+    ...(await picks(input)), description: input.description.trim(),
+    area_note: input.area_note?.trim() || null, remarks: input.remarks?.trim() || null, total,
     status: 'approved', from_paper: true, prepared_by: me.user_id,
     submitted_at: stamp, checked_at: stamp, approved_at: stamp,
     paper_prepared_by: input.paper_prepared_by?.trim() || null,

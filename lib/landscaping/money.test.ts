@@ -94,3 +94,34 @@ describe('past paper slips', () => {
     expect(requisitionSpend(257000, [{ amount: 257000, paid: 257000 }])).toMatchObject({ billed: 257000, paid: 257000, unpaid: 0, overBudget: false })
   })
 })
+
+import { groupSpend, itemKey, lastRates, priceHistory, rateJump } from './money'
+
+describe('pick lists and analysis', () => {
+  const rows = [
+    { description: 'Brick chips', unit: 'CFT', unit_price: 180, date: '2026-09-01', req_no: 20 },
+    { description: 'brick  chips ', unit: 'CFT', unit_price: 200, date: '2026-10-05', req_no: 26 },
+    { description: 'Cement', unit: 'Bag', unit_price: 560, date: '2026-10-05', req_no: 26 },
+  ]
+  it('remembers the latest rate per item, ignoring case and spaces', () => {
+    const m = lastRates(rows)
+    expect(itemKey(' Brick   Chips')).toBe('brick chips')
+    expect(m.get('brick chips')?.unit_price).toBe(200)
+    expect(m.get('cement')?.unit).toBe('Bag')
+  })
+  it('warns only when a rate is more than 15% above last time', () => {
+    expect(rateJump(231, 200)).toBe(15.5)
+    expect(rateJump(230, 200)).toBeNull()
+    expect(rateJump(150, 200)).toBeNull()
+    expect(rateJump(500, null)).toBeNull()
+  })
+  it('builds price history with first, last and change', () => {
+    const h = priceHistory(rows)
+    expect(h[0]).toMatchObject({ times: 2, first: 180, last: 200, low: 180, high: 200, changePct: 11.1 })
+    expect(h[0].lines[0].unit_price).toBe(200)
+  })
+  it('groups spending with shares', () => {
+    const g = groupSpend([{ key: 'Civil works', amount: 300 }, { key: 'Trees & plants', amount: 100 }, { key: 'Civil works', amount: 100 }])
+    expect(g).toEqual([{ key: 'Civil works', amount: 400, pct: 80 }, { key: 'Trees & plants', amount: 100, pct: 20 }])
+  })
+})
