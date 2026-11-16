@@ -708,6 +708,10 @@ export type AdminAlertEvent =
   | 'change_requested'
   /** The admin approved or rejected such a request. */
   | 'change_request_decided'
+  /** Landscaping: bills on a requisition went over its approved amount. */
+  | 'landscaping_over_budget'
+  /** Landscaping: a recorded payment or expense was removed (admin correction). */
+  | 'landscaping_money_changed'
 
 export interface AdminAlertRow {
   id: string

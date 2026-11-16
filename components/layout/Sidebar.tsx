@@ -31,8 +31,7 @@ import {
   LogOut,
   User,
   Tags,
-  LayoutGrid,
-} from 'lucide-react'
+  LayoutGrid, Trees } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSidebar } from '@/lib/sidebar-context'
 
@@ -75,6 +74,8 @@ const navItems: NavItem[] = [
   { href: '/settings/room-prices', label: 'Room Prices', icon: Tags, onlyForRoles: ['admin', 'manager', 'md', 'accountant', 'operations_manager', 'reservation'] },
   // Front-desk-only shortcut to the one report they need (shift takings)
   { href: '/reports/income/by-payment-method', label: 'Daily Income', icon: Banknote, onlyForRoles: ['front_desk'] },
+  // A separate business (Garden Centre landscaping) — shown only with Landscaping access.
+  { href: '/landscaping',  label: 'Landscaping',  icon: Trees,          module: 'landscaping' },
   { href: '/settings',     label: 'Settings',     icon: Settings,       module: 'settings' },
 ]
 
