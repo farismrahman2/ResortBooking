@@ -191,3 +191,17 @@ export function groupSpend(rows: Array<{ key: string; amount: number }>) {
   return [...m.entries()].map(([key, amount]) => ({ key, amount: r2(amount), pct: total > 0 ? Math.round((amount / total) * 1000) / 10 : 0 }))
     .sort((a, b) => b.amount - a.amount)
 }
+
+/**
+ * Who may still change a requisition. The preparer (or admin) can fix it while
+ * it is a draft, sent back, or sent but not yet checked; the admin can also fix
+ * a checked one. Once approved it is locked. Fixing a sent one keeps it sent.
+ */
+export function editRule(status: string, isPreparer: boolean, isAdmin: boolean):
+  { ok: true; alreadySent: boolean } | { ok: false; why: string } {
+  if (!isPreparer && !isAdmin) return { ok: false, why: 'Only the person who prepared it can edit it' }
+  if (status === 'draft' || status === 'rejected') return { ok: true, alreadySent: false }
+  if (status === 'submitted') return { ok: true, alreadySent: true }
+  if (status === 'checked') return isAdmin ? { ok: true, alreadySent: true } : { ok: false, why: 'It has been checked — ask the admin to fix it' }
+  return { ok: false, why: status === 'approved' ? 'An approved requisition cannot be changed' : 'This requisition cannot be edited' }
+}

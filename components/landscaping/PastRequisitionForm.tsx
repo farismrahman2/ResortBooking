@@ -5,12 +5,14 @@ import { useRouter } from 'next/navigation'
 import { Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
+import { Select } from '@/components/ui/Select'
 import { recordPastRequisition } from '@/lib/actions/landscaping'
 import { lineAmount, requisitionTotal } from '@/lib/landscaping/money'
 import { formatBDT } from '@/lib/formatters/currency'
 import { safeCall } from '@/lib/actions/safe-call'
 import { toast } from '@/lib/toast'
 import { PhotoInput } from './PhotoInput'
+import { StickyActions, TAP } from './ui'
 import { CategoryPick, ItemDatalist, PersonPick, RateHint, findSuggestion, remember, type CategoryOpt, type ItemSuggestion, type PersonOpt } from './Picks'
 
 type Item = { description: string; qty: string; unit: string; unit_price: string }
@@ -23,8 +25,7 @@ const blankBill = (date: string): Bill => ({
   supplier_id: '', new_supplier: '', bill_no: '', bill_date: date, amount: '', photo: null,
   paid_amount: '', paid_date: date, paid_method: 'cash', paid_reference: '',
 })
-const select = 'min-h-[42px] w-full rounded-lg border border-gray-300 bg-white px-3 text-sm focus:border-forest-600 focus:outline-none'
-const H = ({ children }: { children: React.ReactNode }) => <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">{children}</h3>
+const H = ({ children }: { children: React.ReactNode }) => <h3 className="section-label mb-2">{children}</h3>
 
 /** Admin: one paper slip — requisition, its bills and what was paid — typed in at once. */
 export function PastRequisitionForm({ projects, suppliers, people, categories, suggestions }: {
@@ -94,7 +95,7 @@ export function PastRequisitionForm({ projects, suppliers, people, categories, s
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-5 rounded-xl border border-gray-200 bg-white p-4 sm:p-5">
+    <div className="mx-auto max-w-3xl space-y-5 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
       <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
         For slips already signed on paper. It is saved as <b>approved</b>, marked “Entered from paper”, and logged.
         Cash paid back then is <b>not</b> taken from anyone’s current cash in hand.
@@ -105,11 +106,10 @@ export function PastRequisitionForm({ projects, suppliers, people, categories, s
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Input label="Req. No. (from the slip)" inputMode="numeric" placeholder="00026" value={reqNo} onChange={(e) => setReqNo(e.target.value.replace(/\D/g, ''))} />
           <Input label="Date on the slip" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-          <div className="col-span-2"><label className="field-label">Project</label>
-            <select className={select} value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+          <div className="col-span-2"><Select label="Project" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
               <option value="">— Choose project —</option>
               {projects.map((p) => <option key={p.id} value={p.id}>{p.label} · {p.title}</option>)}
-            </select></div>
+            </Select></div>
         </div>
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <CategoryPick categories={categories} value={categoryId} onChange={setCategoryId} rememberKey="past.category" label="Work category (Department / Section)" />
@@ -126,20 +126,20 @@ export function PastRequisitionForm({ projects, suppliers, people, categories, s
         <div className="space-y-2">
           {items.map((it, k) => (
             <div key={k} className="grid grid-cols-12 items-end gap-2 rounded-lg border border-gray-200 bg-gray-50 p-2">
-              <div className="col-span-12 sm:col-span-5"><Input label={k === 0 ? 'Item' : undefined} list="ls-items" value={it.description} onChange={(e) => setItemName(k, e.target.value)} /></div>
-              <div className="col-span-4 sm:col-span-2"><Input label={k === 0 ? 'Qty' : undefined} type="number" step="any" inputMode="decimal" value={it.qty} onChange={(e) => setItem(k, { qty: e.target.value })} /></div>
-              <div className="col-span-4 sm:col-span-2"><Input label={k === 0 ? 'Unit' : undefined} list="ls-units" value={it.unit} onChange={(e) => setItem(k, { unit: e.target.value })} /></div>
-              <div className="col-span-4 sm:col-span-2"><Input label={k === 0 ? 'Rate (Tk)' : undefined} type="number" step="any" inputMode="decimal" value={it.unit_price} onChange={(e) => setItem(k, { unit_price: e.target.value })} /></div>
+              <div className="col-span-12 sm:col-span-5"><Input label={k === 0 ? 'Item' : undefined} aria-label="Item" placeholder="Item" list="ls-items" value={it.description} onChange={(e) => setItemName(k, e.target.value)} /></div>
+              <div className="col-span-4 sm:col-span-2"><Input label={k === 0 ? 'Qty' : undefined} aria-label="Qty" placeholder="Qty" type="number" step="any" inputMode="decimal" value={it.qty} onChange={(e) => setItem(k, { qty: e.target.value })} /></div>
+              <div className="col-span-4 sm:col-span-2"><Input label={k === 0 ? 'Unit' : undefined} aria-label="Unit" placeholder="Unit" list="ls-units" value={it.unit} onChange={(e) => setItem(k, { unit: e.target.value })} /></div>
+              <div className="col-span-4 sm:col-span-2"><Input label={k === 0 ? 'Rate (Tk)' : undefined} aria-label="Rate (Tk)" placeholder="Rate Tk" type="number" step="any" inputMode="decimal" value={it.unit_price} onChange={(e) => setItem(k, { unit_price: e.target.value })} /></div>
               <div className="col-span-12 flex items-center justify-between sm:col-span-1 sm:justify-end">
                 <span className="text-xs font-semibold tabular-nums sm:hidden">{formatBDT(lineAmount(parsed[k]))}</span>
-                <button type="button" onClick={() => setItems((xs) => (xs.length > 1 ? xs.filter((_, i) => i !== k) : [blankItem()]))} className="flex h-9 w-9 items-center justify-center rounded-lg text-gray-400 hover:text-red-600" aria-label="Remove item"><Trash2 size={15} /></button>
+                <button type="button" onClick={() => setItems((xs) => (xs.length > 1 ? xs.filter((_, i) => i !== k) : [blankItem()]))} className="flex h-10 w-10 items-center justify-center rounded-lg text-gray-400 hover:text-red-600" aria-label="Remove item"><Trash2 size={15} /></button>
               </div>
               <RateHint list={suggestions} description={it.description} rate={it.unit_price} />
             </div>
           ))}
           <datalist id="ls-units">{['CFT', 'SFT', 'RFT', 'Gari', 'Bag', 'Kg', 'Ton', 'Pcs', 'Nos', 'Day', 'Job'].map((u) => <option key={u} value={u} />)}</datalist>
           <ItemDatalist list={suggestions} />
-          <button type="button" onClick={() => setItems((xs) => [...xs, blankItem()])} className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-forest-400 bg-forest-50 px-3 py-1.5 text-xs font-medium text-forest-700"><Plus size={12} /> Add item</button>
+          <button type="button" onClick={() => setItems((xs) => [...xs, blankItem()])} className={`${TAP} inline-flex items-center gap-1.5 rounded-lg border border-dashed border-forest-400 bg-forest-50 px-4 text-sm font-medium text-forest-700`}><Plus size={15} /> Add another item</button>
         </div>
         <div className="mt-3 flex items-center justify-between rounded-lg bg-forest-50 px-4 py-3">
           <span className="text-sm font-semibold text-forest-900">Total amount</span><span className="text-lg font-bold tabular-nums text-forest-900">{formatBDT(total)}</span>
@@ -163,15 +163,14 @@ export function PastRequisitionForm({ projects, suppliers, people, categories, s
           {bills.map((b, k) => (
             <div key={k} className="space-y-3 rounded-lg border border-gray-200 p-3">
               <div className="flex items-center"><span className="text-sm font-semibold text-gray-800">Bill {k + 1}</span>
-                <button type="button" onClick={() => setBills((xs) => xs.filter((_, i) => i !== k))} className="ml-auto text-gray-400 hover:text-red-600" aria-label="Remove bill"><Trash2 size={15} /></button></div>
+                <button type="button" onClick={() => setBills((xs) => xs.filter((_, i) => i !== k))} className={`${TAP} ml-auto inline-flex items-center gap-1 rounded-lg px-2 text-xs text-gray-500 hover:text-red-600`} aria-label="Remove bill"><Trash2 size={15} /> Remove</button></div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div><label className="field-label">Supplier</label>
-                  <select className={select} value={b.supplier_id} onChange={(e) => setBill(k, { supplier_id: e.target.value })}>
+                <Select label="Supplier" value={b.supplier_id} onChange={(e) => setBill(k, { supplier_id: e.target.value })}>
                     <option value="">— Choose —</option>{suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}<option value="__new">+ New supplier…</option>
-                  </select></div>
+                  </Select>
                 {b.supplier_id === '__new' && <Input label="New supplier name" placeholder="Mubin Traders" value={b.new_supplier} onChange={(e) => setBill(k, { new_supplier: e.target.value })} />}
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <Input label="Bill / challan no." value={b.bill_no} onChange={(e) => setBill(k, { bill_no: e.target.value })} />
                 <Input label="Bill date" type="date" value={b.bill_date} onChange={(e) => setBill(k, { bill_date: e.target.value })} />
                 <Input label="Bill total (Tk)" type="number" step="any" inputMode="decimal" value={b.amount} onChange={(e) => setBill(k, { amount: e.target.value })} />
@@ -182,24 +181,23 @@ export function PastRequisitionForm({ projects, suppliers, people, categories, s
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <Input label="Paid (Tk)" type="number" step="any" inputMode="decimal" value={b.paid_amount} onChange={(e) => setBill(k, { paid_amount: e.target.value })} />
                   <Input label="Paid on" type="date" value={b.paid_date} onChange={(e) => setBill(k, { paid_date: e.target.value })} />
-                  <div><label className="field-label">How</label>
-                    <select className={select} value={b.paid_method} onChange={(e) => setBill(k, { paid_method: e.target.value as Bill['paid_method'] })}>
+                  <Select label="How" value={b.paid_method} onChange={(e) => setBill(k, { paid_method: e.target.value as Bill['paid_method'] })}>
                       <option value="cash">Cash</option><option value="bkash">bKash</option><option value="bank">Bank</option><option value="cheque">Cheque</option>
-                    </select></div>
+                    </Select>
                   <Input label="Reference" value={b.paid_reference} onChange={(e) => setBill(k, { paid_reference: e.target.value })} />
                 </div>
-                <button type="button" className="mt-2 text-xs font-medium text-forest-700 hover:underline" onClick={() => setBill(k, { paid_amount: b.amount, paid_date: b.paid_date || b.bill_date })}>Paid in full</button>
+                <button type="button" className={`${TAP} mt-1 px-1 text-sm font-medium text-forest-700 hover:underline`} onClick={() => setBill(k, { paid_amount: b.amount, paid_date: b.paid_date || b.bill_date })}>Paid in full</button>
               </div>
             </div>
           ))}
-          <button type="button" onClick={() => setBills((xs) => [...xs, blankBill(date)])} className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-forest-400 bg-forest-50 px-3 py-1.5 text-xs font-medium text-forest-700"><Plus size={12} /> Add a bill</button>
+          <button type="button" onClick={() => setBills((xs) => [...xs, blankBill(date)])} className={`${TAP} inline-flex items-center gap-1.5 rounded-lg border border-dashed border-forest-400 bg-forest-50 px-4 text-sm font-medium text-forest-700`}><Plus size={15} /> Add bill</button>
         </div>
       </section>
 
-      <div className="flex flex-wrap justify-end gap-2 border-t border-gray-100 pt-4">
-        <Button variant="outline" size="md" loading={pending} onClick={() => save(true)}>Save & enter the next slip</Button>
-        <Button variant="primary" size="md" loading={pending} onClick={() => save(false)}>Save</Button>
-      </div>
+      <StickyActions note={<span className="text-gray-700">Total <b className="tabular-nums">{formatBDT(total)}</b>{bills.length > 0 && <> · paid <b className="tabular-nums">{formatBDT(paid)}</b></>}</span>}>
+        <Button variant="outline" size="md" className={TAP} loading={pending} onClick={() => save(true)}>Save & next slip</Button>
+        <Button variant="primary" size="md" className={TAP} loading={pending} onClick={() => save(false)}>Save</Button>
+      </StickyActions>
     </div>
   )
 }

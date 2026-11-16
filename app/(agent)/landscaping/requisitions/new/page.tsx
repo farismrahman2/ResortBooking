@@ -6,14 +6,14 @@ import { getLsMe, itemSuggestions, listPeople, listProjects, listWorkCategories,
 
 export const dynamic = 'force-dynamic'
 
-export default async function NewRequisitionPage() {
+export default async function NewRequisitionPage({ searchParams }: { searchParams: { project?: string } }) {
   await requirePermission('landscaping', 'write')
   const [me, projects, nextNo, people, categories, suggestions] = await Promise.all([getLsMe(), listProjects(), nextRequisitionNo(), listPeople(), listWorkCategories(), itemSuggestions()])
   return (
     <div className="flex h-full flex-col">
       <Topbar title="New requisition" subtitle="Landscaping requisition slip" />
       <LsPage tab="requisitions">
-        <RequisitionForm projects={projects.filter((p) => p.status !== 'cancelled' && p.status !== 'completed')} nextNo={nextNo} myName={me?.name ?? ''}
+        <RequisitionForm projects={projects.filter((p) => p.status !== 'cancelled' && p.status !== 'completed')} nextNo={nextNo} myName={me?.name ?? ''} initialProjectId={searchParams.project}
           people={people} categories={categories} suggestions={suggestions} />
       </LsPage>
     </div>

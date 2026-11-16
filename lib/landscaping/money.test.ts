@@ -125,3 +125,16 @@ describe('pick lists and analysis', () => {
     expect(g).toEqual([{ key: 'Civil works', amount: 400, pct: 80 }, { key: 'Trees & plants', amount: 100, pct: 20 }])
   })
 })
+
+import { editRule } from './money'
+
+describe('editing a requisition', () => {
+  it('lets the preparer fix it until it is checked, keeping a sent one sent', () => {
+    expect(editRule('draft', true, false)).toEqual({ ok: true, alreadySent: false })
+    expect(editRule('submitted', true, false)).toEqual({ ok: true, alreadySent: true })
+    expect(editRule('checked', true, false).ok).toBe(false)
+    expect(editRule('checked', false, true)).toEqual({ ok: true, alreadySent: true })
+    expect(editRule('approved', true, true).ok).toBe(false)
+    expect(editRule('submitted', false, false).ok).toBe(false)
+  })
+})

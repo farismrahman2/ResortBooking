@@ -1,10 +1,11 @@
 'use client'
 
-import { useMemo, useState, useTransition } from 'react'
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, RotateCcw, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
+import { Select } from '@/components/ui/Select'
 import { Textarea } from '@/components/ui/Textarea'
 import { saveRequisition, type RequisitionInput } from '@/lib/actions/landscaping'
 import { lineAmount, requisitionTotal, formatReqNo } from '@/lib/landscaping/money'
@@ -12,13 +13,16 @@ import { formatBDT } from '@/lib/formatters/currency'
 import { safeCall } from '@/lib/actions/safe-call'
 import { toast } from '@/lib/toast'
 import { CategoryPick, ItemDatalist, PersonPick, RateHint, findSuggestion, remember, type CategoryOpt, type ItemSuggestion, type PersonOpt } from './Picks'
+import { StickyActions, TAP } from './ui'
 
 type Item = { description: string; qty: string; unit: string; unit_price: string }
+type Pick = { personId: string; name: string }
 const blank = (): Item => ({ description: '', qty: '', unit: '', unit_price: '' })
 const UNITS = ['CFT', 'SFT', 'RFT', 'Gari', 'Bag', 'Kg', 'Ton', 'Pcs', 'Nos', 'Litre', 'Day', 'Job']
+const DRAFT_KEY = 'ls.req.unsaved'
 
-/** New or sent-back requisition — the ASU Requisition Slip, typed on a phone. */
-export function RequisitionForm({ initial, projects, nextNo, myName, people, categories, suggestions }: {
+/** New, sent-back or not-yet-checked requisition — the ASU Requisition Slip, typed on a phone. */
+export function RequisitionForm({ initial, projects, nextNo, myName, people, categories, suggestions, initialProjectId, status }: {
   initial?: RequisitionInput & { id: string; req_no: number }
   projects: Array<{ id: string; code: string; title: string; label?: string }>
   nextNo: number
@@ -26,125 +30,228 @@ export function RequisitionForm({ initial, projects, nextNo, myName, people, cat
   people: PersonOpt[]
   categories: CategoryOpt[]
   suggestions: ItemSuggestion[]
+  /** From "New requisition for this project". */
+  initialProjectId?: string
+  /** Current status when editing — a sent one stays in the queue for checking. */
+  status?: string
 }) {
   const router = useRouter()
   const [pending, start] = useTransition()
+  const alreadySent = status === 'submitted' || status === 'checked'
   const [reqNo, setReqNo] = useState(String(initial?.req_no ?? nextNo))
-  const [projectId, setProjectId] = useState(initial?.project_id ?? (projects.length === 1 ? projects[0].id : ''))
+  const [projectId, setProjectId] = useState(initial?.project_id ?? initialProjectId ?? (projects.length === 1 ? projects[0].id : ''))
   const [date, setDate] = useState(initial?.req_date ?? new Date().toISOString().slice(0, 10))
   const [categoryId, setCategoryId] = useState(initial?.category_id ?? '')
   const legacyDepartment = !initial?.category_id ? initial?.department ?? '' : ''
   const [description, setDescription] = useState(initial?.description ?? '')
   const [area, setArea] = useState(initial?.area_note ?? '')
   const [remarks, setRemarks] = useState(initial?.remarks ?? '')
-  const [requester, setRequester] = useState({
+  const [requester, setRequester] = useState<Pick>({
     personId: initial?.requested_by_person ?? '',
     name: initial && !initial.requested_by_person ? initial.requested_by_name ?? '' : '',
   })
+  // Names printed on the slip's signature lines. Text, as on paper; picked from the people list.
+  const asPick = (name?: string | null): Pick => {
+    const hit = name ? people.find((p) => p.name.toLowerCase() === name.trim().toLowerCase()) : null
+    return hit ? { personId: hit.id, name: '' } : { personId: '', name: name ?? '' }
+  }
+  const [slipPrepared, setSlipPrepared] = useState(asPick(initial?.slip_prepared_by))
+  const [slipChecked, setSlipChecked] = useState(asPick(initial?.slip_checked_by))
+  const [slipApproved, setSlipApproved] = useState(asPick(initial?.slip_approved_by))
+  const nameOf = (v: Pick) => (v.personId ? people.find((p) => p.id === v.personId)?.name ?? '' : v.name.trim())
   const [items, setItems] = useState<Item[]>(
     initial?.items.map((i) => ({ description: i.description, qty: String(i.qty), unit: i.unit ?? '', unit_price: String(i.unit_price) })) ?? [blank()],
   )
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [restorable, setRestorable] = useState<Record<string, unknown> | null>(null)
 
   const parsed = useMemo(() => items.map((i) => ({ description: i.description, qty: Number(i.qty) || 0, unit: i.unit, unit_price: Number(i.unit_price) || 0 })), [items])
   const total = requisitionTotal(parsed.filter((i) => i.qty > 0))
   const set = (k: number, patch: Partial<Item>) => setItems((xs) => xs.map((x, i) => (i === k ? { ...x, ...patch } : x)))
   /** Typing a known item fills in its last unit and rate (only into empty boxes). */
-  const setDescriptionAt = (k: number, description: string) => {
-    const s = findSuggestion(suggestions, description)
+  const setDescriptionAt = (k: number, value: string) => {
+    const s = findSuggestion(suggestions, value)
     setItems((xs) => xs.map((x, i) => (i !== k ? x : {
-      ...x, description,
+      ...x, description: value,
       unit: x.unit || (s?.unit ?? ''), unit_price: x.unit_price || (s ? String(s.rate) : ''),
     })))
   }
 
+  // ── A new slip is kept on this phone while typing, so Back or a refresh loses nothing.
+  const snapshot = { projectId, date, categoryId, description, area, remarks, requester, items }
+  const started = useRef(false)
+  useEffect(() => {
+    if (initial) return
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(DRAFT_KEY) ?? 'null')
+      if (saved && (saved.description || saved.items?.some((i: Item) => i.description))) setRestorable(saved)
+    } catch { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  useEffect(() => {
+    if (initial) return
+    if (!started.current) { started.current = true; return }
+    const t = setTimeout(() => { try { window.localStorage.setItem(DRAFT_KEY, JSON.stringify(snapshot)) } catch { /* private mode */ } }, 400)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, date, categoryId, description, area, remarks, requester, items])
+  function restore() {
+    const s = restorable as typeof snapshot
+    if (!s) return
+    setProjectId(s.projectId ?? ''); setDate(s.date ?? date); setCategoryId(s.categoryId ?? ''); setDescription(s.description ?? '')
+    setArea(s.area ?? ''); setRemarks(s.remarks ?? ''); if (s.requester) setRequester(s.requester); if (s.items?.length) setItems(s.items)
+    setRestorable(null)
+  }
+  function discard() { try { window.localStorage.removeItem(DRAFT_KEY) } catch { /* ignore */ } setRestorable(null) }
+
+  function validate() {
+    const e: Record<string, string> = {}
+    if (!projectId) e.project = 'Choose the project'
+    if (!categoryId && !legacyDepartment) e.category = 'Choose the work category'
+    if (!requester.personId && !requester.name.trim()) e.requester = 'Who asked for it?'
+    if (!description.trim()) e.description = 'Say what it is for, e.g. “Septic tank wall”'
+    const filled = items.filter((i) => i.description.trim())
+    if (filled.length === 0) e.items = 'Add at least one item'
+    items.forEach((i, k) => {
+      if (!i.description.trim()) return
+      if (!(Number(i.qty) > 0)) e[`qty${k}`] = 'Qty?'
+      if (i.unit_price === '' || Number(i.unit_price) < 0) e[`rate${k}`] = 'Rate?'
+    })
+    setErrors(e)
+    if (Object.keys(e).length) {
+      toast.error('Please fix the boxes marked in red')
+      document.querySelector('[data-err="1"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+    return Object.keys(e).length === 0
+  }
+
   function save(submit: boolean) {
-    if (!categoryId && !legacyDepartment) { toast.error('Pick the work category'); return }
-    if (!requester.personId && !requester.name.trim()) { toast.error('Pick who requested it'); return }
+    if (!validate()) return
     start(async () => {
       const r = await safeCall(() => saveRequisition({
         id: initial?.id, req_no: Number(reqNo) || undefined, project_id: projectId || null, req_date: date,
         category_id: categoryId || null, department: legacyDepartment || null,
         requested_by_person: requester.personId || null, requested_by_name: requester.name,
-        description, area_note: area, remarks, items: parsed, submit,
+        slip_prepared_by: nameOf(slipPrepared) || null, slip_checked_by: nameOf(slipChecked) || null, slip_approved_by: nameOf(slipApproved) || null,
+        description, area_note: area, remarks, items: parsed.filter((i) => i.description.trim()), submit,
       }))
       if (!r.success) { toast.error(r.error); return }
       remember('req.category', categoryId); remember('req.requester', requester.personId)
-      toast.success(submit ? 'Sent for checking' : 'Saved as draft')
+      remember('req.prepared', slipPrepared.personId); remember('req.checked', slipChecked.personId); remember('req.approved', slipApproved.personId)
+      if (!initial) discard()
+      toast.success(alreadySent ? 'Changes saved — still waiting for checking' : submit ? 'Sent for checking' : 'Saved as draft')
       router.push(`/landscaping/requisitions/${r.data.id}`)
       router.refresh()
     })
   }
 
+  const err = (k: string) => errors[k]
   return (
-    <div className="mx-auto max-w-3xl space-y-4 rounded-xl border border-gray-200 bg-white p-4 sm:p-5">
+    <div className="mx-auto max-w-3xl space-y-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
+      {restorable && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <RotateCcw size={15} /> <span className="flex-1">You have an unsaved requisition on this phone.</span>
+          <Button size="md" variant="primary" className={TAP} onClick={restore}>Restore it</Button>
+          <Button size="md" variant="outline" className={TAP} onClick={discard}>Start fresh</Button>
+        </div>
+      )}
+      {alreadySent && (
+        <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+          This one is already sent. Your changes keep it in the queue{status === 'checked' ? ', and it will need checking again' : ' for checking'}.
+        </p>
+      )}
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Input label="Req. No." inputMode="numeric" value={reqNo} disabled={!!initial} hint={initial ? undefined : `Next free: ${formatReqNo(nextNo)}`}
           onChange={(e) => setReqNo(e.target.value.replace(/\D/g, ''))} />
         <Input label="Date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-        <div className="col-span-2">
-          <label className="field-label">Project</label>
-          <select value={projectId} onChange={(e) => setProjectId(e.target.value)}
-            className="min-h-[42px] w-full rounded-lg border border-gray-300 bg-white px-3 text-sm focus:border-forest-600 focus:outline-none">
+        <div className="col-span-2" data-err={err('project') ? 1 : undefined}>
+          <Select label="Project" value={projectId} error={err('project')} onChange={(e) => setProjectId(e.target.value)}>
             <option value="">— Choose project —</option>
             {projects.map((p) => <option key={p.id} value={p.id}>{p.label ?? p.code} · {p.title}</option>)}
-          </select>
+          </Select>
         </div>
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <CategoryPick categories={categories} value={categoryId} onChange={setCategoryId} rememberKey="req.category"
-          label="Work category (Department / Section)" hint={legacyDepartment ? `Was typed as “${legacyDepartment}”` : 'Printed on the slip as the department'} />
-        <PersonPick label="Requested by" people={people} personId={requester.personId} name={requester.name} onChange={setRequester}
-          rememberKey="req.requester" fallbackName={initial ? undefined : myName} />
+        <div data-err={err('category') ? 1 : undefined}>
+          <CategoryPick categories={categories} value={categoryId} onChange={setCategoryId} rememberKey="req.category" error={err('category')}
+            label="Work category (Department / Section)" hint={legacyDepartment ? `Was typed as “${legacyDepartment}”` : 'Printed on the slip as the department'} />
+        </div>
+        <div data-err={err('requester') ? 1 : undefined}>
+          <PersonPick label="Requested by" people={people} personId={requester.personId} name={requester.name} onChange={setRequester} error={err('requester')}
+            rememberKey="req.requester" fallbackName={initial ? undefined : myName} />
+        </div>
       </div>
-      <Input label="Description" placeholder="Materials requisition for parking area" value={description} onChange={(e) => setDescription(e.target.value)} />
-      <Input label="Area / size (optional)" placeholder="Parking Area – 5,670 SFT · Ramp – 825 SFT" value={area} onChange={(e) => setArea(e.target.value)} />
+      <div data-err={err('description') ? 1 : undefined}>
+        <Input label="Description" placeholder="e.g. Septic tank wall" value={description} error={err('description')} onChange={(e) => setDescription(e.target.value)} />
+      </div>
+      <Input label="Area / size (optional)" placeholder="Length 10 ft, Width 5 ft, Height 7 ft" value={area} onChange={(e) => setArea(e.target.value)} />
 
-      <div>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">Items</h3>
+      <div data-err={err('items') ? 1 : undefined}>
+        <h3 className="section-label mb-2">Items</h3>
+        {err('items') && <p className="mb-2 text-xs text-red-600">{err('items')}</p>}
         <div className="space-y-2">
           {items.map((it, k) => (
-            <div key={k} className="grid grid-cols-12 items-end gap-2 rounded-lg border border-gray-200 bg-gray-50 p-2">
+            <div key={k} className="grid grid-cols-12 items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 p-2.5">
+              <div className="col-span-12 flex items-center gap-2 sm:hidden">
+                <span className="text-xs font-semibold text-gray-500">Item {k + 1}</span>
+                <span className="ml-auto text-sm font-semibold tabular-nums text-gray-800">{formatBDT(lineAmount(parsed[k]))}</span>
+              </div>
               <div className="col-span-12 sm:col-span-5">
-                <Input label={k === 0 ? 'Item' : undefined} list="ls-items" placeholder="Brick chips" value={it.description} onChange={(e) => setDescriptionAt(k, e.target.value)} />
+                <Input label={k === 0 ? 'Item' : undefined} aria-label="Item" list="ls-items" placeholder="Bricks, cement, sand…" value={it.description} onChange={(e) => setDescriptionAt(k, e.target.value)} />
+              </div>
+              {/* On phones every box shows its name, not just the first row. */}
+              <div className="col-span-4 sm:col-span-2" data-err={err(`qty${k}`) ? 1 : undefined}>
+                <Input label={k === 0 ? 'Qty' : undefined} aria-label="Qty" placeholder="Qty" type="number" step="any" inputMode="decimal" value={it.qty} error={err(`qty${k}`)} onChange={(e) => set(k, { qty: e.target.value })} />
               </div>
               <div className="col-span-4 sm:col-span-2">
-                <Input label={k === 0 ? 'Qty' : undefined} type="number" step="any" inputMode="decimal" value={it.qty} onChange={(e) => set(k, { qty: e.target.value })} />
+                <Input label={k === 0 ? 'Unit' : undefined} aria-label="Unit" list="ls-units" placeholder="Unit" value={it.unit} onChange={(e) => set(k, { unit: e.target.value })} />
               </div>
-              <div className="col-span-4 sm:col-span-2">
-                <Input label={k === 0 ? 'Unit' : undefined} list="ls-units" placeholder="CFT" value={it.unit} onChange={(e) => set(k, { unit: e.target.value })} />
+              <div className="col-span-4 sm:col-span-2" data-err={err(`rate${k}`) ? 1 : undefined}>
+                <Input label={k === 0 ? 'Rate (Tk)' : undefined} aria-label="Rate (Tk)" placeholder="Rate Tk" type="number" step="any" inputMode="decimal" value={it.unit_price} error={err(`rate${k}`)} onChange={(e) => set(k, { unit_price: e.target.value })} />
               </div>
-              <div className="col-span-4 sm:col-span-2">
-                <Input label={k === 0 ? 'Rate (Tk)' : undefined} type="number" step="any" inputMode="decimal" value={it.unit_price} onChange={(e) => set(k, { unit_price: e.target.value })} />
-              </div>
-              <div className="col-span-12 flex items-center justify-between sm:col-span-1 sm:justify-end">
-                <span className="text-xs font-semibold tabular-nums text-gray-700 sm:hidden">{formatBDT(lineAmount(parsed[k]))}</span>
+              <div className={`col-span-12 flex justify-end sm:col-span-1 ${k === 0 ? 'sm:pt-6' : ''}`}>
                 <button type="button" onClick={() => setItems((xs) => xs.length > 1 ? xs.filter((_, i) => i !== k) : [blank()])}
-                  className="flex h-9 w-9 items-center justify-center rounded-lg text-gray-400 hover:bg-white hover:text-red-600" aria-label="Remove item">
-                  <Trash2 size={15} />
+                  className="flex h-10 items-center gap-1 rounded-lg px-2 text-xs text-gray-500 hover:bg-white hover:text-red-600 sm:w-10 sm:justify-center sm:px-0" aria-label={`Remove item ${k + 1}`}>
+                  <Trash2 size={16} /><span className="sm:hidden">Remove</span>
                 </button>
               </div>
-              <p className="col-span-12 hidden text-right text-xs tabular-nums text-gray-600 sm:block">= {formatBDT(lineAmount(parsed[k]))}</p>
+              <p className="col-span-12 -mt-1 hidden text-right text-xs tabular-nums text-gray-600 sm:block">= {formatBDT(lineAmount(parsed[k]))}</p>
               <RateHint list={suggestions} description={it.description} rate={it.unit_price} />
             </div>
           ))}
           <datalist id="ls-units">{UNITS.map((u) => <option key={u} value={u} />)}</datalist>
           <ItemDatalist list={suggestions} />
           <button type="button" onClick={() => setItems((xs) => [...xs, blank()])}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-forest-400 bg-forest-50 px-3 py-1.5 text-xs font-medium text-forest-700">
-            <Plus size={12} /> Add item
+            className={`${TAP} inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-forest-400 bg-forest-50 px-4 text-sm font-medium text-forest-700 hover:bg-forest-100 sm:w-auto`}>
+            <Plus size={15} /> Add another item
           </button>
-        </div>
-        <div className="mt-3 flex items-center justify-between rounded-lg bg-forest-50 px-4 py-3">
-          <span className="text-sm font-semibold text-forest-900">Total amount</span>
-          <span className="text-lg font-bold tabular-nums text-forest-900">{formatBDT(total)}</span>
         </div>
       </div>
 
       <Textarea label="Remarks / Notes" value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={2} />
-      <div className="flex flex-wrap justify-end gap-2">
-        <Button variant="outline" size="md" loading={pending} onClick={() => save(false)}>Save draft</Button>
-        <Button variant="primary" size="md" loading={pending} onClick={() => save(true)}>Send for checking</Button>
+
+      <div>
+        <h3 className="section-label mb-1">Names on the slip</h3>
+        <p className="mb-2 text-xs text-gray-500">Printed on the signature lines. The app still records who actually checks and approves it, and when.</p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <PersonPick label="Prepared by" people={people} personId={slipPrepared.personId} name={slipPrepared.name} onChange={setSlipPrepared}
+            rememberKey="req.prepared" fallbackName={initial ? undefined : myName} />
+          <PersonPick label="Checked by" people={people} personId={slipChecked.personId} name={slipChecked.name} onChange={setSlipChecked}
+            rememberKey="req.checked" />
+          <PersonPick label="Approved by" people={people} personId={slipApproved.personId} name={slipApproved.name} onChange={setSlipApproved}
+            rememberKey="req.approved" fallbackName={initial ? undefined : 'MD'} />
+        </div>
       </div>
+
+      <StickyActions note={<span className="font-semibold text-forest-900">Total <span className="tabular-nums">{formatBDT(total)}</span></span>}>
+        {alreadySent ? (
+          <Button variant="primary" size="md" className={TAP} loading={pending} onClick={() => save(true)}>Save changes</Button>
+        ) : (<>
+          <Button variant="outline" size="md" className={TAP} loading={pending} onClick={() => save(false)}>Save draft</Button>
+          <Button variant="primary" size="md" className={TAP} loading={pending} onClick={() => save(true)}>Send for checking</Button>
+        </>)}
+      </StickyActions>
     </div>
   )
 }

@@ -1,15 +1,17 @@
+import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { AlertTriangle } from 'lucide-react'
 import { Topbar } from '@/components/layout/Topbar'
 import { LsPage } from '@/components/landscaping/LsNav'
-import { LsStatus } from '@/components/landscaping/LsStatus'
+import { LsStatus, LsTag } from '@/components/landscaping/LsStatus'
 import { RequisitionActions } from '@/components/landscaping/RequisitionActions'
 import { BillForm } from '@/components/landscaping/BillForm'
 import { PayBillButton } from '@/components/landscaping/PayBillButton'
 import { ViewPhoto } from '@/components/landscaping/ViewPhoto'
+import { LsEmpty, LsSection, Money, NextStep, StatTile } from '@/components/landscaping/ui'
 import { requirePermission } from '@/lib/auth/permissions'
 import { getLsMe, getRequisition, listSuppliers } from '@/lib/queries/landscaping'
-import { formatReqNo } from '@/lib/landscaping/money'
+import { editRule, formatReqNo } from '@/lib/landscaping/money'
 import { formatBDT } from '@/lib/formatters/currency'
 
 export const dynamic = 'force-dynamic'
@@ -21,44 +23,87 @@ export default async function RequisitionPage({ params }: { params: { id: string
   const [me, data, suppliers] = await Promise.all([getLsMe(), getRequisition(params.id), listSuppliers()])
   if (!data || !me) notFound()
   const { req, items, bills, spend, names } = data
+  const mine = req.prepared_by === me.user_id
+  const canBill = req.status === 'approved' && (me.can_prepare || me.can_pay || me.is_admin)
+  const canEdit = editRule(req.status, mine, me.is_admin).ok
+  const leftToBill = Math.max(0, spend.approved - spend.billed)
+  const billForm = canBill ? <BillForm fixedRequisitionId={req.id} requisitions={[]} suppliers={suppliers} /> : null
+
+  // What happens next, in one line, for this person.
+  const next = (() => {
+    switch (req.status) {
+      case 'draft': return { tone: 'warn' as const, text: <><b>Not sent yet.</b> Check the items, then tap <b>Send for checking</b>.</> }
+      case 'rejected': return { tone: 'bad' as const, text: <><b>Sent back{names.rejected ? ` by ${names.rejected}` : ''}:</b> {req.reject_note ?? 'needs changes'}. Edit it and send again.</> }
+      case 'submitted': return { tone: 'info' as const, text: <><b>Waiting for a checker.</b>{canEdit ? ' Spotted a mistake? You can still edit it until it is checked.' : ''}</> }
+      case 'checked': return { tone: 'info' as const, text: <><b>Checked{names.checked ? ` by ${names.checked}` : ''}</b> — waiting for approval.</> }
+      case 'approved':
+        if (bills.length === 0) return { tone: 'good' as const, text: <><b>Approved.</b> Order the items, then add the supplier bill here.</>, action: billForm }
+        if (spend.overBudget) return null
+        if (leftToBill > 0.5) return { tone: 'good' as const, text: <>Approved · billed {formatBDT(spend.billed)} · <b>{formatBDT(leftToBill)} left to bill</b>.</> }
+        return spend.unpaid > 0.5 ? { tone: 'warn' as const, text: <>Fully billed · <b>{formatBDT(spend.unpaid)} still due</b> to suppliers.</> } : { tone: 'good' as const, text: <>Fully billed and paid.</> }
+      case 'cancelled': return { tone: 'bad' as const, text: <>Cancelled — not used for ordering.</> }
+      default: return null
+    }
+  })()
+
+  const projectLabel = req.project ? `${req.project.parent ? `${req.project.parent.code} › ` : ''}${req.project.code} · ${req.project.title}` : null
+  const sign = (label: string, slipName: string | null, inApp: string | null, at: string | null) => (
+    <div className="rounded-lg bg-gray-50 px-3 py-2">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{label}</p>
+      <p className="text-sm font-semibold text-gray-900">{slipName ?? inApp ?? '—'}</p>
+      <p className="text-xs text-gray-500">{req.from_paper ? 'Signed on paper' : at ? `In the app${inApp && inApp !== slipName ? `: ${inApp}` : ''} · ${when(at)}` : 'Not yet'}</p>
+    </div>
+  )
 
   return (
     <div className="flex h-full flex-col">
       <Topbar title={`Requisition ${formatReqNo(req.req_no)}`} subtitle={req.description} />
       <LsPage tab="requisitions">
-        <div className="flex flex-wrap items-center gap-3">
-          <LsStatus status={req.status} />
-          {req.from_paper && <span className="rounded-full border border-gray-300 bg-gray-50 px-2 py-0.5 text-[10px] font-semibold uppercase text-gray-600">Entered from paper{names.prepared ? ` by ${names.prepared}` : ''}</span>}
-          {req.slip_photo_path && <ViewPhoto path={req.slip_photo_path} />}
-          <span className="text-sm text-gray-600">{req.project ? `${req.project.parent?.code ? `${req.project.parent.code} › ` : ''}${req.project.code} · ${req.project.title}` : 'No project'} · {req.req_date}</span>
-          <div className="ml-auto"><RequisitionActions req={req} me={me} hasBills={bills.length > 0} /></div>
+        <div className="space-y-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-mono text-lg font-bold text-gray-900">{formatReqNo(req.req_no)}</span>
+            <LsStatus status={req.status} />
+            {req.from_paper && <LsTag>Entered from paper{names.prepared ? ` by ${names.prepared}` : ''}</LsTag>}
+            {req.slip_photo_path && <ViewPhoto path={req.slip_photo_path} />}
+          </div>
+          <p className="text-sm text-gray-700">
+            {projectLabel ? <Link href={`/landscaping/projects/${req.project.id}`} className="font-medium text-forest-700 hover:underline">{projectLabel}</Link> : 'No project'}
+            <span className="text-gray-500"> · {req.req_date}</span>
+          </p>
+          <RequisitionActions req={req} me={me} hasBills={bills.length > 0} />
         </div>
 
-        {req.status === 'rejected' && req.reject_note && (
-          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">Sent back by {names.rejected ?? 'someone'}: {req.reject_note}</p>
-        )}
+        {next && <NextStep tone={next.tone} action={'action' in next ? next.action : undefined}>{next.text}</NextStep>}
         {spend.overBudget && (
-          <p className="flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-800">
-            <AlertTriangle size={15} /> Bills are {formatBDT(spend.overBy)} over the approved amount.
-          </p>
+          <NextStep tone="bad"><span className="inline-flex items-center gap-1.5 font-medium"><AlertTriangle size={15} /> Bills are {formatBDT(spend.overBy)} over the approved amount.</span></NextStep>
         )}
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {[['Approved', spend.approved], ['Billed', spend.billed], ['Paid', spend.paid], ['Still unpaid', spend.unpaid]].map(([l, v]) => (
-            <div key={l as string} className="rounded-xl border border-gray-200 bg-white px-4 py-3">
-              <p className="text-xs text-gray-500">{l}</p>
-              <p className="text-lg font-semibold tabular-nums text-gray-900">{formatBDT(v as number)}</p>
-            </div>
-          ))}
+          <StatTile label="Approved" value={formatBDT(spend.approved)} />
+          <StatTile label="Billed" value={formatBDT(spend.billed)} tone={spend.overBudget ? 'bad' : 'neutral'} />
+          <StatTile label="Paid" value={formatBDT(spend.paid)} tone={spend.paid > 0 ? 'good' : 'neutral'} />
+          <StatTile label="Due" value={formatBDT(spend.unpaid)} tone={spend.unpaid > 0.5 ? 'owed' : 'neutral'} />
         </div>
 
-        <div className="rounded-xl border border-gray-200 bg-white">
-          <div className="grid grid-cols-1 gap-2 border-b border-gray-100 px-4 py-3 text-sm sm:grid-cols-2">
-            <p><span className="text-gray-500">Department:</span> {req.department ?? '—'}</p>
-            <p><span className="text-gray-500">Requested by:</span> {req.requested_by_name ?? '—'}</p>
-            {req.area_note && <p className="sm:col-span-2"><span className="text-gray-500">Area:</span> {req.area_note}</p>}
-          </div>
-          <table className="w-full text-sm">
+        <LsSection title="Slip details">
+          <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 px-4 py-3 text-sm sm:grid-cols-2">
+            <div className="flex gap-2"><dt className="text-gray-500">Work category:</dt><dd className="font-medium">{req.department ?? '—'}</dd></div>
+            <div className="flex gap-2"><dt className="text-gray-500">Requested by:</dt><dd className="font-medium">{req.requested_by_name ?? '—'}</dd></div>
+            {req.area_note && <div className="flex gap-2 sm:col-span-2"><dt className="text-gray-500">Area:</dt><dd>{req.area_note}</dd></div>}
+          </dl>
+          {/* Phones: one card per item. Larger screens: a table. */}
+          <ul className="divide-y divide-gray-100 border-t border-gray-100 sm:hidden">
+            {items.map((i) => (
+              <li key={i.id} className="flex items-start gap-3 px-4 py-2.5 text-sm">
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-gray-900">{i.line_no}. {i.description}</p>
+                  <p className="text-xs text-gray-500">{i.qty.toLocaleString('en-IN')} {i.unit ?? ''} × {formatBDT(i.unit_price)}</p>
+                </div>
+                <span className="font-semibold tabular-nums">{formatBDT(i.amount)}</span>
+              </li>
+            ))}
+          </ul>
+          <table className="hidden w-full text-sm sm:table">
             <thead className="bg-gray-50 text-left text-xs text-gray-500">
               <tr><th className="px-4 py-2">Item</th><th className="px-2 py-2 text-right">Qty</th><th className="px-2 py-2 text-right">Rate</th><th className="px-4 py-2 text-right">Amount</th></tr>
             </thead>
@@ -71,47 +116,46 @@ export default async function RequisitionPage({ params }: { params: { id: string
                   <td className="px-4 py-2 text-right font-medium tabular-nums">{formatBDT(i.amount)}</td>
                 </tr>
               ))}
-              <tr className="border-t border-gray-200 bg-forest-50"><td colSpan={3} className="px-4 py-2 font-semibold text-forest-900">Total</td><td className="px-4 py-2 text-right font-bold tabular-nums text-forest-900">{formatBDT(req.total)}</td></tr>
             </tbody>
           </table>
+          <div className="flex items-center justify-between border-t border-gray-200 bg-forest-50 px-4 py-2.5">
+            <span className="font-semibold text-forest-900">Total</span><span className="text-lg font-bold tabular-nums text-forest-900">{formatBDT(req.total)}</span>
+          </div>
           {req.remarks && <p className="border-t border-gray-100 px-4 py-2 text-sm text-gray-600">Remarks: {req.remarks}</p>}
-          <div className="grid grid-cols-1 gap-2 border-t border-gray-100 px-4 py-3 text-xs text-gray-600 sm:grid-cols-3">
-            {req.from_paper ? (<>
-              <p><b className="text-gray-800">Prepared</b> {req.paper_prepared_by ?? '—'} (on paper)</p>
-              <p><b className="text-gray-800">Checked</b> {req.paper_checked_by ?? '—'} (on paper)</p>
-              <p><b className="text-gray-800">Approved</b> {req.paper_approved_by ?? '—'} (on paper) · {req.req_date}</p>
-            </>) : (<>
-              <p><b className="text-gray-800">Prepared</b> {names.prepared ?? '—'}{req.submitted_at ? ` · ${when(req.submitted_at)}` : ''}</p>
-              <p><b className="text-gray-800">Checked</b> {names.checked ?? '—'}{req.checked_at ? ` · ${when(req.checked_at)}` : ''}</p>
-              <p><b className="text-gray-800">Approved</b> {names.approved ?? '—'}{req.approved_at ? ` · ${when(req.approved_at)}` : ''}</p>
-            </>)}
+          <div className="grid grid-cols-1 gap-2 border-t border-gray-100 p-3 sm:grid-cols-3">
+            {sign('Prepared by', req.paper_prepared_by, names.prepared, req.submitted_at)}
+            {sign('Checked by', req.paper_checked_by, names.checked, req.checked_at)}
+            {sign('Approved by', req.paper_approved_by, names.approved, req.approved_at)}
           </div>
-        </div>
+        </LsSection>
 
-        <div className="rounded-xl border border-gray-200 bg-white">
-          <div className="flex items-center border-b border-gray-100 px-4 py-3">
-            <h3 className="text-sm font-semibold text-gray-900">Supplier bills</h3>
-            {req.status === 'approved' && (me.can_prepare || me.can_pay || me.is_admin) && (
-              <div className="ml-auto"><BillForm fixedRequisitionId={req.id} requisitions={[]} suppliers={suppliers} /></div>
-            )}
-          </div>
-          {req.status !== 'approved' && <p className="px-4 py-3 text-xs text-gray-500">Bills can be added once this requisition is approved.</p>}
-          {bills.length === 0 ? (req.status === 'approved' && <p className="px-4 py-4 text-sm text-gray-500">No bills yet.</p>) : (
+        <LsSection title="Supplier bills" meta={bills.length ? `${bills.length} · ${formatBDT(spend.billed)}` : undefined} action={bills.length > 0 ? billForm : undefined}>
+          {req.status !== 'approved' ? (
+            <LsEmpty title="Bills can be added once this requisition is approved." />
+          ) : bills.length === 0 ? (
+            <LsEmpty title="No bills yet." hint="When the supplier delivers, add their bill or challan here with a photo." action={billForm} />
+          ) : (
             <ul className="divide-y divide-gray-100">
               {bills.map((b) => (
-                <li key={b.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-sm">
-                  <LsStatus status={b.status} />
-                  <span className="font-medium text-gray-900">{b.supplier_name}</span>
-                  <span className="text-xs text-gray-500">Bill {b.bill_no ?? '—'} · {b.bill_date}</span>
-                  {b.photo_path && <ViewPhoto path={b.photo_path} />}
-                  <span className="ml-auto tabular-nums">{formatBDT(b.amount)}{b.paid > 0 && b.status !== 'paid' ? ` · paid ${formatBDT(b.paid)}` : ''}</span>
+                <li key={b.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3 text-sm">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Link href={`/landscaping/suppliers/${b.supplier_id}`} className="font-medium text-forest-700 hover:underline">{b.supplier_name}</Link>
+                      <LsStatus status={b.status} />
+                      {b.photo_path && <ViewPhoto path={b.photo_path} />}
+                    </div>
+                    <p className="text-xs text-gray-500">Bill {b.bill_no ?? '—'} · {b.bill_date}{b.note ? ` · ${b.note}` : ''}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-semibold tabular-nums">{formatBDT(b.amount)}</p>
+                    {b.status !== 'paid' && <p className="text-xs">due <Money value={b.amount - b.paid} kind="owed" /></p>}
+                  </div>
                   {b.status !== 'paid' && (me.can_pay || me.is_admin) && <PayBillButton billId={b.id} due={b.amount - b.paid} label={`${b.supplier_name} bill ${b.bill_no ?? ''}`} />}
-                  {b.note && <p className="w-full text-xs text-gray-500">{b.note}</p>}
                 </li>
               ))}
             </ul>
           )}
-        </div>
+        </LsSection>
       </LsPage>
     </div>
   )

@@ -292,6 +292,19 @@ export async function getProject(id: string) {
   }
 }
 
+/**
+ * A project's main project, looked up by parent_id. (The self-join embed in
+ * PostgREST picks the sub-projects direction, so it isn't used.)
+ */
+async function parentLookup() {
+  const { data } = await db().from('ls_projects').select('id, code, title')
+  const byId = new Map(((data ?? []) as Array<{ id: string; code: string; title: string }>).map((p) => [p.id, p]))
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (proj: any) => (proj?.parent_id ? byId.get(proj.parent_id) ?? null : null)
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const codeLabel = (proj: any, parent: { code: string } | null) => (proj ? (parent ? `${parent.code} › ${proj.code}` : proj.code) : null)
+
 // ─── Requisitions ───────────────────────────────────────────────────────────
 
 export interface LsRequisitionRow {
@@ -305,12 +318,12 @@ export interface LsRequisitionRow {
 
 export async function listRequisitions(opts: { status?: string; projectId?: string; projectIds?: string[] } = {}): Promise<LsRequisitionRow[]> {
   let q = db().from('ls_requisitions')
-    .select('id, req_no, req_date, department, description, status, total, project_id, requested_by_name, prepared_by, from_paper, project:ls_projects(code, parent:ls_projects!parent_id(code)), ls_bills(amount, ls_bill_payments(amount))')
+    .select('id, req_no, req_date, department, description, status, total, project_id, requested_by_name, prepared_by, from_paper, project:ls_projects(code, parent_id), ls_bills(amount, ls_bill_payments(amount))')
     .order('req_no', { ascending: false }).limit(500)
   if (opts.status) q = q.eq('status', opts.status)
   if (opts.projectId) q = q.eq('project_id', opts.projectId)
   if (opts.projectIds) q = q.in('project_id', opts.projectIds)
-  const { data } = await q
+  const [{ data }, parentOf] = await Promise.all([q, parentLookup()])
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return ((data ?? []) as any[]).map((r) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -318,7 +331,7 @@ export async function listRequisitions(opts: { status?: string; projectId?: stri
     const s = requisitionSpend(n(r.total), bills)
     return {
       id: r.id, req_no: r.req_no, req_date: r.req_date, department: r.department, description: r.description,
-      status: r.status, total: n(r.total), project_id: r.project_id, project_code: r.project ? (r.project.parent?.code ? `${r.project.parent.code} › ${r.project.code}` : r.project.code) : null,
+      status: r.status, total: n(r.total), project_id: r.project_id, project_code: codeLabel(r.project, parentOf(r.project)),
       requested_by_name: r.requested_by_name, prepared_by: r.prepared_by,
       billed: s.billed, paid: s.paid, overBudget: s.overBudget, billCount: bills.length, from_paper: !!r.from_paper,
     }
@@ -349,11 +362,12 @@ const BILL_SELECT = '*, supplier:ls_suppliers(name), req:ls_requisitions(req_no,
 
 export async function getRequisition(id: string) {
   const [{ data: req }, { data: items }, { data: bills }] = await Promise.all([
-    db().from('ls_requisitions').select('*, project:ls_projects(id, code, title, site, parent:ls_projects!parent_id(code, title))').eq('id', id).maybeSingle(),
+    db().from('ls_requisitions').select('*, project:ls_projects(id, code, title, site, parent_id)').eq('id', id).maybeSingle(),
     db().from('ls_requisition_items').select('*').eq('requisition_id', id).order('line_no'),
     db().from('ls_bills').select(BILL_SELECT).eq('requisition_id', id).order('bill_date'),
   ])
   if (!req) return null
+  if (req.project) req.project.parent = (await parentLookup())(req.project)
   const billRows = ((bills ?? []) as unknown[]).map(toBill)
   const names = await namesFor([req.prepared_by, req.checked_by, req.approved_by, req.rejected_by])
   return {
@@ -376,10 +390,11 @@ export async function nextRequisitionNo(): Promise<number> {
 
 /** Approved requisitions that can take bills. */
 export async function approvedRequisitions() {
-  const { data } = await db().from('ls_requisitions').select('id, req_no, description, total, project:ls_projects(code, parent:ls_projects!parent_id(code))').eq('status', 'approved').order('req_no', { ascending: false })
+  const { data } = await db().from('ls_requisitions').select('id, req_no, description, total, project:ls_projects(code, parent_id)').eq('status', 'approved').order('req_no', { ascending: false })
+  const parentOf = await parentLookup()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return ((data ?? []) as any[]).map((r) => ({ id: r.id, req_no: r.req_no, description: r.description, total: n(r.total),
-    project_code: r.project ? (r.project.parent?.code ? `${r.project.parent.code} › ${r.project.code}` : r.project.code) : null }))
+    project_code: codeLabel(r.project, parentOf(r.project)) }))
 }
 
 // ─── Bills & suppliers ──────────────────────────────────────────────────────

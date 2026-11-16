@@ -56,9 +56,10 @@ export interface LsRequisitionPdfInput {
   total: number
   remarks: string | null
   status: string
-  prepared: { name: string | null; at: string | null }
-  checked:  { name: string | null; at: string | null }
-  approved: { name: string | null; at: string | null }
+  /** name = printed on the line; by/at = who did that step in the app, and when. */
+  prepared: { name: string | null; at: string | null; by?: string | null }
+  checked:  { name: string | null; at: string | null; by?: string | null }
+  approved: { name: string | null; at: string | null; by?: string | null }
   /** Entered from a paper slip: names as signed on paper. */
   fromPaper?: boolean
 }
@@ -80,12 +81,13 @@ export function LsRequisitionPdf(p: LsRequisitionPdfInput) {
               <View style={s.meta}><Text style={s.metaL}>Date:</Text><Text style={s.metaV}>{day(p.date)}</Text></View>
               <View style={s.meta}><Text style={s.metaL}>Req. No.:</Text><Text style={s.metaV}>{p.reqNo}</Text></View>
               <View style={s.meta}><Text style={s.metaL}>Requested By:</Text><Text style={s.metaV}>{p.requestedBy ?? '-'}</Text></View>
-              <View style={s.meta}><Text style={s.metaL}>Project / Location:</Text><Text style={s.metaV}>{p.projectLabel ?? '-'}</Text></View>
             </View>
           </View>
         </View>
         <View style={[s.meta, { marginTop: 6 }]}><Text style={s.metaL}>Department / Section:</Text><Text style={[s.metaV, { width: 300, flexGrow: 0 }]}>{p.department ?? '-'}</Text></View>
         <View style={s.meta}><Text style={s.metaL}>Description:</Text><Text style={[s.metaV, { width: 300, flexGrow: 0 }]}>{p.description}</Text></View>
+        {/* Full width so a long project name wraps instead of running off the page. */}
+        <View style={s.meta}><Text style={s.metaL}>Project / Location:</Text><Text style={[s.metaV, { width: 560, flexGrow: 0, textAlign: 'left', paddingLeft: 4 }]}>{p.projectLabel ?? '-'}</Text></View>
         {p.area && <Text style={s.area}>{p.area}</Text>}
 
         <View style={s.table}>
@@ -107,7 +109,7 @@ export function LsRequisitionPdf(p: LsRequisitionPdfInput) {
             <View key={label} style={s.sign}>
               <Text style={s.signL}>{label}</Text>
               <Text style={s.signN}>{who.name ?? ' '}</Text>
-              <Text style={s.signD}>{who.at ? `In the system · ${stampDay(who.at)}` : p.fromPaper ? 'Signed on the paper slip' : 'Signature'}</Text>
+              <Text style={s.signD}>{who.at ? `In the system${who.by && who.by !== who.name ? `: ${who.by}` : ''} · ${stampDay(who.at)}` : p.fromPaper ? 'Signed on the paper slip' : 'Signature'}</Text>
             </View>
           ))}
         </View>

@@ -28,7 +28,12 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     // A slip entered from paper shows the names written on the paper.
     ...(req.from_paper
       ? { prepared: { name: req.paper_prepared_by, at: null }, checked: { name: req.paper_checked_by, at: null }, approved: { name: req.paper_approved_by, at: null }, fromPaper: true }
-      : { prepared: { name: names.prepared, at: req.submitted_at }, checked: { name: names.checked, at: req.checked_at }, approved: { name: names.approved, at: req.approved_at } }),
+      // Names picked on the form go on the lines; the app's own record (who pressed the button, when) is the small stamp.
+      : {
+          prepared: { name: req.paper_prepared_by ?? names.prepared, by: names.prepared, at: req.submitted_at },
+          checked:  { name: req.paper_checked_by ?? names.checked, by: names.checked, at: req.checked_at },
+          approved: { name: req.paper_approved_by ?? names.approved, by: names.approved, at: req.approved_at },
+        }),
   }))
   return new NextResponse(buffer as unknown as BodyInit, {
     headers: {

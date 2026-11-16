@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { Input } from '@/components/ui/Input'
+import { Select } from '@/components/ui/Select'
 import { itemKey, rateJump } from '@/lib/landscaping/money'
 import { formatBDT } from '@/lib/formatters/currency'
 
@@ -16,7 +17,6 @@ export type PersonOpt = { id: string; name: string; designation?: string | null 
 export type CategoryOpt = { id: string; name: string }
 export type ItemSuggestion = { description: string; unit: string | null; rate: number; date: string }
 
-export const pickSelect = 'min-h-[42px] w-full rounded-lg border border-gray-300 bg-white px-3 text-sm focus:border-forest-600 focus:outline-none'
 const OTHER = '__other'
 
 export function recall(key: string): string | null {
@@ -39,10 +39,10 @@ export function useRememberedPick(key: string, value: string, set: (v: string) =
 }
 
 /** A person from the list, or someone typed in. value = person id, or '' with a typed name. */
-export function PersonPick({ label, people, personId, name, onChange, rememberKey, fallbackName, placeholder }: {
+export function PersonPick({ label, people, personId, name, onChange, rememberKey, fallbackName, placeholder, error }: {
   label: string; people: PersonOpt[]; personId: string; name: string
   onChange: (v: { personId: string; name: string }) => void
-  rememberKey: string; fallbackName?: string; placeholder?: string
+  rememberKey: string; fallbackName?: string; placeholder?: string; error?: string
 }) {
   const [typing, setTyping] = useState(!personId && !!name)
   useEffect(() => {
@@ -56,8 +56,7 @@ export function PersonPick({ label, people, personId, name, onChange, rememberKe
   }, [])
   return (
     <div className="space-y-2">
-      <label className="field-label">{label}</label>
-      <select className={pickSelect} value={typing ? OTHER : personId}
+      <Select label={label} error={typing ? undefined : error} value={typing ? OTHER : personId}
         onChange={(e) => {
           if (e.target.value === OTHER) { setTyping(true); onChange({ personId: '', name: '' }) }
           else { setTyping(false); onChange({ personId: e.target.value, name: '' }) }
@@ -65,25 +64,21 @@ export function PersonPick({ label, people, personId, name, onChange, rememberKe
         <option value="">— Choose —</option>
         {people.map((p) => <option key={p.id} value={p.id}>{p.name}{p.designation ? ` (${p.designation})` : ''}</option>)}
         <option value={OTHER}>Someone else (type the name)…</option>
-      </select>
-      {typing && <Input placeholder={placeholder ?? 'Name'} value={name} onChange={(e) => onChange({ personId: '', name: e.target.value })} />}
+      </Select>
+      {typing && <Input aria-label={`${label} — name`} placeholder={placeholder ?? 'Type the name'} value={name} error={error} onChange={(e) => onChange({ personId: '', name: e.target.value })} />}
     </div>
   )
 }
 
-export function CategoryPick({ categories, value, onChange, rememberKey, label = 'Work category', hint }: {
-  categories: CategoryOpt[]; value: string; onChange: (id: string) => void; rememberKey: string; label?: string; hint?: string
+export function CategoryPick({ categories, value, onChange, rememberKey, label = 'Work category', hint, error }: {
+  categories: CategoryOpt[]; value: string; onChange: (id: string) => void; rememberKey: string; label?: string; hint?: string; error?: string
 }) {
   useRememberedPick(rememberKey, value, onChange, categories.map((c) => c.id))
   return (
-    <div>
-      <label className="field-label">{label}</label>
-      <select className={pickSelect} value={value} onChange={(e) => onChange(e.target.value)}>
-        <option value="">— Choose category —</option>
-        {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-      </select>
-      {hint && <p className="mt-1 text-xs text-gray-500">{hint}</p>}
-    </div>
+    <Select label={label} hint={hint} error={error} value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">— Choose category —</option>
+      {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+    </Select>
   )
 }
 

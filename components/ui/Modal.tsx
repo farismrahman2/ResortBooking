@@ -11,6 +11,8 @@ interface ModalProps {
   children: ReactNode
   size?: 'sm' | 'md' | 'lg' | 'xl'
   className?: string
+  /** Optional bar pinned under the scrolling body (e.g. Save / Cancel). */
+  footer?: ReactNode
 }
 
 const sizes = {
@@ -20,7 +22,7 @@ const sizes = {
   xl: 'sm:max-w-2xl',
 }
 
-export function Modal({ open, onClose, title, children, size = 'md', className }: ModalProps) {
+export function Modal({ open, onClose, title, children, size = 'md', className, footer }: ModalProps) {
   useEffect(() => {
     if (open) {
       document.body.style.overflow = 'hidden'
@@ -61,6 +63,7 @@ export function Modal({ open, onClose, title, children, size = 'md', className }
           </div>
         )}
         <div className="overflow-y-auto flex-1 p-5">{children}</div>
+        {footer && <div className="flex flex-shrink-0 flex-wrap justify-end gap-2 border-t border-gray-200 px-5 py-3">{footer}</div>}
       </div>
     </div>
   )

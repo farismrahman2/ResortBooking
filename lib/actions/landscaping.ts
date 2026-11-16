@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { requirePermission } from '@/lib/auth/permissions'
 import { flagAlert } from '@/lib/auth/alerts'
 import { getLsMe, getRequisition, nextRequisitionNo, type LsMe } from '@/lib/queries/landscaping'
-import { canActOnRequisition, formatReqNo, lineAmount, requisitionSpend, requisitionTotal } from '@/lib/landscaping/money'
+import { canActOnRequisition, editRule, formatReqNo, lineAmount, requisitionSpend, requisitionTotal } from '@/lib/landscaping/money'
 import { formatBDT } from '@/lib/formatters/currency'
 import type { ActionResult, ActionData } from './types'
 
@@ -52,6 +52,10 @@ export interface RequisitionInput {
   /** From the pick lists — the names are filled in from them. */
   category_id?: string | null
   requested_by_person?: string | null
+  /** Names printed on the slip's signature lines (picked from the people list). */
+  slip_prepared_by?: string | null
+  slip_checked_by?: string | null
+  slip_approved_by?: string | null
   items: Array<{ description: string; qty: number; unit?: string | null; unit_price: number }>
   submit?: boolean
 }
@@ -83,20 +87,32 @@ export async function saveRequisition(input: RequisitionInput): Promise<ActionDa
     project_id: input.project_id || null, req_date: input.req_date || todayIso(),
     ...(await picks(input)), description: input.description.trim(),
     area_note: input.area_note?.trim() || null, remarks: input.remarks?.trim() || null, total,
+    paper_prepared_by: input.slip_prepared_by?.trim() || null,
+    paper_checked_by: input.slip_checked_by?.trim() || null,
+    paper_approved_by: input.slip_approved_by?.trim() || null,
     ...(input.submit ? { status: 'submitted', submitted_at: new Date().toISOString() } : {}),
   }
 
   let id = input.id
   if (id) {
-    const { data: cur } = await db().from('ls_requisitions').select('status, prepared_by').eq('id', id).maybeSingle()
+    const { data: cur } = await db().from('ls_requisitions').select('status, prepared_by, req_no, total').eq('id', id).maybeSingle()
     if (!cur) return fail('Requisition not found')
-    if (!['draft', 'rejected'].includes(cur.status)) return fail('Only a draft or a sent-back requisition can be edited')
-    if (cur.prepared_by !== me.user_id && !me.is_admin) return fail('Only the person who prepared it can edit it')
+    const edit = editRule(cur.status, cur.prepared_by === me.user_id, me.is_admin)
+    if (!edit.ok) return fail(edit.why)
+    // Fixing a sent one keeps it in the queue for checking, with any check cleared.
+    const stillSent = edit.alreadySent
     const { error } = await db().from('ls_requisitions').update({
-      ...header, ...(input.submit ? {} : { status: 'draft' }),
+      ...header, ...(stillSent ? { status: 'submitted' } : input.submit ? {} : { status: 'draft' }),
       checked_by: null, checked_at: null, rejected_by: null, rejected_at: null, reject_note: null, updated_at: new Date().toISOString(),
     }).eq('id', id)
     if (error) return fail(error.message)
+    if (stillSent) {
+      await flagAlert({
+        event_type: 'landscaping_money_changed', entity_type: 'ls_requisition', entity_id: id,
+        summary: `Landscaping Req ${formatReqNo(cur.req_no)} edited after sending (${cur.status}) — total ${formatBDT(Number(cur.total))} → ${formatBDT(total)}`,
+        payload: { from: Number(cur.total), to: total, status: cur.status }, created_by: me.user_id,
+      })
+    }
     const { error: delErr } = await db().from('ls_requisition_items').delete().eq('requisition_id', id)
     if (delErr) return fail(delErr.message)
   } else {
