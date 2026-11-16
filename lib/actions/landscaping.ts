@@ -318,10 +318,23 @@ export async function saveClient(input: { id?: string; name: string; company?: s
 export async function saveProject(input: {
   id?: string; code: string; title: string; client_id?: string | null; new_client?: string
   site?: string; contract_value: number; start_date?: string | null; end_date?: string | null; status?: string; notes?: string
+  /** Makes this a sub-project (e.g. ASU → Parking). One level only. */
+  parent_id?: string | null
 }): Promise<ActionData<{ id: string }>> {
   const me = await gate(); if (typeof me === 'string') return fail(me)
   if (!me.is_admin && !me.can_approve) return fail('Only the admin or an approver can set up projects')
   if (!input.code?.trim() || !input.title?.trim()) return fail('Project code and title are required')
+  const parentId = input.parent_id || null
+  if (parentId) {
+    if (parentId === input.id) return fail('A project cannot be part of itself')
+    const { data: parent } = await db().from('ls_projects').select('parent_id, client_id').eq('id', parentId).maybeSingle()
+    if (!parent) return fail('Main project not found')
+    if (parent.parent_id) return fail('A sub-project cannot have sub-projects of its own')
+    if (input.id) {
+      const { count } = await db().from('ls_projects').select('id', { count: 'exact', head: true }).eq('parent_id', input.id)
+      if (count) return fail('This project has sub-projects, so it cannot become one')
+    }
+  }
   let clientId = input.client_id || null
   if (!clientId && input.new_client?.trim()) {
     const c = await saveClient({ name: input.new_client })
@@ -332,12 +345,13 @@ export async function saveProject(input: {
     code: input.code.trim().toUpperCase(), title: input.title.trim(), client_id: clientId, site: input.site?.trim() || null,
     contract_value: money(input.contract_value), start_date: input.start_date || null, end_date: input.end_date || null,
     status: input.status || 'active', notes: input.notes?.trim() || null, updated_at: new Date().toISOString(),
+    parent_id: parentId,
   }
   const res = input.id
     ? await db().from('ls_projects').update(row).eq('id', input.id).select('id').single()
     : await db().from('ls_projects').insert(row).select('id').single()
   if (res.error) return fail(/duplicate|unique/i.test(res.error.message) ? 'That project code is already used' : res.error.message)
-  refresh('/landscaping/projects', `/landscaping/projects/${res.data.id}`)
+  refresh('/landscaping/projects', `/landscaping/projects/${res.data.id}`, ...(parentId ? [`/landscaping/projects/${parentId}`] : []))
   return { success: true, data: { id: res.data.id } }
 }
 

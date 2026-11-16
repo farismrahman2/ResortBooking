@@ -19,7 +19,7 @@ const UNITS = ['CFT', 'SFT', 'RFT', 'Gari', 'Bag', 'Kg', 'Ton', 'Pcs', 'Nos', 'L
 /** New or sent-back requisition — the ASU Requisition Slip, typed on a phone. */
 export function RequisitionForm({ initial, projects, nextNo, myName }: {
   initial?: RequisitionInput & { id: string; req_no: number }
-  projects: Array<{ id: string; code: string; title: string }>
+  projects: Array<{ id: string; code: string; title: string; label?: string }>
   nextNo: number
   myName: string
 }) {
@@ -65,7 +65,7 @@ export function RequisitionForm({ initial, projects, nextNo, myName }: {
           <select value={projectId} onChange={(e) => setProjectId(e.target.value)}
             className="min-h-[42px] w-full rounded-lg border border-gray-300 bg-white px-3 text-sm focus:border-forest-600 focus:outline-none">
             <option value="">— Choose project —</option>
-            {projects.map((p) => <option key={p.id} value={p.id}>{p.code} · {p.title}</option>)}
+            {projects.map((p) => <option key={p.id} value={p.id}>{p.label ?? p.code} · {p.title}</option>)}
           </select>
         </div>
       </div>

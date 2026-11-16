@@ -28,7 +28,7 @@ export default async function RequisitionPage({ params }: { params: { id: string
       <LsPage tab="requisitions">
         <div className="flex flex-wrap items-center gap-3">
           <LsStatus status={req.status} />
-          <span className="text-sm text-gray-600">{req.project ? `${req.project.code} · ${req.project.title}` : 'No project'} · {req.req_date}</span>
+          <span className="text-sm text-gray-600">{req.project ? `${req.project.parent?.code ? `${req.project.parent.code} › ` : ''}${req.project.code} · ${req.project.title}` : 'No project'} · {req.req_date}</span>
           <div className="ml-auto"><RequisitionActions req={req} me={me} hasBills={bills.length > 0} /></div>
         </div>
 

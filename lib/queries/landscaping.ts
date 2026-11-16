@@ -1,8 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentUserContext } from '@/lib/auth/permissions'
 import {
-  billStatus, floatBalance, projectFinancials, requisitionSpend, supplierBalance, nextReqNo,
-  type BillStatus,
+  accountStatement, billStatus, floatBalance, projectFinancials, requisitionSpend, subProjectBudget, supplierBalance,
+  nextReqNo, withSubProjects, type AccountEntry, type BillStatus, type ProjectInputs,
 } from '@/lib/landscaping/money'
 
 /**
@@ -72,12 +72,31 @@ export interface LsProjectRow {
   id: string; code: string; title: string; site: string | null; status: string
   contract_value: number; start_date: string | null; end_date: string | null; notes: string | null
   client_id: string | null; client_name: string | null
+  /** Set on a sub-project (e.g. ASU → Parking). */
+  parent_id: string | null; parent_code: string | null
+  /** "ASU" or "ASU › Parking" — for pickers and lists. */
+  label: string
 }
 
 export async function listProjects(): Promise<LsProjectRow[]> {
-  const { data } = await db().from('ls_projects').select('*, client:ls_clients(name)').order('created_at', { ascending: false })
+  const { data } = await db().from('ls_projects').select('*, client:ls_clients(name)').order('code')
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return ((data ?? []) as any[]).map((p) => ({ ...p, contract_value: n(p.contract_value), client_name: p.client?.name ?? null }))
+  const rows = (data ?? []) as any[]
+  const codeOf = new Map(rows.map((p) => [p.id, p.code]))
+  const out: LsProjectRow[] = rows.map((p) => {
+    const parentCode = p.parent_id ? codeOf.get(p.parent_id) ?? null : null
+    return {
+      ...p, contract_value: n(p.contract_value), client_name: p.client?.name ?? null,
+      parent_id: p.parent_id ?? null, parent_code: parentCode,
+      label: parentCode ? `${parentCode} › ${p.code}` : p.code,
+    }
+  })
+  // Each main project followed by its sub-projects.
+  const mains = out.filter((p) => !p.parent_id)
+  return [
+    ...mains.flatMap((m) => [m, ...out.filter((c) => c.parent_id === m.id)]),
+    ...out.filter((p) => p.parent_id && !mains.some((m) => m.id === p.parent_id)),
+  ]
 }
 
 export async function listClients() {
@@ -85,7 +104,9 @@ export async function listClients() {
   return (data ?? []) as Array<{ id: string; name: string; company: string | null; phone: string | null; email: string | null; address: string | null }>
 }
 
-/** Every project's figures at once (projects list, overview, reports). */
+/** Every project's figures at once (projects list, overview, reports). A main
+ *  project's `f` includes its sub-projects; a sub-project's `f` is its own, and
+ *  `budget` measures it against its own budget. */
 export async function projectsWithFinancials() {
   const [projects, { data: vars }, { data: recs }, { data: reqs }, { data: exps }] = await Promise.all([
     listProjects(),
@@ -95,31 +116,40 @@ export async function projectsWithFinancials() {
     db().from('ls_expenses').select('project_id, amount'),
   ])
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const by = <T extends { project_id: string | null }>(rows: T[] | null) => {
-    const m = new Map<string | null, T[]>()
+  const by = (rows: any[] | null) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const m = new Map<string | null, any[]>()
     for (const r of rows ?? []) m.set(r.project_id, [...(m.get(r.project_id) ?? []), r])
     return m
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const V = by(vars as any[]), R = by(recs as any[]), Q = by(reqs as any[]), E = by(exps as any[])
-  return projects.map((p) => {
+  const V = by(vars), R = by(recs), Q = by(reqs), E = by(exps)
+  const inputs = new Map<string, ProjectInputs>(projects.map((p) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const bills = (Q.get(p.id) ?? []).flatMap((q: any) => q.ls_bills ?? [])
+    return [p.id, {
+      contract: p.contract_value,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      variations: (V.get(p.id) ?? []).map((v: any) => n(v.amount)),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      receipts: (R.get(p.id) ?? []).map((r: any) => n(r.amount)),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      bills: bills.map((b: any) => n(b.amount)),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      billPayments: bills.flatMap((b: any) => (b.ls_bill_payments ?? []).map((x: any) => n(x.amount))),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expenses: (E.get(p.id) ?? []).map((e: any) => n(e.amount)),
+    }]
+  }))
+  return projects.map((p) => {
+    const own = inputs.get(p.id)!
+    const subs = projects.filter((c) => c.parent_id === p.id)
+    const ownF = projectFinancials(own)
     return {
       ...p,
-      f: projectFinancials({
-        contract: p.contract_value,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        variations: (V.get(p.id) ?? []).map((v: any) => n(v.amount)),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        receipts: (R.get(p.id) ?? []).map((r: any) => n(r.amount)),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        bills: bills.map((b: any) => n(b.amount)),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        billPayments: bills.flatMap((b: any) => (b.ls_bill_payments ?? []).map((x: any) => n(x.amount))),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        expenses: (E.get(p.id) ?? []).map((e: any) => n(e.amount)),
-      }),
+      subIds: subs.map((c) => c.id),
+      ownF,
+      f: subs.length ? withSubProjects(own, subs.map((c) => inputs.get(c.id)!)) : ownF,
+      budget: p.parent_id ? subProjectBudget(p.contract_value, ownF.spent) : null,
     }
   })
 }
@@ -128,17 +158,39 @@ export async function getProject(id: string) {
   const all = await projectsWithFinancials()
   const project = all.find((p) => p.id === id)
   if (!project) return null
-  const [{ data: variations }, { data: receipts }, { data: expenses }, reqs] = await Promise.all([
-    db().from('ls_variations').select('*').eq('project_id', id).order('var_date', { ascending: false }),
-    db().from('ls_client_receipts').select('*').eq('project_id', id).order('receipt_date', { ascending: false }),
-    db().from('ls_expenses').select('*').eq('project_id', id).order('exp_date', { ascending: false }),
-    listRequisitions({ projectId: id }),
+  const ids = [project.id, ...project.subIds]
+  const codeOf = new Map(all.map((p) => [p.id, p.code]))
+  const [{ data: variations }, { data: receipts }, { data: expenses }, reqs, { data: payments }] = await Promise.all([
+    db().from('ls_variations').select('*').in('project_id', ids).order('var_date', { ascending: false }),
+    db().from('ls_client_receipts').select('*').in('project_id', ids).order('receipt_date', { ascending: false }),
+    db().from('ls_expenses').select('*').in('project_id', ids).order('exp_date', { ascending: false }),
+    listRequisitions({ projectIds: ids }),
+    db().from('ls_bill_payments').select('pay_date, amount, method, reference, bill:ls_bills!inner(bill_no, supplier:ls_suppliers(name), req:ls_requisitions!inner(req_no, project_id))').in('bill.req.project_id', ids),
   ])
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const byCat = new Map<string, number>()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const e of (expenses ?? []) as any[]) byCat.set(e.category, (byCat.get(e.category) ?? 0) + n(e.amount))
-  return { project, variations: variations ?? [], receipts: receipts ?? [], expenses: expenses ?? [], requisitions: reqs, expenseByCategory: Object.fromEntries(byCat) }
+
+  // This project's account: client money in; supplier payments and labour/food/other out.
+  const where = (pid: string | null) => (pid && pid !== project.id ? codeOf.get(pid) ?? null : null)
+  const entries: AccountEntry[] = [
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ...((receipts ?? []) as any[]).map((r) => ({ date: r.receipt_date, direction: 'in' as const, amount: n(r.amount), label: `Client payment · ${r.method}${r.reference ? ` · ${r.reference}` : ''}`, where: where(r.project_id) })),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ...((payments ?? []) as any[]).map((p) => ({ date: p.pay_date, direction: 'out' as const, amount: n(p.amount),
+      label: `${p.bill?.supplier?.name ?? 'Supplier'} · bill ${p.bill?.bill_no ?? '—'} · Req ${String(p.bill?.req?.req_no ?? '').padStart(5, '0')} · ${p.method}`, where: where(p.bill?.req?.project_id) })),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ...((expenses ?? []) as any[]).map((e) => ({ date: e.exp_date, direction: 'out' as const, amount: n(e.amount),
+      label: `${e.category === 'labour' ? 'Daily labour' : e.category[0].toUpperCase() + e.category.slice(1)}${e.workers ? ` (${e.workers} × ${n(e.rate)})` : ''}${e.description ? ` · ${e.description}` : ''}`, where: where(e.project_id) })),
+  ]
+  const parent = project.parent_id ? all.find((p) => p.id === project.parent_id) ?? null : null
+  return {
+    project, parent,
+    subProjects: all.filter((p) => p.parent_id === project.id),
+    variations: variations ?? [], receipts: receipts ?? [], expenses: expenses ?? [],
+    requisitions: reqs, expenseByCategory: Object.fromEntries(byCat),
+    account: accountStatement(entries),
+  }
 }
 
 // ─── Requisitions ───────────────────────────────────────────────────────────
@@ -150,12 +202,13 @@ export interface LsRequisitionRow {
   billed: number; paid: number; overBudget: boolean; billCount: number
 }
 
-export async function listRequisitions(opts: { status?: string; projectId?: string } = {}): Promise<LsRequisitionRow[]> {
+export async function listRequisitions(opts: { status?: string; projectId?: string; projectIds?: string[] } = {}): Promise<LsRequisitionRow[]> {
   let q = db().from('ls_requisitions')
-    .select('id, req_no, req_date, department, description, status, total, project_id, requested_by_name, prepared_by, project:ls_projects(code), ls_bills(amount, ls_bill_payments(amount))')
+    .select('id, req_no, req_date, department, description, status, total, project_id, requested_by_name, prepared_by, project:ls_projects(code, parent:ls_projects!parent_id(code)), ls_bills(amount, ls_bill_payments(amount))')
     .order('req_no', { ascending: false }).limit(500)
   if (opts.status) q = q.eq('status', opts.status)
   if (opts.projectId) q = q.eq('project_id', opts.projectId)
+  if (opts.projectIds) q = q.in('project_id', opts.projectIds)
   const { data } = await q
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return ((data ?? []) as any[]).map((r) => {
@@ -164,7 +217,7 @@ export async function listRequisitions(opts: { status?: string; projectId?: stri
     const s = requisitionSpend(n(r.total), bills)
     return {
       id: r.id, req_no: r.req_no, req_date: r.req_date, department: r.department, description: r.description,
-      status: r.status, total: n(r.total), project_id: r.project_id, project_code: r.project?.code ?? null,
+      status: r.status, total: n(r.total), project_id: r.project_id, project_code: r.project ? (r.project.parent?.code ? `${r.project.parent.code} › ${r.project.code}` : r.project.code) : null,
       requested_by_name: r.requested_by_name, prepared_by: r.prepared_by,
       billed: s.billed, paid: s.paid, overBudget: s.overBudget, billCount: bills.length,
     }
@@ -195,7 +248,7 @@ const BILL_SELECT = '*, supplier:ls_suppliers(name), req:ls_requisitions(req_no,
 
 export async function getRequisition(id: string) {
   const [{ data: req }, { data: items }, { data: bills }] = await Promise.all([
-    db().from('ls_requisitions').select('*, project:ls_projects(id, code, title, site)').eq('id', id).maybeSingle(),
+    db().from('ls_requisitions').select('*, project:ls_projects(id, code, title, site, parent:ls_projects!parent_id(code, title))').eq('id', id).maybeSingle(),
     db().from('ls_requisition_items').select('*').eq('requisition_id', id).order('line_no'),
     db().from('ls_bills').select(BILL_SELECT).eq('requisition_id', id).order('bill_date'),
   ])
@@ -222,9 +275,10 @@ export async function nextRequisitionNo(): Promise<number> {
 
 /** Approved requisitions that can take bills. */
 export async function approvedRequisitions() {
-  const { data } = await db().from('ls_requisitions').select('id, req_no, description, total, project:ls_projects(code)').eq('status', 'approved').order('req_no', { ascending: false })
+  const { data } = await db().from('ls_requisitions').select('id, req_no, description, total, project:ls_projects(code, parent:ls_projects!parent_id(code))').eq('status', 'approved').order('req_no', { ascending: false })
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return ((data ?? []) as any[]).map((r) => ({ id: r.id, req_no: r.req_no, description: r.description, total: n(r.total), project_code: r.project?.code ?? null }))
+  return ((data ?? []) as any[]).map((r) => ({ id: r.id, req_no: r.req_no, description: r.description, total: n(r.total),
+    project_code: r.project ? (r.project.parent?.code ? `${r.project.parent.code} › ${r.project.code}` : r.project.code) : null }))
 }
 
 // ─── Bills & suppliers ──────────────────────────────────────────────────────
@@ -321,7 +375,7 @@ export async function landscapingOverview(me: LsMe | null) {
     unpaidBills: bills.filter((b) => b.status !== 'paid'),
     unpaidTotal: bills.reduce((s, b) => s + (b.amount - b.paid), 0),
     floats,
-    projects: projects.filter((p) => p.status === 'active'),
+    projects: projects.filter((p) => p.status === 'active' && !p.parent_id),
     moneyInMonth: sum(recs),
     moneyOutMonth: paidThisMonth + sum(exps),
   }

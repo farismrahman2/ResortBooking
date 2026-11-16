@@ -59,7 +59,7 @@ export function GiveCashForm({ holders }: { holders: Array<{ user_id: string; na
 }
 
 /** Daily labour, managers' food, transport, tools or other — paid from my cash or by bKash/bank. */
-export function ExpenseForm({ projects }: { projects: Array<{ id: string; code: string; title: string }> }) {
+export function ExpenseForm({ projects }: { projects: Array<{ id: string; code: string; title: string; label?: string }> }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [pending, start] = useTransition()
@@ -102,7 +102,7 @@ export function ExpenseForm({ projects }: { projects: Array<{ id: string; code: 
           <div><label className="field-label">Project</label>
             <select className={select} value={projectId} onChange={(e) => setProjectId(e.target.value)}>
               <option value="">— Business overhead (no project) —</option>
-              {projects.map((p) => <option key={p.id} value={p.id}>{p.code} · {p.title}</option>)}
+              {projects.map((p) => <option key={p.id} value={p.id}>{p.label ?? p.code} · {p.title}</option>)}
             </select></div>
           {category === 'labour' ? (
             <div className="grid grid-cols-3 gap-3">

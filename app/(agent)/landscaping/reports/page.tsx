@@ -37,8 +37,14 @@ export default async function LandscapingReports() {
         <Box title="Profit by project" csv="projects">
           <table className="w-full min-w-[640px] text-sm">
             <thead className="bg-gray-50 text-left text-xs text-gray-500"><tr><th className="px-4 py-2">Project</th><th className="px-2 py-2 text-right">Contract</th><th className="px-2 py-2 text-right">Received</th><th className="px-2 py-2 text-right">Spent</th><th className="px-4 py-2 text-right">Profit</th></tr></thead>
-            <tbody>{projects.map((p) => (
-              <tr key={p.id} className="border-t border-gray-100"><td className="px-4 py-2">{p.code} · {p.title}</td>
+            <tbody>{projects.map((p) => p.parent_id ? (
+              <tr key={p.id} className="border-t border-gray-100 bg-gray-50/60 text-xs"><td className="py-2 pl-9 pr-4">↳ {p.code} · {p.title}</td>
+                <td className="px-2 py-2 text-right tabular-nums text-gray-500">budget {formatBDT(p.budget?.budget ?? 0)}</td>
+                <td className="px-2 py-2 text-right tabular-nums">{p.ownF.received ? formatBDT(p.ownF.received) : '—'}</td>
+                <td className="px-2 py-2 text-right tabular-nums">{formatBDT(p.ownF.spent)}</td>
+                <td className={`px-4 py-2 text-right tabular-nums ${p.budget && p.budget.remaining < 0 ? 'font-semibold text-red-600' : 'text-gray-600'}`}>{p.budget ? `${formatBDT(p.budget.remaining)} left of budget` : ''}</td></tr>
+            ) : (
+              <tr key={p.id} className="border-t border-gray-100"><td className="px-4 py-2">{p.code} · {p.title}{p.subIds.length ? <span className="text-xs text-gray-500"> (incl. sub-projects)</span> : null}</td>
                 <td className="px-2 py-2 text-right tabular-nums">{formatBDT(p.f.contractTotal)}</td><td className="px-2 py-2 text-right tabular-nums">{formatBDT(p.f.received)}</td>
                 <td className="px-2 py-2 text-right tabular-nums">{formatBDT(p.f.spent)}</td>
                 <td className={`px-4 py-2 text-right font-semibold tabular-nums ${p.f.profit < 0 ? 'text-red-600' : 'text-emerald-700'}`}>{formatBDT(p.f.profit)}{p.f.margin !== null ? ` (${p.f.margin}%)` : ''}</td></tr>

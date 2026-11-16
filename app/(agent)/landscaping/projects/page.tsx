@@ -16,7 +16,7 @@ export default async function ProjectsPage() {
     <div className="flex h-full flex-col">
       <Topbar title="Projects" subtitle="Landscaping · contract, received, spent and profit per project" />
       <LsPage tab="projects">
-        {me && (me.is_admin || me.can_approve) && <div className="flex justify-end"><ProjectForm clients={clients} /></div>}
+        {me && (me.is_admin || me.can_approve) && <div className="flex justify-end"><ProjectForm clients={clients} mains={projects.filter((p) => !p.parent_id)} /></div>}
         <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
           {projects.length === 0 ? <p className="px-4 py-6 text-center text-sm text-gray-500">No projects yet — add ASU first.</p> : (
             <table className="w-full min-w-[720px] text-sm">
@@ -24,10 +24,20 @@ export default async function ProjectsPage() {
                 <tr><th className="px-4 py-2">Project</th><th className="px-2 py-2 text-right">Contract</th><th className="px-2 py-2 text-right">Received</th><th className="px-2 py-2 text-right">Client owes</th><th className="px-2 py-2 text-right">Spent</th><th className="px-4 py-2 text-right">Profit</th></tr>
               </thead>
               <tbody>
-                {projects.map((p) => (
+                {projects.map((p) => p.parent_id ? (
+                  // A sub-project: measured against its own budget.
+                  <tr key={p.id} className="border-t border-gray-100 bg-gray-50/60">
+                    <td className="py-2 pl-9 pr-4"><Link href={`/landscaping/projects/${p.id}`} className="font-medium text-forest-700 hover:underline">↳ {p.code}</Link> <span className="text-xs text-gray-500">{p.title}</span></td>
+                    <td className="px-2 py-2 text-right text-xs tabular-nums text-gray-500">budget {formatBDT(p.budget?.budget ?? 0)}</td>
+                    <td className="px-2 py-2 text-right tabular-nums">{p.ownF.received ? formatBDT(p.ownF.received) : '—'}</td>
+                    <td className="px-2 py-2 text-right text-xs text-gray-400">—</td>
+                    <td className="px-2 py-2 text-right tabular-nums">{formatBDT(p.ownF.spent)}{p.budget?.usedPct !== null && p.budget ? <span className={`block text-[10px] ${p.budget.overBudget ? 'font-semibold text-red-600' : 'text-gray-500'}`}>{p.budget.usedPct}% of budget</span> : null}</td>
+                    <td className={`px-4 py-2 text-right text-xs tabular-nums ${p.budget && p.budget.remaining < 0 ? 'font-semibold text-red-600' : 'text-gray-600'}`}>{p.budget ? `${formatBDT(p.budget.remaining)} left` : ''}</td>
+                  </tr>
+                ) : (
                   <tr key={p.id} className="border-t border-gray-100">
                     <td className="px-4 py-2.5"><Link href={`/landscaping/projects/${p.id}`} className="font-semibold text-forest-700 hover:underline">{p.code}</Link> <LsStatus status={p.status} />
-                      <div className="text-xs text-gray-500">{p.title}{p.client_name ? ` · ${p.client_name}` : ''}</div></td>
+                      <div className="text-xs text-gray-500">{p.title}{p.client_name ? ` · ${p.client_name}` : ''}{p.subIds.length ? ` · incl. ${p.subIds.length} sub-project${p.subIds.length === 1 ? '' : 's'}` : ''}</div></td>
                     <td className="px-2 py-2.5 text-right tabular-nums">{formatBDT(p.f.contractTotal)}</td>
                     <td className="px-2 py-2.5 text-right tabular-nums">{formatBDT(p.f.received)}</td>
                     <td className="px-2 py-2.5 text-right tabular-nums">{formatBDT(p.f.owedByClient)}</td>

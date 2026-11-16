@@ -54,3 +54,32 @@ describe('landscaping money', () => {
     expect(canActOnRequisition('approve', { status: 'submitted', prepared_by: 'u2' }, me).ok).toBe(false)
   })
 })
+
+import { accountStatement, subProjectBudget, withSubProjects } from './money'
+
+describe('sub-projects and accounts', () => {
+  const asu = { contract: 5000000, variations: [100000], receipts: [1000000], bills: [], billPayments: [], expenses: [20000] }
+  const parking = { contract: 1500000, variations: [], receipts: [], bills: [939750], billPayments: [500000], expenses: [45000] }
+  const restaurant = { contract: 800000, variations: [], receipts: [50000], bills: [92400], billPayments: [92400], expenses: [] }
+  it('main project includes every sub-project, but not their budgets as contract', () => {
+    const f = withSubProjects(asu, [parking, restaurant])
+    expect(f.contractTotal).toBe(5100000)
+    expect(f.received).toBe(1050000)
+    expect(f.spent).toBe(20000 + 939750 + 45000 + 92400)
+    expect(f.billsUnpaid).toBe(439750)
+  })
+  it('a sub-project is measured against its own budget', () => {
+    expect(subProjectBudget(1500000, 984750)).toEqual({ budget: 1500000, spent: 984750, remaining: 515250, usedPct: 65.7, overBudget: false })
+    expect(subProjectBudget(800000, 900000).overBudget).toBe(true)
+  })
+  it('account statement runs a balance, money in first on the same day', () => {
+    const a = accountStatement([
+      { date: '2026-11-11', direction: 'out', amount: 300000, label: 'Al-Baraka bill 225' },
+      { date: '2026-11-10', direction: 'in', amount: 1000000, label: 'Client payment' },
+      { date: '2026-11-11', direction: 'in', amount: 50000, label: 'Restaurant takings' },
+      { date: '2026-11-12', direction: 'out', amount: 4500, label: 'Labour' },
+    ])
+    expect(a.lines.map((l) => l.balance)).toEqual([1000000, 1050000, 750000, 745500])
+    expect(a).toMatchObject({ totalIn: 1050000, totalOut: 304500, balance: 745500 })
+  })
+})

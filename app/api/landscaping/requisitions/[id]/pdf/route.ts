@@ -18,9 +18,12 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   const reqNo = formatReqNo(req.req_no)
   const buffer = await renderToBuffer(LsRequisitionPdf({
     businessName: settings.landscaping_business_name ?? 'Garden Centre',
-    projectCode: req.project?.code ?? null, reqNo, date: req.req_date, department: req.department,
+    // A sub-project's slip carries its main project's name (ASU) and names the sub-project (Parking).
+    projectCode: req.project?.parent?.code ?? req.project?.code ?? null, reqNo, date: req.req_date, department: req.department,
     description: req.description, requestedBy: req.requested_by_name,
-    projectLabel: req.project ? [req.project.title, req.project.site].filter(Boolean).join(' · ') : null,
+    projectLabel: req.project
+      ? [req.project.parent ? `${req.project.parent.code} › ${req.project.code}` : null, req.project.title, req.project.site].filter(Boolean).join(' · ')
+      : null,
     area: req.area_note, items, total: req.total, remarks: req.remarks, status: req.status,
     prepared: { name: names.prepared, at: req.submitted_at }, checked: { name: names.checked, at: req.checked_at }, approved: { name: names.approved, at: req.approved_at },
   }))

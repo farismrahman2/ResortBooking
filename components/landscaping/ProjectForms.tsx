@@ -13,9 +13,14 @@ import { toast } from '@/lib/toast'
 const select = 'min-h-[42px] w-full rounded-lg border border-gray-300 bg-white px-3 text-sm focus:border-forest-600 focus:outline-none'
 const today = () => new Date().toISOString().slice(0, 10)
 
-export function ProjectForm({ clients, project }: {
+export function ProjectForm({ clients, project, mains = [], parentId, label }: {
   clients: Array<{ id: string; name: string }>
-  project?: { id: string; code: string; title: string; client_id: string | null; site: string | null; contract_value: number; start_date: string | null; end_date: string | null; status: string; notes: string | null }
+  project?: { id: string; code: string; title: string; client_id: string | null; site: string | null; contract_value: number; start_date: string | null; end_date: string | null; status: string; notes: string | null; parent_id?: string | null }
+  /** Main projects a sub-project can belong to. */
+  mains?: Array<{ id: string; code: string; title: string }>
+  /** Preset parent: "Add sub-project" on a project page. */
+  parentId?: string
+  label?: string
 }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -24,7 +29,9 @@ export function ProjectForm({ clients, project }: {
     code: project?.code ?? '', title: project?.title ?? '', client_id: project?.client_id ?? '', new_client: '',
     site: project?.site ?? '', contract_value: String(project?.contract_value ?? ''), start_date: project?.start_date ?? '',
     end_date: project?.end_date ?? '', status: project?.status ?? 'active', notes: project?.notes ?? '',
+    parent_id: project?.parent_id ?? parentId ?? '',
   })
+  const isSub = !!f.parent_id
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value })
   function save() {
     start(async () => {
@@ -32,6 +39,7 @@ export function ProjectForm({ clients, project }: {
         id: project?.id, code: f.code, title: f.title, client_id: f.client_id === '__new' ? null : f.client_id || null,
         new_client: f.client_id === '__new' ? f.new_client : undefined, site: f.site, contract_value: Number(f.contract_value) || 0,
         start_date: f.start_date || null, end_date: f.end_date || null, status: f.status, notes: f.notes,
+        parent_id: f.parent_id || null,
       }))
       if (!r.success) { toast.error(r.error); return }
       toast.success('Project saved'); setOpen(false)
@@ -41,21 +49,28 @@ export function ProjectForm({ clients, project }: {
   }
   return (
     <>
-      <Button variant={project ? 'outline' : 'primary'} size="sm" className="gap-1.5" onClick={() => setOpen(true)}>{project ? 'Edit project' : <><Plus size={14} /> New project</>}</Button>
-      <Modal open={open} onClose={() => setOpen(false)} title={project ? 'Edit project' : 'New project'}>
+      <Button variant={project ? 'outline' : 'primary'} size="sm" className="gap-1.5" onClick={() => setOpen(true)}>{label ?? (project ? 'Edit' : <><Plus size={14} /> New project</>)}</Button>
+      <Modal open={open} onClose={() => setOpen(false)} title={project ? 'Edit' : isSub ? 'New sub-project' : 'New project'}>
         <div className="space-y-3">
+          {(mains.length > 0 || parentId) && !parentId && (
+            <div><label className="field-label">Part of</label>
+              <select className={select} value={f.parent_id} onChange={set('parent_id')}>
+                <option value="">— A main project (has its own client contract) —</option>
+                {mains.filter((m) => m.id !== project?.id).map((m) => <option key={m.id} value={m.id}>Sub-project of {m.code} · {m.title}</option>)}
+              </select></div>
+          )}
           <div className="grid grid-cols-3 gap-3">
-            <Input label="Code" placeholder="ASU" value={f.code} onChange={set('code')} />
-            <div className="col-span-2"><Input label="Title" placeholder="ASU landscaping & civil works" value={f.title} onChange={set('title')} /></div>
+            <Input label="Code" placeholder={isSub ? 'PARKING' : 'ASU'} value={f.code} onChange={set('code')} />
+            <div className="col-span-2"><Input label="Title" placeholder={isSub ? 'Parking area' : 'ASU landscaping & civil works'} value={f.title} onChange={set('title')} /></div>
           </div>
-          <div><label className="field-label">Client</label>
+          {!isSub && <><div><label className="field-label">Client</label>
             <select className={select} value={f.client_id} onChange={set('client_id')}>
               <option value="">— Choose —</option>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}<option value="__new">+ New client…</option>
             </select></div>
-          {f.client_id === '__new' && <Input label="New client name" value={f.new_client} onChange={set('new_client')} />}
+          {f.client_id === '__new' && <Input label="New client name" value={f.new_client} onChange={set('new_client')} />}</>}
           <Input label="Site / location" value={f.site} onChange={set('site')} />
           <div className="grid grid-cols-2 gap-3">
-            <Input label="Contract value (Tk)" type="number" step="any" inputMode="decimal" value={f.contract_value} onChange={set('contract_value')} />
+            <Input label={isSub ? 'Budget (Tk)' : 'Contract value (Tk)'} type="number" step="any" inputMode="decimal" value={f.contract_value} onChange={set('contract_value')} />
             <div><label className="field-label">Status</label>
               <select className={select} value={f.status} onChange={set('status')}>
                 {['quoted', 'active', 'on_hold', 'completed', 'cancelled'].map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
