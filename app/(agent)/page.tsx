@@ -37,6 +37,8 @@ export default async function DashboardPage() {
   if (ctx?.profile.role.slug === 'review_collector') redirect('/qa')
   // Store / kitchen / coffee shop staff: no bookings or money on the dashboard.
   if (ctx?.profile.role.slug === 'inventory')        redirect('/inventory')
+  // Landscaping is a separate business: its staff land on its own overview.
+  if (ctx?.profile.role.slug === 'landscaping')      redirect('/landscaping')
 
   const canRead = (m: keyof NonNullable<typeof ctx>['permissions']) =>
     ctx?.permissions[m] === 'read' || ctx?.permissions[m] === 'write'

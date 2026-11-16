@@ -14,7 +14,7 @@ const MIDDLEWARE_PROFILE_DEADLINE_MS = 3000
  * before `/hr` so front_desk users (who have `attendance` but not `hr`) don't
  * get 403'd on the attendance page.
  */
-type RoleSlug = 'admin' | 'manager' | 'front_desk' | 'accountant' | 'reservation' | 'corporate_sales' | 'operations_manager' | 'md' | 'review_collector' | 'inventory'
+type RoleSlug = 'admin' | 'manager' | 'front_desk' | 'accountant' | 'reservation' | 'corporate_sales' | 'operations_manager' | 'md' | 'review_collector' | 'inventory' | 'landscaping'
 
 /**
  * Per-role route deny-list. Used when a role passes the module-level check
@@ -43,7 +43,7 @@ const ROLE_ALLOW: Array<{ prefix: string; roles: RoleSlug[] }> = [
   { prefix: '/settings/room-prices', roles: ['admin', 'manager', 'md', 'accountant', 'operations_manager', 'reservation'] },
 ]
 
-const MODULE_PREFIX: Array<{ prefix: string; module: 'bookings' | 'checkout' | 'expenses' | 'hr' | 'reports' | 'settings' | 'availability' | 'attendance' | 'coffee_shop' | 'inventory' | 'crm' | 'fixed_assets' | 'qa' | 'menus' | 'enquiries' | 'field_visits' | 'kitchen' }> = [
+const MODULE_PREFIX: Array<{ prefix: string; module: 'bookings' | 'checkout' | 'expenses' | 'hr' | 'reports' | 'settings' | 'availability' | 'attendance' | 'coffee_shop' | 'inventory' | 'crm' | 'fixed_assets' | 'qa' | 'menus' | 'enquiries' | 'field_visits' | 'kitchen' | 'landscaping' }> = [
   { prefix: '/bookings',      module: 'bookings'     },
   { prefix: '/enquiries',     module: 'enquiries'    },
   { prefix: '/qa',            module: 'qa'           },
@@ -64,6 +64,7 @@ const MODULE_PREFIX: Array<{ prefix: string; module: 'bookings' | 'checkout' | '
   { prefix: '/analytics',     module: 'reports'      },
   { prefix: '/reports',       module: 'reports'      },
   { prefix: '/settings',      module: 'settings'     },
+  { prefix: '/landscaping',   module: 'landscaping'  },   // a separate business (migrations/landscaping-module)
 ]
 
 function moduleForPath(pathname: string): typeof MODULE_PREFIX[number]['module'] | null {
