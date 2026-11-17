@@ -63,7 +63,7 @@ export default async function BookingDetailPage({ params }: PageProps) {
   ])
 
   if (!booking) notFound()
-  // Corporate Sales open only the bookings they made, and see them read-only.
+  // Corporate Sales open only the bookings they made — and manage those fully.
   const viewer = await requireRecordAccess((booking as { created_by?: string | null }).created_by)
   const createOnly = isCreateOnlyRole(viewer.profile.role.slug)
   const changeRequests = createOnly ? await listBookingChangeRequests(booking.id).catch(() => []) : []
@@ -382,19 +382,19 @@ export default async function BookingDetailPage({ params }: PageProps) {
               </Card>
             )}
 
-            {/* 5. Actions — Corporate Sales get the safe subset on their own booking */}
+            {/* 5. Actions — Corporate Sales get the full set on their own booking */}
             <Card>
               <CardHeader>
                 <CardTitle>Actions</CardTitle>
               </CardHeader>
               <BookingActions booking={booking} holidayDates={holidayDates} inventory={inventory} bookedRoomNumbers={bookedRoomNumbers}
           eveningOnlyRoomNumbers={roomBuckets.eveningOnly}
-          handoverTime={internalHandoverTime(settings)} advancePayments={createOnly ? [] : advancePayments}
-          paymentAccounts={createOnly ? [] : paymentAccounts} createOnly={createOnly} />
+          handoverTime={internalHandoverTime(settings)} advancePayments={advancePayments}
+          paymentAccounts={paymentAccounts} />
             </Card>
 
-            {/* Corporate Sales: money and cancel changes go to the admin */}
-            {createOnly && <ChangeRequestPanel bookingId={booking.id} requests={changeRequests} />}
+            {/* Earlier change requests (before Corporate Sales could edit money directly) stay visible. */}
+            {createOnly && changeRequests.length > 0 && <ChangeRequestPanel bookingId={booking.id} requests={changeRequests} />}
           </div>
 
           {/* RIGHT column */}

@@ -17,11 +17,19 @@ export async function flagAlert(args: {
     const supabase = createClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const db = supabase as any
+    // Changes made by Corporate Sales on their own bookings are named as such.
+    let summary = args.summary
+    try {
+      const { getCurrentUserContext } = await import('./permissions')
+      const { isCreateOnlyRole } = await import('./create-only')
+      const ctx = await getCurrentUserContext()
+      if (ctx && isCreateOnlyRole(ctx.profile.role.slug)) summary = `Corporate Sales (${ctx.profile.full_name}): ${summary}`
+    } catch { /* keep the plain summary */ }
     const { error } = await db.from('admin_alerts').insert({
       event_type:  args.event_type,
       entity_type: args.entity_type,
       entity_id:   args.entity_id,
-      summary:     args.summary,
+      summary,
       payload:     args.payload ?? null,
       created_by:  args.created_by ?? null,
     })

@@ -15,8 +15,8 @@ import { rowsToSegments, deriveGroupHeader, type GroupSegment } from '@/lib/book
 import { insertGroupDays, replaceGroupDays } from '@/lib/bookings/group-days-db'
 import { findDuplicateBookings } from '@/lib/queries/duplicate-bookings'
 import { ROOM_NUMBERS } from '@/lib/config/rooms'
-import { requirePermission, requireBookingEditor, getCurrentUserContext } from '@/lib/auth/permissions'
-import { canSeeRecord, isCreateOnlyRole, maskDuplicates, lockMoneyFields } from '@/lib/auth/create-only'
+import { requirePermission, getCurrentUserContext } from '@/lib/auth/permissions'
+import { canSeeRecord, isCreateOnlyRole, maskDuplicates } from '@/lib/auth/create-only'
 import { isMissingRelation, roomRowError } from '@/lib/supabase/errors'
 import { flagAlert } from '@/lib/auth/alerts'
 import { formatBDT } from '@/lib/formatters/currency'
@@ -315,7 +315,8 @@ export async function updateAdvancePaid(
   advance_required: number,
   advance_method?: 'bkash' | 'bank_transfer',
 ): Promise<ActionResult> {
-  await requireBookingEditor()
+  const w = await editorDb({ bookingId })
+  if (!w.ok) return { success: false, error: w.error }
   try {
     // Client-supplied money — validate before it reaches the row.
     for (const [label, v] of [['Advance paid', advance_paid], ['Advance required', advance_required]] as const) {
@@ -327,7 +328,7 @@ export async function updateAdvancePaid(
       return { success: false, error: 'Advance method must be bKash or bank transfer' }
     }
 
-    const supabase = createClient()
+    const supabase = w.db as ReturnType<typeof createClient>
     const { data: updated, error } = await supabase
       .from('bookings')
       .update({ advance_paid, advance_required, ...(advance_method ? { advance_method } : {}) })
@@ -407,7 +408,8 @@ export async function addAdvancePayment(
     account_id?: string | null
   },
 ): Promise<ActionData<{ advance_paid: number }>> {
-  await requireBookingEditor()
+  const w = await editorDb({ bookingId })
+  if (!w.ok) return { success: false, error: w.error }
   try {
     const amount = Number(input.amount)
     if (!Number.isFinite(amount) || amount <= 0 || amount > 10_000_000) {
@@ -416,7 +418,7 @@ export async function addAdvancePayment(
     const METHODS = ['bkash', 'bank_transfer', 'cash', 'nagad', 'rocket', 'card', 'other']
     if (!METHODS.includes(input.method)) return { success: false, error: 'Pick how it was received' }
 
-    const supabase = createClient()
+    const supabase = w.db as ReturnType<typeof createClient>
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const db = supabase as any
 
@@ -494,7 +496,8 @@ export async function updateAdvancePayment(
     account_id?: string | null
   },
 ): Promise<ActionData<{ advance_paid: number }>> {
-  await requireBookingEditor()
+  const w = await editorDb({ paymentId })
+  if (!w.ok) return { success: false, error: w.error }
   try {
     const amount = Number(input.amount)
     if (!Number.isFinite(amount) || amount <= 0 || amount > 10_000_000) {
@@ -503,7 +506,7 @@ export async function updateAdvancePayment(
     const METHODS = ['bkash', 'bank_transfer', 'cash', 'nagad', 'rocket', 'card', 'other']
     if (!METHODS.includes(input.method)) return { success: false, error: 'Pick how it was received' }
 
-    const supabase = createClient()
+    const supabase = w.db as ReturnType<typeof createClient>
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const db = supabase as any
 
@@ -578,9 +581,10 @@ export async function updateAdvancePayment(
 
 /** Remove a mis-keyed instalment. The total re-derives from what's left. */
 export async function deleteAdvancePayment(paymentId: string): Promise<ActionResult> {
-  await requireBookingEditor()
+  const w = await editorDb({ paymentId })
+  if (!w.ok) return { success: false, error: w.error }
   try {
-    const supabase = createClient()
+    const supabase = w.db as ReturnType<typeof createClient>
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const db = supabase as any
 
@@ -618,9 +622,10 @@ export async function deleteAdvancePayment(paymentId: string): Promise<ActionRes
 
 /** Cancel a booking */
 export async function cancelBooking(bookingId: string): Promise<ActionResult> {
-  await requireBookingEditor()
+  const w = await editorDb({ bookingId })
+  if (!w.ok) return { success: false, error: w.error }
   try {
-    const supabase = createClient()
+    const supabase = w.db as ReturnType<typeof createClient>
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const db = supabase as any
 
@@ -794,8 +799,31 @@ export async function reverseNoShow(bookingId: string): Promise<ActionResult> {
  * (create-only) may change only bookings they made: the database refuses
  * their direct updates, so after this ownership check the change is written
  * with the server's access — and updateBooking first puts every money term
- * back (lockMoneyFields), so a price, discount or advance can't move.
+ * back nothing — Corporate Sales manage their own bookings fully (logged).
  */
+/**
+ * Who may change an existing booking: Bookings write, and for Corporate Sales
+ * only a booking they made (looked up from the advance payment when only its
+ * id is known). Their writes then go through the server's access, after this
+ * ownership check — the same pattern as bookingWriter.
+ */
+async function editorDb(target: { bookingId?: string; paymentId?: string }): Promise<
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  | { ok: true; db: any; createOnly: boolean }
+  | { ok: false; error: string }
+> {
+  const ctx = await requirePermission('bookings', 'write')
+  if (!isCreateOnlyRole(ctx.profile.role.slug)) return { ok: true, db: createClient(), createOnly: false }
+  let bookingId = target.bookingId
+  if (!bookingId && target.paymentId) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data } = await (createServiceClient() as any).from('booking_advance_payments').select('booking_id').eq('id', target.paymentId).maybeSingle()
+    bookingId = data?.booking_id
+  }
+  if (!bookingId) return { ok: false, error: 'Booking not found' }
+  return bookingWriter(bookingId)
+}
+
 async function bookingWriter(bookingId: string): Promise<
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   | { ok: true; db: any; createOnly: boolean }
@@ -845,15 +873,6 @@ export async function updateBooking(
     const supabase   = writer.db as ReturnType<typeof createClient>
     const holidayDates = await getHolidayDateStrings()
 
-    if (writer.createOnly) {
-      // Corporate Sales: keep every money term of the stored booking.
-      const { data: stored } = await writer.db.from('bookings')
-        .select('subtotal, discount, discount_pct, service_charge_pct, vat_pct, advance_paid, advance_required, extra_items, package_type, visit_date, check_out_date, package_snapshot, booking_rooms(room_type, unit_price, qty, room_numbers, evening_rooms)')
-        .eq('id', bookingId).maybeSingle()
-      if (!stored) return { success: false, error: 'Booking not found' }
-      if (stored.package_type === 'group') return { success: false, error: 'Group bookings are changed by Reservations — send a change request.' }
-      input = lockMoneyFields(input, { ...stored, rooms: stored.booking_rooms ?? [] })
-    }
 
     const { rooms, extra_items, package_type, visit_date, check_out_date, package_snapshot, ...guestData } = input
     const groupDays: GroupSegment[] = package_type === 'group' ? (input.days ?? []) : []
@@ -1273,9 +1292,10 @@ export async function swapRoomAssignment(
   bookingId: string,
   input: SwapInput,
 ): Promise<ActionResult> {
-  await requireBookingEditor()
+  const w = await editorDb({ bookingId })
+  if (!w.ok) return { success: false, error: w.error }
   try {
-    const supabase = createClient()
+    const supabase = w.db as ReturnType<typeof createClient>
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const db = supabase as any
 
