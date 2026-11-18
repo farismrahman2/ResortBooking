@@ -11,9 +11,11 @@ const csv = (rows: Array<Array<string | number>>) =>
 export async function GET(req: NextRequest) {
   if (!(await hasPermission('landscaping', 'read'))) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const report = req.nextUrl.searchParams.get('report')
+  const day = (k: string) => { const v = req.nextUrl.searchParams.get(k); return v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined }
+  const range = { from: day('from'), to: day('to') }
   let body = ''
   if (report === 'monthly') {
-    const m = await monthlyPnl()
+    const m = await monthlyPnl(range)
     body = csv([['Month', 'Client payments', 'Supplier bills paid', 'Labour', 'Food', 'Other', 'Money out', 'Net'], ...m.map((x) => [x.month, x.moneyIn, x.bills, x.labour, x.food, x.other, x.moneyOut, x.net])])
   } else if (report === 'projects') {
     const p = await projectsWithFinancials()
@@ -26,15 +28,15 @@ export async function GET(req: NextRequest) {
     const s = await listSuppliers()
     body = csv([['Supplier', 'Opening dues', 'Billed', 'Paid', 'Owed'], ...s.map((x) => [x.name, x.opening, x.billed, x.paid, x.owed])])
   } else if (report === 'categories') {
-    const a = await spendAnalysis()
+    const a = await spendAnalysis(range)
     body = csv([['Project', 'Work category', 'Spent (bills + labour/food/other)', 'Share %'],
       ...a.byProject.flatMap((p) => p.rows.map((r) => [p.project, r.key, r.amount, r.pct])),
       ...a.overall.map((r) => ['ALL PROJECTS', r.key, r.amount, r.pct])])
   } else if (report === 'requesters') {
-    const a = await spendAnalysis()
+    const a = await spendAnalysis(range)
     body = csv([['Requested by', 'Approved requisitions', 'Approved total', 'Billed so far'], ...a.byRequester.map((r) => [r.name, r.count, r.approved, r.billed])])
   } else if (report === 'prices') {
-    const h = await itemPriceHistory()
+    const h = await itemPriceHistory(range)
     body = csv([['Item', 'Unit', 'Date', 'Req. No.', 'Project', 'Rate', 'Suppliers billed'],
       ...h.flatMap((i) => i.lines.map((l) => [i.item, l.unit ?? '', l.date, l.req_no ? String(l.req_no).padStart(5, '0') : '', l.project ?? '', l.unit_price, (l.suppliers ?? []).join('; ')]))])
   } else {

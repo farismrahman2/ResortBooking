@@ -19,12 +19,13 @@ import type { TopItemRow } from '@/lib/queries/reports/checkout'
 
 export const dynamic = 'force-dynamic'
 
-export default async function WeeklySummaryPage() {
+export default async function WeeklySummaryPage({ searchParams }: { searchParams: { week?: string } }) {
   await requirePermission('reports', 'read')
 
-  // Last week (Mon-Sun)
+  // The chosen week (any date inside it, ?week=yyyy-mm-dd); last week by default. Mon–Sun.
   const today = new Date()
-  const lastWeekAnchor = addDays(today, -7)
+  const picked = searchParams.week && /^\d{4}-\d{2}-\d{2}$/.test(searchParams.week) ? new Date(searchParams.week + 'T00:00:00') : null
+  const lastWeekAnchor = picked && !Number.isNaN(picked.getTime()) ? picked : addDays(today, -7)
   const weekStart = startOfWeek(lastWeekAnchor, { weekStartsOn: 1 })
   const weekEnd   = endOfWeek(lastWeekAnchor,   { weekStartsOn: 1 })
   const period = buildPeriodRange('custom', { from: weekStart, to: weekEnd })
@@ -76,12 +77,24 @@ export default async function WeeklySummaryPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <Topbar title={`Week of ${start} – ${end}`} subtitle="Last week at a glance" />
+      <Topbar title={`Week of ${start} – ${end}`} subtitle={picked ? 'The chosen week at a glance' : 'Last week at a glance'} />
       <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 space-y-5 print:overflow-visible">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs text-gray-500">Mon–Sun, defaults to last week</p>
-          <button onClick={() => { if (typeof window !== 'undefined') window.print() }} className="hidden">{/* placeholder */}</button>
-        </div>
+        {/* Week selector: previous / next, or pick any day in the week. */}
+        <form action="/reports/weekly" className="flex flex-wrap items-end gap-2 rounded-xl border border-gray-200 bg-white p-3 print:hidden">
+          <Link href={`/reports/weekly?week=${format(addDays(weekStart, -7), 'yyyy-MM-dd')}`}
+            className="inline-flex min-h-[40px] items-center rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-700 hover:bg-gray-50">← Previous week</Link>
+          <label className="block">
+            <span className="mb-0.5 block text-[11px] font-semibold uppercase tracking-wide text-gray-500">Any day in the week</span>
+            <input type="date" name="week" defaultValue={format(weekStart, 'yyyy-MM-dd')}
+              className="min-h-[40px] rounded-lg border border-gray-300 bg-white px-2.5 text-sm focus:border-forest-600 focus:outline-none focus:ring-2 focus:ring-forest-200" />
+          </label>
+          <button type="submit" className="inline-flex min-h-[40px] items-center rounded-lg bg-forest-700 px-4 text-sm font-medium text-white">Show</button>
+          {addDays(weekStart, 7) <= today && (
+            <Link href={`/reports/weekly?week=${format(addDays(weekStart, 7), 'yyyy-MM-dd')}`}
+              className="inline-flex min-h-[40px] items-center rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-700 hover:bg-gray-50">Next week →</Link>
+          )}
+          <span className="ml-auto text-xs text-gray-500">Mon–Sun</span>
+        </form>
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           <KpiCard label="Bookings"         value={String(current.booking_count)} mode="off" />

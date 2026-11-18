@@ -107,8 +107,12 @@ export async function itemSuggestions() {
     .sort((a, b) => a.description.localeCompare(b.description))
 }
 
-export async function itemPriceHistory() {
-  return priceHistory(await itemRateRows())
+/** Optional date window (yyyy-mm-dd, inclusive) for the landscaping reports. */
+export interface LsRange { from?: string; to?: string }
+const inRange = (d: string | null | undefined, r?: LsRange) => !r || ((!r.from || (d ?? '') >= r.from) && (!r.to || (d ?? '') <= r.to))
+
+export async function itemPriceHistory(range?: LsRange) {
+  return priceHistory((await itemRateRows()).filter((x) => inRange(x.date, range)))
 }
 
 const EXPENSE_FALLBACK: Record<string, string> = {
@@ -121,13 +125,20 @@ const EXPENSE_FALLBACK: Record<string, string> = {
  * labour/food/other spending (by its own category), overall and per main
  * project (sub-projects counted in their main project). Also by requester.
  */
-export async function spendAnalysis() {
-  const [{ data: bills }, { data: exps }, { data: reqs }, cats, projects] = await Promise.all([
-    db().from('ls_bills').select('amount, req:ls_requisitions(project_id, category_id)'),
-    db().from('ls_expenses').select('amount, category, project_id, work_category_id'),
-    db().from('ls_requisitions').select('requested_by_name, total, status, ls_bills(amount)').eq('status', 'approved'),
+export async function spendAnalysis(range?: LsRange) {
+  const [{ data: allBills }, { data: allExps }, { data: allReqs }, cats, projects] = await Promise.all([
+    db().from('ls_bills').select('amount, bill_date, req:ls_requisitions(project_id, category_id)'),
+    db().from('ls_expenses').select('amount, exp_date, category, project_id, work_category_id'),
+    db().from('ls_requisitions').select('requested_by_name, req_date, total, status, ls_bills(amount)').eq('status', 'approved'),
     listWorkCategories(true), listProjects(),
   ])
+  // Bills by bill date, spending by its date, requisitions by slip date.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const bills = ((allBills ?? []) as any[]).filter((b) => inRange(b.bill_date, range))
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const exps = ((allExps ?? []) as any[]).filter((e) => inRange(e.exp_date, range))
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const reqs = ((allReqs ?? []) as any[]).filter((r) => inRange(r.req_date, range))
   const catName = new Map(cats.map((c) => [c.id, c.name]))
   const mainOf = new Map(projects.map((p) => [p.id, p.parent_id ?? p.id]))
   const label = new Map(projects.map((p) => [p.id, `${p.code} · ${p.title}`]))
@@ -498,12 +509,18 @@ export async function landscapingOverview(me: LsMe | null) {
 }
 
 /** Month-by-month money in and out (cash basis). */
-export async function monthlyPnl() {
-  const [{ data: recs }, { data: pays }, { data: exps }] = await Promise.all([
+export async function monthlyPnl(range?: LsRange) {
+  const [{ data: allRecs }, { data: allPays }, { data: allExps }] = await Promise.all([
     db().from('ls_client_receipts').select('receipt_date, amount'),
     db().from('ls_bill_payments').select('pay_date, amount'),
     db().from('ls_expenses').select('exp_date, amount, category'),
   ])
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recs = ((allRecs ?? []) as any[]).filter((r) => inRange(r.receipt_date, range))
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pays = ((allPays ?? []) as any[]).filter((p) => inRange(p.pay_date, range))
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const exps = ((allExps ?? []) as any[]).filter((e) => inRange(e.exp_date, range))
   const months = new Map<string, { month: string; moneyIn: number; bills: number; labour: number; food: number; other: number }>()
   const at = (d: string) => {
     const k = String(d).slice(0, 7)

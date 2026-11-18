@@ -4,23 +4,35 @@ import { LsEmpty, LsSection, Money } from '@/components/landscaping/ui'
 import { requirePermission } from '@/lib/auth/permissions'
 import { cashFloats, itemPriceHistory, listSuppliers, monthlyPnl, projectsWithFinancials, spendAnalysis } from '@/lib/queries/landscaping'
 import { formatBDT } from '@/lib/formatters/currency'
+import { PeriodPicker } from '@/components/reports/PeriodPicker'
+import { resolvePeriod } from '@/lib/reports/page-params'
+import { toIsoDate } from '@/lib/reports/periods'
 
 export const dynamic = 'force-dynamic'
 
 const TH = 'px-2 py-2 text-right whitespace-nowrap'
 const TD = 'px-2 py-2 text-right tabular-nums whitespace-nowrap'
 
-export default async function LandscapingReports() {
+export default async function LandscapingReports({ searchParams }: { searchParams: { period?: string; from?: string; to?: string } }) {
   await requirePermission('landscaping', 'read')
-  const [months, projects, suppliers, { floats }, spend, prices] = await Promise.all([monthlyPnl(), projectsWithFinancials(), listSuppliers(), cashFloats(), spendAnalysis(), itemPriceHistory()])
+  // Dates: this year unless another range is picked.
+  const explicit = !!(searchParams.from || searchParams.to)
+  const { preset, period, customFrom, customTo } = resolvePeriod({ ...searchParams, period: searchParams.period ?? (explicit ? undefined : 'this_year') })
+  const range = { from: toIsoDate(period.from), to: toIsoDate(period.to) }
+  const rq = `&from=${range.from}&to=${range.to}`
+  const [months, projects, suppliers, { floats }, spend, prices] = await Promise.all([monthlyPnl(range), projectsWithFinancials(), listSuppliers(), cashFloats(), spendAnalysis(range), itemPriceHistory(range)])
   const sum = (k: 'moneyIn' | 'bills' | 'labour' | 'food' | 'other' | 'moneyOut' | 'net') => months.reduce((s, m) => s + m[k], 0)
   const tot = { moneyIn: sum('moneyIn'), bills: sum('bills'), labour: sum('labour'), food: sum('food'), other: sum('other'), moneyOut: sum('moneyOut'), net: sum('net') }
   const owed = suppliers.filter((s) => s.owed > 0)
   return (
     <div className="flex h-full flex-col">
-      <Topbar title="Reports" subtitle="Landscaping only — never mixed with the resort" />
+      <Topbar title="Reports" subtitle={`Landscaping only — never mixed with the resort · ${period.label}`} />
       <LsPage tab="reports">
-        <LsSection title="Money in and out by month" meta="cash basis" csv="monthly">
+        <div className="sticky top-0 z-20 -mx-4 border-b border-gray-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur sm:-mx-6 sm:px-6 print:hidden">
+          <PeriodPicker current={preset} customFrom={customFrom} customTo={customTo} from={range.from} to={range.to} />
+          <p className="mt-1.5 text-xs text-gray-500">Dates apply to money in/out, spending by category, requisitions by person and item rates. Project profit, supplier dues and cash in hand are always as of today.</p>
+        </div>
+        <LsSection title="Money in and out by month" meta="cash basis" csv={`monthly${rq}`}>
           {months.length === 0 ? <LsEmpty title="No money in or out yet." /> : (
             <>
               {/* Phones: one card per month */}
@@ -96,7 +108,7 @@ export default async function LandscapingReports() {
           )}
         </LsSection>
 
-        <LsSection title="Where the money went — by work category" csv="categories">
+        <LsSection title="Where the money went — by work category" csv={`categories${rq}`}>
           <p className="px-4 pt-3 text-xs text-gray-500">Supplier bills (by their requisition’s category) plus labour, food and other spending. Sub-projects count in their main project.</p>
           {spend.overall.length === 0 ? <LsEmpty title="No spending yet." /> : (
             <div className="grid grid-cols-1 gap-4 p-4 md:grid-cols-2">
@@ -116,7 +128,7 @@ export default async function LandscapingReports() {
         </LsSection>
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <LsSection title="Requisitions by who asked" csv="requesters">
+          <LsSection title="Requisitions by who asked" csv={`requesters${rq}`}>
             {spend.byRequester.length === 0 ? <LsEmpty title="No approved requisitions yet." /> : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -130,7 +142,7 @@ export default async function LandscapingReports() {
               </div>
             )}
           </LsSection>
-          <LsSection title="Item rates over time" csv="prices">
+          <LsSection title="Item rates over time" csv={`prices${rq}`}>
             {prices.length === 0 ? <LsEmpty title="No bills with item rates yet." /> : (
               <>
                 <div className="overflow-x-auto">

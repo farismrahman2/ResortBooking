@@ -42,10 +42,10 @@ export default async function IncomeByPaymentMethodReport({ searchParams }: { se
           <DateLink label="Today" date={today} active={date === today} />
           <DateLink label="Yesterday" date={yesterday} active={date === yesterday} />
           <form action="/reports/income/by-payment-method" method="get" className="flex items-center gap-2">
-            <label className="text-xs text-gray-500">Pick a date:</label>
+            <label className="text-sm font-medium text-gray-700">Date:</label>
             <input type="date" name="date" defaultValue={date}
-              className="rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-forest-600 focus:outline-none" />
-            <button className="rounded-md bg-gray-900 px-2.5 py-1 text-xs font-medium text-white hover:bg-gray-700">Go</button>
+              className="min-h-[40px] rounded-lg border border-gray-300 bg-white px-2.5 text-sm focus:border-forest-600 focus:outline-none focus:ring-2 focus:ring-forest-200" />
+            <button className="inline-flex min-h-[40px] items-center rounded-lg bg-forest-700 px-4 text-sm font-medium text-white hover:bg-forest-800">Show</button>
           </form>
         </div>
 
