@@ -399,6 +399,12 @@ export async function nextRequisitionNo(): Promise<number> {
   return nextReqNo(data?.[0]?.req_no ?? null)
 }
 
+/** Requisition numbers already taken, with their status — so the form can warn before saving. */
+export async function usedRequisitionNos(): Promise<Array<{ req_no: number; status: string }>> {
+  const { data } = await db().from('ls_requisitions').select('req_no, status').order('req_no').limit(5000)
+  return (data ?? []) as Array<{ req_no: number; status: string }>
+}
+
 /** Approved requisitions that can take bills. */
 export async function approvedRequisitions() {
   const { data } = await db().from('ls_requisitions').select('id, req_no, description, total, project:ls_projects(code, parent_id)').eq('status', 'approved').order('req_no', { ascending: false })

@@ -14,6 +14,7 @@ import { safeCall } from '@/lib/actions/safe-call'
 import { toast } from '@/lib/toast'
 import { CategoryPick, ItemDatalist, PersonPick, RateHint, findSuggestion, remember, type CategoryOpt, type ItemSuggestion, type PersonOpt } from './Picks'
 import { StickyActions, TAP } from './ui'
+import { PhotoInput } from './PhotoInput'
 
 type Item = { description: string; qty: string; unit: string; unit_price: string }
 type Pick = { personId: string; name: string }
@@ -22,7 +23,7 @@ const UNITS = ['CFT', 'SFT', 'RFT', 'Gari', 'Bag', 'Kg', 'Ton', 'Pcs', 'Nos', 'L
 const DRAFT_KEY = 'ls.req.unsaved'
 
 /** New, sent-back or not-yet-checked requisition — the ASU Requisition Slip, typed on a phone. */
-export function RequisitionForm({ initial, projects, nextNo, myName, people, categories, suggestions, initialProjectId, status }: {
+export function RequisitionForm({ initial, projects, nextNo, myName, people, categories, suggestions, initialProjectId, status, usedNos = [], slipPhotoPath = null }: {
   initial?: RequisitionInput & { id: string; req_no: number }
   projects: Array<{ id: string; code: string; title: string; label?: string }>
   nextNo: number
@@ -34,6 +35,10 @@ export function RequisitionForm({ initial, projects, nextNo, myName, people, cat
   initialProjectId?: string
   /** Current status when editing — a sent one stays in the queue for checking. */
   status?: string
+  /** Numbers already taken (new requisitions only), to warn before saving. */
+  usedNos?: Array<{ req_no: number; status: string }>
+  /** Existing slip photo when editing. */
+  slipPhotoPath?: string | null
 }) {
   const router = useRouter()
   const [pending, start] = useTransition()
@@ -63,6 +68,8 @@ export function RequisitionForm({ initial, projects, nextNo, myName, people, cat
     initial?.items.map((i) => ({ description: i.description, qty: String(i.qty), unit: i.unit ?? '', unit_price: String(i.unit_price) })) ?? [blank()],
   )
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [slipPhoto, setSlipPhoto] = useState<string | null>(slipPhotoPath)
+  const takenBy = !initial ? usedNos.find((u) => u.req_no === Number(reqNo)) : undefined
   const [restorable, setRestorable] = useState<Record<string, unknown> | null>(null)
 
   const parsed = useMemo(() => items.map((i) => ({ description: i.description, qty: Number(i.qty) || 0, unit: i.unit, unit_price: Number(i.unit_price) || 0 })), [items])
@@ -106,6 +113,7 @@ export function RequisitionForm({ initial, projects, nextNo, myName, people, cat
 
   function validate() {
     const e: Record<string, string> = {}
+    if (takenBy) e.reqNo = `Already used${takenBy.status === 'cancelled' ? ' (cancelled)' : ''} — try ${formatReqNo(nextNo)}`
     if (!projectId) e.project = 'Choose the project'
     if (!categoryId && !legacyDepartment) e.category = 'Choose the work category'
     if (!requester.personId && !requester.name.trim()) e.requester = 'Who asked for it?'
@@ -134,6 +142,7 @@ export function RequisitionForm({ initial, projects, nextNo, myName, people, cat
         requested_by_person: requester.personId || null, requested_by_name: requester.name,
         slip_prepared_by: nameOf(slipPrepared) || null, slip_checked_by: nameOf(slipChecked) || null, slip_approved_by: nameOf(slipApproved) || null,
         description, area_note: area, remarks, items: parsed.filter((i) => i.description.trim()), submit,
+        slip_photo_path: slipPhoto !== slipPhotoPath ? slipPhoto : undefined,
       }))
       if (!r.success) { toast.error(r.error); return }
       remember('req.category', categoryId); remember('req.requester', requester.personId)
@@ -162,8 +171,17 @@ export function RequisitionForm({ initial, projects, nextNo, myName, people, cat
       )}
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Input label="Req. No." inputMode="numeric" value={reqNo} disabled={!!initial} hint={initial ? undefined : `Next free: ${formatReqNo(nextNo)}`}
-          onChange={(e) => setReqNo(e.target.value.replace(/\D/g, ''))} />
+        <div data-err={takenBy ? 1 : undefined}>
+          <Input label="Req. No." inputMode="numeric" value={reqNo} disabled={!!initial}
+            error={takenBy ? `Already used${takenBy.status === 'cancelled' ? ' by a cancelled slip' : ''}` : undefined}
+            hint={initial ? undefined : `Next free: ${formatReqNo(nextNo)}`}
+            onChange={(e) => setReqNo(e.target.value.replace(/\D/g, ''))} />
+          {takenBy && (
+            <button type="button" className={`${TAP} px-1 text-sm font-medium text-forest-700 hover:underline`} onClick={() => setReqNo(String(nextNo))}>
+              Use {formatReqNo(nextNo)}
+            </button>
+          )}
+        </div>
         <Input label="Date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         <div className="col-span-2" data-err={err('project') ? 1 : undefined}>
           <Select label="Project" value={projectId} error={err('project')} onChange={(e) => setProjectId(e.target.value)}>
@@ -230,6 +248,11 @@ export function RequisitionForm({ initial, projects, nextNo, myName, people, cat
       </div>
 
       <Textarea label="Remarks / Notes" value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={2} />
+
+      <div>
+        <PhotoInput value={slipPhoto} onChange={setSlipPhoto} label="Photo of the requisition slip (optional)" />
+        <p className="mt-1 text-xs text-gray-500">Already signed on paper? Snap it here. Payment slips are added after approval, from the requisition page or Payment records.</p>
+      </div>
 
       <div>
         <h3 className="section-label mb-1">Names on the slip</h3>

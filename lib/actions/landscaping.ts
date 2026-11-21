@@ -56,6 +56,8 @@ export interface RequisitionInput {
   slip_prepared_by?: string | null
   slip_checked_by?: string | null
   slip_approved_by?: string | null
+  /** Photo/PDF of the requisition slip (optional; undefined = leave as it is). */
+  slip_photo_path?: string | null
   items: Array<{ description: string; qty: number; unit?: string | null; unit_price: number }>
   submit?: boolean
 }
@@ -90,6 +92,7 @@ export async function saveRequisition(input: RequisitionInput): Promise<ActionDa
     paper_prepared_by: input.slip_prepared_by?.trim() || null,
     paper_checked_by: input.slip_checked_by?.trim() || null,
     paper_approved_by: input.slip_approved_by?.trim() || null,
+    ...(input.slip_photo_path !== undefined ? { slip_photo_path: input.slip_photo_path || null } : {}),
     ...(input.submit ? { status: 'submitted', submitted_at: new Date().toISOString() } : {}),
   }
 
@@ -118,7 +121,12 @@ export async function saveRequisition(input: RequisitionInput): Promise<ActionDa
   } else {
     const reqNo = Number(input.req_no) > 0 ? Math.floor(Number(input.req_no)) : await nextRequisitionNo()
     const { data, error } = await db().from('ls_requisitions').insert({ ...header, req_no: reqNo, prepared_by: me.user_id }).select('id').single()
-    if (error) return fail(/duplicate|unique/i.test(error.message) ? `Requisition no. ${formatReqNo(reqNo)} is already used` : error.message)
+    if (error) {
+      if (!/duplicate|unique/i.test(error.message)) return fail(error.message)
+      const { data: taken } = await db().from('ls_requisitions').select('status').eq('req_no', reqNo).maybeSingle()
+      const next = await nextRequisitionNo()
+      return fail(`Requisition no. ${formatReqNo(reqNo)} is already used${taken?.status === 'cancelled' ? ' by a cancelled requisition (cancelled numbers are not reused)' : ''}. Next free number: ${formatReqNo(next)}`)
+    }
     id = data.id as string
   }
   const { error: itemErr } = await db().from('ls_requisition_items').insert(items.map((i, k) => ({
