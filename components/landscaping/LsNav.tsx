@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { LayoutDashboard, ClipboardList, Receipt, Wallet, FolderKanban, Truck, BarChart3, Users } from 'lucide-react'
+import { LayoutDashboard, ClipboardList, Receipt, Wallet, FolderKanban, Truck, BarChart3, Users, FileCheck2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getLsMe } from '@/lib/queries/landscaping'
 
@@ -7,6 +7,7 @@ const TABS = [
   { key: 'overview',     label: 'Overview',     href: '/landscaping',              icon: LayoutDashboard },
   { key: 'requisitions', label: 'Requisitions', href: '/landscaping/requisitions', icon: ClipboardList },
   { key: 'bills',        label: 'Bills',        href: '/landscaping/bills',        icon: Receipt },
+  { key: 'payments',     label: 'Payment records', href: '/landscaping/payments',  icon: FileCheck2 },
   { key: 'cash',         label: 'Cash & spending', href: '/landscaping/cash',      icon: Wallet },
   { key: 'projects',     label: 'Projects',     href: '/landscaping/projects',     icon: FolderKanban },
   { key: 'suppliers',    label: 'Suppliers',    href: '/landscaping/suppliers',    icon: Truck },

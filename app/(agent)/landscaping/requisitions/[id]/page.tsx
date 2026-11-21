@@ -8,7 +8,9 @@ import { RequisitionActions } from '@/components/landscaping/RequisitionActions'
 import { BillForm } from '@/components/landscaping/BillForm'
 import { PayBillButton } from '@/components/landscaping/PayBillButton'
 import { ViewPhoto } from '@/components/landscaping/ViewPhoto'
-import { LsEmpty, LsSection, Money, NextStep, StatTile } from '@/components/landscaping/ui'
+import { LinkButton, LsEmpty, LsSection, Money, NextStep, StatTile } from '@/components/landscaping/ui'
+import { EditPaymentButton, RequisitionSlipButton } from '@/components/landscaping/PaymentRecordActions'
+import { listPaymentRecords } from '@/lib/queries/landscaping-payments'
 import { requirePermission } from '@/lib/auth/permissions'
 import { getLsMe, getRequisition, listSuppliers } from '@/lib/queries/landscaping'
 import { editRule, formatReqNo } from '@/lib/landscaping/money'
@@ -23,6 +25,7 @@ export default async function RequisitionPage({ params }: { params: { id: string
   const [me, data, suppliers] = await Promise.all([getLsMe(), getRequisition(params.id), listSuppliers()])
   if (!data || !me) notFound()
   const { req, items, bills, spend, names } = data
+  const payments = req.status === 'approved' ? await listPaymentRecords({ reqNo: req.req_no }) : []
   const mine = req.prepared_by === me.user_id
   const canBill = req.status === 'approved' && (me.can_prepare || me.can_pay || me.is_admin)
   const canEdit = editRule(req.status, mine, me.is_admin).ok
@@ -64,7 +67,7 @@ export default async function RequisitionPage({ params }: { params: { id: string
             <span className="font-mono text-lg font-bold text-gray-900">{formatReqNo(req.req_no)}</span>
             <LsStatus status={req.status} />
             {req.from_paper && <LsTag>Entered from paper{names.prepared ? ` by ${names.prepared}` : ''}</LsTag>}
-            {req.slip_photo_path && <ViewPhoto path={req.slip_photo_path} />}
+            {req.slip_photo_path && <ViewPhoto path={req.slip_photo_path} label="Approved slip" />}
           </div>
           <p className="text-sm text-gray-700">
             {projectLabel ? <Link href={`/landscaping/projects/${req.project.id}`} className="font-medium text-forest-700 hover:underline">{projectLabel}</Link> : 'No project'}
@@ -128,6 +131,34 @@ export default async function RequisitionPage({ params }: { params: { id: string
             {sign('Approved by', req.paper_approved_by, names.approved, req.approved_at)}
           </div>
         </LsSection>
+
+        {req.status === 'approved' && (
+          <LsSection title="Payment proof" meta={payments.length ? `${payments.length} payment${payments.length === 1 ? '' : 's'} · ${formatBDT(payments.reduce((s, p) => s + p.amount, 0))}` : undefined}
+            action={me.can_pay ? <LinkButton href={`/landscaping/payments/new?req=${req.id}`} variant="primary">Upload payment</LinkButton> : undefined}>
+            <div className="flex flex-wrap items-center gap-2 border-b border-gray-100 px-4 py-2.5 text-sm">
+              <span className="font-medium text-gray-700">Approved requisition slip:</span>
+              {req.slip_photo_path ? <ViewPhoto path={req.slip_photo_path} label="View" /> : <span className="text-amber-700">not attached yet</span>}
+              <span className="ml-auto"><RequisitionSlipButton requisitionId={req.id} hasSlip={!!req.slip_photo_path} isAdmin={me.is_admin} /></span>
+            </div>
+            {payments.length === 0 ? (
+              <LsEmpty title="No payments yet." hint="Upload each payment with its slip (receipt / challan) as proof." />
+            ) : (
+              <ul className="divide-y divide-gray-100">
+                {payments.map((p) => (
+                  <li key={p.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold tabular-nums">{formatBDT(p.amount)} <span className="font-normal text-gray-500">· {p.pay_date} · {p.method}{p.supplier_name ? ` · ${p.supplier_name}` : ''}</span></p>
+                      {p.note && <p className="text-xs text-gray-600">{p.note}</p>}
+                      <p className="text-[11px] text-gray-400">Uploaded by {p.uploaded_by ?? '—'} · {new Date(p.created_at).toLocaleString('en-GB', { timeZone: 'Asia/Dhaka', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
+                    </div>
+                    {p.photo_path ? <ViewPhoto path={p.photo_path} label="Payment slip" /> : <span className="text-xs text-amber-700">No slip</span>}
+                    <EditPaymentButton payment={p} isAdmin={me.is_admin} canEdit={me.is_admin || p.created_by === me.user_id} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </LsSection>
+        )}
 
         <LsSection title="Supplier bills" meta={bills.length ? `${bills.length} · ${formatBDT(spend.billed)}` : undefined} action={bills.length > 0 ? billForm : undefined}>
           {req.status !== 'approved' ? (

@@ -243,7 +243,11 @@ export async function addBill(input: {
 }
 
 /** Pay a bill in full or in part. Cash can come out of the payer's float. */
-export async function payBill(input: { bill_id: string; amount: number; pay_date: string; method: Method; reference?: string; from_float?: boolean }): Promise<ActionResult> {
+export async function payBill(input: {
+  bill_id: string; amount: number; pay_date: string; method: Method; reference?: string; from_float?: boolean
+  /** Photo/PDF of the payment slip (receipt / challan) and remarks. */
+  photo_path?: string | null; note?: string
+}): Promise<ActionResult> {
   const me = await gate('pay'); if (typeof me === 'string') return fail(me)
   if (!METHODS.includes(input.method)) return fail('Pick how it was paid')
   const amount = money(input.amount)
@@ -257,9 +261,138 @@ export async function payBill(input: { bill_id: string; amount: number; pay_date
   const { error } = await db().from('ls_bill_payments').insert({
     bill_id: bill.id, amount, pay_date: input.pay_date || todayIso(), method: input.method, reference: input.reference?.trim() || null,
     float_holder: input.method === 'cash' && input.from_float !== false ? me.user_id : null,
+    photo_path: input.photo_path || null, note: input.note?.trim() || null,
   })
   if (error) return fail(error.message)
   refresh('/landscaping/bills', `/landscaping/requisitions/${bill.requisition_id}`, '/landscaping/suppliers', `/landscaping/suppliers/${bill.supplier_id}`, '/landscaping/cash')
+  return { success: true }
+}
+
+// ─── Payment records: approved requisition + payment slip ───────────────────
+
+export interface RequisitionPaymentInput {
+  requisition_id: string
+  /** Photo/PDF of the signed, approved requisition slip (kept on the requisition). */
+  requisition_slip_path?: string | null
+  /** Photo/PDF of the payment slip (receipt / challan). */
+  payment_slip_path: string | null
+  amount: number
+  pay_date: string
+  method: Method
+  from_float?: boolean
+  reference?: string
+  note?: string
+  /** Pay this bill; or, with no bill, record the supplier's bill for this payment. */
+  bill_id?: string | null
+  supplier_id?: string | null
+  new_supplier?: string | null
+  bill_no?: string | null
+}
+
+/**
+ * One step from the Payment records page: link a payment and its slip to an
+ * approved requisition (and keep the approved slip photo on it). Pays an
+ * existing bill, or — when the supplier's bill isn't in yet — records the bill
+ * for the amount paid, so the books stay complete.
+ */
+export async function recordRequisitionPayment(input: RequisitionPaymentInput): Promise<ActionData<{ requisition_id: string }>> {
+  const me = await gate('pay'); if (typeof me === 'string') return fail(me)
+  if (!input.payment_slip_path) return fail('Attach the payment slip photo')
+  const amount = money(input.amount)
+  if (amount <= 0) return fail('Enter the amount paid')
+  const { data: req } = await db().from('ls_requisitions').select('id, req_no, status, slip_photo_path').eq('id', input.requisition_id).maybeSingle()
+  if (!req) return fail('Requisition not found')
+  if (req.status !== 'approved') return fail('Only an approved requisition can take payments')
+
+  let billId = input.bill_id || null
+  if (!billId) {
+    const b = await addBill({
+      requisition_id: req.id, supplier_id: input.supplier_id || undefined, new_supplier: input.new_supplier || undefined,
+      bill_no: input.bill_no || undefined, bill_date: input.pay_date, amount, note: 'Recorded with its payment slip',
+      photo_path: null,
+    })
+    if (!b.success) return fail(b.error)
+    billId = b.data.id
+  }
+  const paid = await payBill({
+    bill_id: billId, amount, pay_date: input.pay_date, method: input.method, from_float: input.from_float,
+    reference: input.reference, photo_path: input.payment_slip_path, note: input.note,
+  })
+  if (!paid.success) {
+    // A bill made only for this payment goes again if the payment failed.
+    if (!input.bill_id) await db().from('ls_bills').delete().eq('id', billId)
+    return fail(paid.error)
+  }
+  if (input.requisition_slip_path && input.requisition_slip_path !== req.slip_photo_path) {
+    await db().from('ls_requisitions').update({ slip_photo_path: input.requisition_slip_path, updated_at: new Date().toISOString() }).eq('id', req.id)
+  }
+  refresh('/landscaping/payments', `/landscaping/requisitions/${req.id}`)
+  return { success: true, data: { requisition_id: req.id } }
+}
+
+/** Attach or replace the approved requisition slip photo. Replacing one is logged. */
+export async function setRequisitionSlip(requisitionId: string, path: string | null): Promise<ActionResult> {
+  const me = await gate(); if (typeof me === 'string') return fail(me)
+  if (!(me.can_prepare || me.can_approve || me.can_pay || me.is_admin)) return fail('You cannot change this requisition')
+  const { data: req } = await db().from('ls_requisitions').select('id, req_no, slip_photo_path').eq('id', requisitionId).maybeSingle()
+  if (!req) return fail('Requisition not found')
+  if (req.slip_photo_path && !me.is_admin) return fail('A slip photo is already attached — ask the admin to replace it')
+  const { error } = await db().from('ls_requisitions').update({ slip_photo_path: path, updated_at: new Date().toISOString() }).eq('id', requisitionId)
+  if (error) return fail(error.message)
+  if (req.slip_photo_path) {
+    await flagAlert({
+      event_type: 'landscaping_money_changed', entity_type: 'ls_requisition', entity_id: requisitionId,
+      summary: `Landscaping Req ${formatReqNo(req.req_no)}: approved slip photo ${path ? 'replaced' : 'removed'}`,
+      payload: { old: req.slip_photo_path, new: path }, created_by: me.user_id,
+    })
+  }
+  refresh('/landscaping/payments', `/landscaping/requisitions/${requisitionId}`)
+  return { success: true }
+}
+
+/**
+ * Edit a payment record. Slip photo and remarks: the person who entered it,
+ * or the admin. Amount, date and method: the admin only (logged).
+ */
+export async function updatePaymentRecord(paymentId: string, input: {
+  photo_path?: string | null; note?: string; reference?: string
+  amount?: number; pay_date?: string; method?: Method
+}): Promise<ActionResult> {
+  const me = await gate(); if (typeof me === 'string') return fail(me)
+  const { data: p } = await db().from('ls_bill_payments').select('*, bill:ls_bills(id, amount, bill_no, requisition_id, ls_bill_payments(id, amount))').eq('id', paymentId).maybeSingle()
+  if (!p) return fail('Payment not found')
+  const own = p.created_by === me.user_id
+  if (!own && !me.is_admin) return fail('Only the person who entered this payment, or the admin, can change it')
+  const moneyChange = (input.amount !== undefined && money(input.amount) !== Number(p.amount))
+    || (input.pay_date !== undefined && input.pay_date !== p.pay_date)
+    || (input.method !== undefined && input.method !== p.method)
+  if (moneyChange && !me.is_admin) return fail('Only the admin can change the amount, date or method')
+  const patch: Record<string, unknown> = { updated_by: me.user_id, updated_at: new Date().toISOString() }
+  if (input.photo_path !== undefined) patch.photo_path = input.photo_path || null
+  if (input.note !== undefined) patch.note = input.note.trim() || null
+  if (input.reference !== undefined) patch.reference = input.reference.trim() || null
+  if (moneyChange) {
+    const amount = money(input.amount ?? p.amount)
+    if (amount <= 0) return fail('Amount must be above 0')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const others = ((p.bill?.ls_bill_payments ?? []) as any[]).filter((x) => x.id !== paymentId).reduce((s, x) => s + Number(x.amount), 0)
+    if (amount > money(Number(p.bill?.amount ?? 0) - others) + 0.005) return fail('That is more than the bill — fix the bill amount first')
+    if (input.method && !METHODS.includes(input.method)) return fail('Pick how it was paid')
+    Object.assign(patch, { amount, pay_date: input.pay_date ?? p.pay_date, method: input.method ?? p.method })
+  }
+  const { error } = await db().from('ls_bill_payments').update(patch).eq('id', paymentId)
+  if (error) return fail(error.message)
+  if (moneyChange || (p.photo_path && input.photo_path !== undefined && input.photo_path !== p.photo_path)) {
+    await flagAlert({
+      event_type: 'landscaping_money_changed', entity_type: 'ls_bill_payment', entity_id: paymentId,
+      summary: `Landscaping payment changed (bill ${p.bill?.bill_no ?? '—'}): ${[
+        moneyChange ? `${formatBDT(Number(p.amount))} ${p.pay_date} ${p.method} → ${formatBDT(Number(patch.amount))} ${patch.pay_date} ${patch.method}` : null,
+        p.photo_path && input.photo_path !== p.photo_path ? 'payment slip replaced' : null,
+      ].filter(Boolean).join('; ')}`,
+      payload: { before: { amount: Number(p.amount), pay_date: p.pay_date, method: p.method, photo_path: p.photo_path }, after: patch }, created_by: me.user_id,
+    })
+  }
+  refresh('/landscaping/payments', '/landscaping/bills', `/landscaping/requisitions/${p.bill?.requisition_id}`, '/landscaping/cash')
   return { success: true }
 }
 
