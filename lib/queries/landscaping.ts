@@ -325,16 +325,21 @@ export interface LsRequisitionRow {
   billed: number; paid: number; overBudget: boolean; billCount: number
   /** Entered by the admin from an old paper slip. */
   from_paper: boolean
+  /** Name written as approver, and whether the approver approved their own. */
+  approved_by_name: string | null
+  self_approved: boolean
 }
 
 export async function listRequisitions(opts: { status?: string; projectId?: string; projectIds?: string[] } = {}): Promise<LsRequisitionRow[]> {
   let q = db().from('ls_requisitions')
-    .select('id, req_no, req_date, department, description, status, total, project_id, requested_by_name, prepared_by, from_paper, project:ls_projects(code, parent_id), ls_bills(amount, ls_bill_payments(amount))')
+    .select('id, req_no, req_date, department, description, status, total, project_id, requested_by_name, prepared_by, from_paper, paper_approved_by, approved_by, self_approved, project:ls_projects(code, parent_id), ls_bills(amount, ls_bill_payments(amount))')
     .order('req_no', { ascending: false }).limit(500)
   if (opts.status) q = q.eq('status', opts.status)
   if (opts.projectId) q = q.eq('project_id', opts.projectId)
   if (opts.projectIds) q = q.in('project_id', opts.projectIds)
   const [{ data }, parentOf] = await Promise.all([q, parentLookup()])
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const approverNames = await namesFor(((data ?? []) as any[]).map((r) => r.approved_by))
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return ((data ?? []) as any[]).map((r) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -345,6 +350,7 @@ export async function listRequisitions(opts: { status?: string; projectId?: stri
       status: r.status, total: n(r.total), project_id: r.project_id, project_code: codeLabel(r.project, parentOf(r.project)),
       requested_by_name: r.requested_by_name, prepared_by: r.prepared_by,
       billed: s.billed, paid: s.paid, overBudget: s.overBudget, billCount: bills.length, from_paper: !!r.from_paper,
+      approved_by_name: r.paper_approved_by ?? (r.approved_by ? approverNames.get(r.approved_by) ?? null : null), self_approved: !!r.self_approved,
     }
   })
 }
@@ -352,7 +358,7 @@ export async function listRequisitions(opts: { status?: string; projectId?: stri
 export interface LsBillRow {
   id: string; requisition_id: string; req_no: number | null; supplier_id: string; supplier_name: string
   bill_no: string | null; bill_date: string; amount: number; paid: number; status: BillStatus
-  note: string | null; photo_path: string | null; project_code: string | null
+  note: string | null; photo_path: string | null; extra_photo_paths: string[]; project_code: string | null
   payments: Array<{ id: string; pay_date: string; amount: number; method: string; reference: string | null; float_holder: string | null }>
 }
 
@@ -366,7 +372,7 @@ function toBill(b: any): LsBillRow {
     id: b.id, requisition_id: b.requisition_id, req_no: b.req?.req_no ?? null,
     supplier_id: b.supplier_id, supplier_name: b.supplier?.name ?? '—',
     bill_no: b.bill_no, bill_date: b.bill_date, amount: n(b.amount), paid, status: billStatus(n(b.amount), paid),
-    note: b.note, photo_path: b.photo_path, project_code: b.req?.project?.code ?? null, payments,
+    note: b.note, photo_path: b.photo_path, extra_photo_paths: b.extra_photo_paths ?? [], project_code: b.req?.project?.code ?? null, payments,
   }
 }
 const BILL_SELECT = '*, supplier:ls_suppliers(name), req:ls_requisitions(req_no, project:ls_projects(code)), ls_bill_payments(*)'

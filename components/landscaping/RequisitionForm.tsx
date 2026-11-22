@@ -14,7 +14,8 @@ import { safeCall } from '@/lib/actions/safe-call'
 import { toast } from '@/lib/toast'
 import { CategoryPick, ItemDatalist, PersonPick, RateHint, findSuggestion, remember, type CategoryOpt, type ItemSuggestion, type PersonOpt } from './Picks'
 import { StickyActions, TAP } from './ui'
-import { PhotoInput } from './PhotoInput'
+import { MultiPhotoInput, joinPhotos } from './MultiPhotoInput'
+import { useConfirm } from '@/components/ui/ConfirmDialog'
 
 type Item = { description: string; qty: string; unit: string; unit_price: string }
 type Pick = { personId: string; name: string }
@@ -23,7 +24,7 @@ const UNITS = ['CFT', 'SFT', 'RFT', 'Gari', 'Bag', 'Kg', 'Ton', 'Pcs', 'Nos', 'L
 const DRAFT_KEY = 'ls.req.unsaved'
 
 /** New, sent-back or not-yet-checked requisition — the ASU Requisition Slip, typed on a phone. */
-export function RequisitionForm({ initial, projects, nextNo, myName, people, categories, suggestions, initialProjectId, status, usedNos = [], slipPhotoPath = null }: {
+export function RequisitionForm({ initial, projects, nextNo, myName, people, categories, suggestions, initialProjectId, status, usedNos = [], slipPhotoPath = null, slipExtraPaths = [], canApprove = false }: {
   initial?: RequisitionInput & { id: string; req_no: number }
   projects: Array<{ id: string; code: string; title: string; label?: string }>
   nextNo: number
@@ -39,10 +40,15 @@ export function RequisitionForm({ initial, projects, nextNo, myName, people, cat
   usedNos?: Array<{ req_no: number; status: string }>
   /** Existing slip photo when editing. */
   slipPhotoPath?: string | null
+  slipExtraPaths?: string[]
+  /** Approver or admin: may approve this one themselves. */
+  canApprove?: boolean
 }) {
   const router = useRouter()
   const [pending, start] = useTransition()
   const alreadySent = status === 'submitted' || status === 'checked'
+  const isApproved = status === 'approved'
+  const confirm = useConfirm()
   const [reqNo, setReqNo] = useState(String(initial?.req_no ?? nextNo))
   const [projectId, setProjectId] = useState(initial?.project_id ?? initialProjectId ?? (projects.length === 1 ? projects[0].id : ''))
   const [date, setDate] = useState(initial?.req_date ?? new Date().toISOString().slice(0, 10))
@@ -68,7 +74,8 @@ export function RequisitionForm({ initial, projects, nextNo, myName, people, cat
     initial?.items.map((i) => ({ description: i.description, qty: String(i.qty), unit: i.unit ?? '', unit_price: String(i.unit_price) })) ?? [blank()],
   )
   const [errors, setErrors] = useState<Record<string, string>>({})
-  const [slipPhoto, setSlipPhoto] = useState<string | null>(slipPhotoPath)
+  const startPhotos = joinPhotos(slipPhotoPath, slipExtraPaths)
+  const [slipPhotos, setSlipPhotos] = useState<string[]>(startPhotos)
   const takenBy = !initial ? usedNos.find((u) => u.req_no === Number(reqNo)) : undefined
   const [restorable, setRestorable] = useState<Record<string, unknown> | null>(null)
 
@@ -133,8 +140,12 @@ export function RequisitionForm({ initial, projects, nextNo, myName, people, cat
     return Object.keys(e).length === 0
   }
 
-  function save(submit: boolean) {
+  async function save(submit: boolean, selfApprove = false) {
     if (!validate()) return
+    if (selfApprove) {
+      const who = nameOf(slipApproved) || myName
+      if (!(await confirm({ title: `Approve this requisition now as “${who}”?`, description: 'It skips checking, is marked Self-approved, and the admin sees it in the Audit Log. Change the “Approved by” name below if someone else approved it.', confirmLabel: 'Approve now' }))) return
+    }
     start(async () => {
       const r = await safeCall(() => saveRequisition({
         id: initial?.id, req_no: Number(reqNo) || undefined, project_id: projectId || null, req_date: date,
@@ -142,13 +153,14 @@ export function RequisitionForm({ initial, projects, nextNo, myName, people, cat
         requested_by_person: requester.personId || null, requested_by_name: requester.name,
         slip_prepared_by: nameOf(slipPrepared) || null, slip_checked_by: nameOf(slipChecked) || null, slip_approved_by: nameOf(slipApproved) || null,
         description, area_note: area, remarks, items: parsed.filter((i) => i.description.trim()), submit,
-        slip_photo_path: slipPhoto !== slipPhotoPath ? slipPhoto : undefined,
+        slip_photo_paths: slipPhotos.join('|') !== startPhotos.join('|') ? slipPhotos : undefined,
+        self_approve: selfApprove ? { approved_by_name: nameOf(slipApproved) || myName } : undefined,
       }))
       if (!r.success) { toast.error(r.error); return }
       remember('req.category', categoryId); remember('req.requester', requester.personId)
       remember('req.prepared', slipPrepared.personId); remember('req.checked', slipChecked.personId); remember('req.approved', slipApproved.personId)
       if (!initial) discard()
-      toast.success(alreadySent ? 'Changes saved — still waiting for checking' : submit ? 'Sent for checking' : 'Saved as draft')
+      toast.success(selfApprove ? 'Saved and approved' : isApproved ? 'Changes saved — still approved' : alreadySent ? 'Changes saved — still waiting for checking' : submit ? 'Sent for checking' : 'Saved as draft')
       router.push(`/landscaping/requisitions/${r.data.id}`)
       router.refresh()
     })
@@ -163,6 +175,11 @@ export function RequisitionForm({ initial, projects, nextNo, myName, people, cat
           <Button size="md" variant="primary" className={TAP} onClick={restore}>Restore it</Button>
           <Button size="md" variant="outline" className={TAP} onClick={discard}>Start fresh</Button>
         </div>
+      )}
+      {isApproved && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          This requisition is <b>approved</b>. Your changes keep it approved and are recorded in the Audit Log.
+        </p>
       )}
       {alreadySent && (
         <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
@@ -250,7 +267,7 @@ export function RequisitionForm({ initial, projects, nextNo, myName, people, cat
       <Textarea label="Remarks / Notes" value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={2} />
 
       <div>
-        <PhotoInput value={slipPhoto} onChange={setSlipPhoto} label="Photo of the requisition slip (optional)" />
+        <MultiPhotoInput value={slipPhotos} onChange={setSlipPhotos} label="Photos of the requisition slip (optional)" />
         <p className="mt-1 text-xs text-gray-500">Already signed on paper? Snap it here. Payment slips are added after approval, from the requisition page or Payment records.</p>
       </div>
 
@@ -268,10 +285,12 @@ export function RequisitionForm({ initial, projects, nextNo, myName, people, cat
       </div>
 
       <StickyActions note={<span className="font-semibold text-forest-900">Total <span className="tabular-nums">{formatBDT(total)}</span></span>}>
-        {alreadySent ? (
+        {isApproved || alreadySent ? (<>
+          {alreadySent && canApprove && <Button variant="outline" size="md" className={TAP} loading={pending} onClick={() => save(true, true)}>Save & approve now</Button>}
           <Button variant="primary" size="md" className={TAP} loading={pending} onClick={() => save(true)}>Save changes</Button>
-        ) : (<>
+        </>) : (<>
           <Button variant="outline" size="md" className={TAP} loading={pending} onClick={() => save(false)}>Save draft</Button>
+          {canApprove && <Button variant="outline" size="md" className={TAP} loading={pending} onClick={() => save(true, true)}>Save & approve now</Button>}
           <Button variant="primary" size="md" className={TAP} loading={pending} onClick={() => save(true)}>Send for checking</Button>
         </>)}
       </StickyActions>

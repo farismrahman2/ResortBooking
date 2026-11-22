@@ -13,7 +13,7 @@ export default async function NewRequisitionPage({ searchParams }: { searchParam
     <div className="flex h-full flex-col">
       <Topbar title="New requisition" subtitle="Landscaping requisition slip" />
       <LsPage tab="requisitions">
-        <RequisitionForm projects={projects.filter((p) => p.status !== 'cancelled' && p.status !== 'completed')} nextNo={nextNo} myName={me?.name ?? ''} initialProjectId={searchParams.project} usedNos={usedNos}
+        <RequisitionForm projects={projects.filter((p) => p.status !== 'cancelled' && p.status !== 'completed')} nextNo={nextNo} myName={me?.name ?? ''} initialProjectId={searchParams.project} usedNos={usedNos} canApprove={!!me && (me.can_approve || me.is_admin)}
           people={people} categories={categories} suggestions={suggestions} />
       </LsPage>
     </div>

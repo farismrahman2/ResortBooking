@@ -198,10 +198,34 @@ export function groupSpend(rows: Array<{ key: string; amount: number }>) {
  * a checked one. Once approved it is locked. Fixing a sent one keeps it sent.
  */
 export function editRule(status: string, isPreparer: boolean, isAdmin: boolean):
-  { ok: true; alreadySent: boolean } | { ok: false; why: string } {
+  { ok: true; alreadySent: boolean; keepApproved?: boolean } | { ok: false; why: string } {
   if (!isPreparer && !isAdmin) return { ok: false, why: 'Only the person who prepared it can edit it' }
   if (status === 'draft' || status === 'rejected') return { ok: true, alreadySent: false }
   if (status === 'submitted') return { ok: true, alreadySent: true }
   if (status === 'checked') return isAdmin ? { ok: true, alreadySent: true } : { ok: false, why: 'It has been checked — ask the admin to fix it' }
-  return { ok: false, why: status === 'approved' ? 'An approved requisition cannot be changed' : 'This requisition cannot be edited' }
+  // The admin may correct an approved one; it stays approved and the change is logged.
+  if (status === 'approved') return isAdmin ? { ok: true, alreadySent: true, keepApproved: true } : { ok: false, why: 'It is approved — ask the admin to fix it' }
+  return { ok: false, why: 'This requisition cannot be edited' }
+}
+
+/**
+ * May this person approve a requisition they prepared, in one step? Only
+ * approvers and the admin. Everyone else still goes prepared → checked → approved.
+ */
+export function canSelfApprove(status: string, me: { can_approve: boolean; is_admin: boolean }): { ok: true } | { ok: false; reason: string } {
+  if (!me.can_approve && !me.is_admin) return { ok: false, reason: 'Only approvers can approve their own requisition.' }
+  if (!['draft', 'rejected', 'submitted', 'checked'].includes(status)) return { ok: false, reason: 'This requisition cannot be approved now.' }
+  return { ok: true }
+}
+
+/**
+ * Who may delete a requisition: the admin, any time it has no bills; the
+ * preparer, while it is not yet approved and has no bills.
+ */
+export function deleteRule(status: string, hasBills: boolean, isPreparer: boolean, isAdmin: boolean): { ok: true } | { ok: false; why: string } {
+  if (hasBills) return { ok: false, why: 'It has supplier bills — remove those first, or cancel it instead' }
+  if (isAdmin) return { ok: true }
+  if (!isPreparer) return { ok: false, why: 'Only the person who prepared it, or the admin, can delete it' }
+  if (status === 'approved') return { ok: false, why: 'It is approved — ask the admin to delete it' }
+  return { ok: true }
 }

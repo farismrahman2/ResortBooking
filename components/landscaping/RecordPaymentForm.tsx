@@ -12,7 +12,7 @@ import { formatBDT } from '@/lib/formatters/currency'
 import { safeCall } from '@/lib/actions/safe-call'
 import { toast } from '@/lib/toast'
 import type { PayableRequisition } from '@/lib/queries/landscaping-payments'
-import { PhotoInput } from './PhotoInput'
+import { MultiPhotoInput } from './MultiPhotoInput'
 import { StickyActions, TAP } from './ui'
 
 const today = () => new Date(Date.now() + 6 * 3600_000).toISOString().slice(0, 10)
@@ -42,8 +42,8 @@ export function RecordPaymentForm({ requisitions, suppliers, initialReqId }: {
   const [supplierId, setSupplierId] = useState('')
   const [newSupplier, setNewSupplier] = useState('')
   const [billNo, setBillNo] = useState('')
-  const [reqSlip, setReqSlip] = useState<string | null>(null)
-  const [paySlip, setPaySlip] = useState<string | null>(null)
+  const [reqSlip, setReqSlip] = useState<string[]>([])
+  const [paySlip, setPaySlip] = useState<string[]>([])
   const [amount, setAmount] = useState('')
   const [date, setDate] = useState(today())
   const [method, setMethod] = useState<Method>('bank')
@@ -58,7 +58,7 @@ export function RecordPaymentForm({ requisitions, suppliers, initialReqId }: {
   function validate() {
     const e: Record<string, string> = {}
     if (!req) e.req = reqText ? `No approved requisition ${formatReqNo(Number(reqText.replace(/\D/g, '')) || 0)}` : 'Enter or pick the requisition number'
-    if (!paySlip) e.paySlip = 'Attach the payment slip (photo or PDF)'
+    if (!paySlip.length) e.paySlip = 'Attach the payment slip (photo or PDF)'
     if (!(Number(amount) > 0)) e.amount = 'Enter the amount paid'
     else if (due !== null && Number(amount) > due + 0.005) e.amount = `Only ${formatBDT(due)} is due on this bill`
     if (!date) e.date = 'Pick the payment date'
@@ -71,7 +71,7 @@ export function RecordPaymentForm({ requisitions, suppliers, initialReqId }: {
     if (!validate() || !req) { toast.error('Please fix the boxes marked in red'); return }
     start(async () => {
       const r = await safeCall(() => recordRequisitionPayment({
-        requisition_id: req.id, requisition_slip_path: reqSlip, payment_slip_path: paySlip,
+        requisition_id: req.id, requisition_slip_paths: reqSlip, payment_slip_paths: paySlip,
         amount: Number(amount), pay_date: date, method: method === 'cash_past' ? 'cash' : method, from_float: method === 'cash',
         reference, note,
         bill_id: chosenBill?.id ?? null,
@@ -82,7 +82,7 @@ export function RecordPaymentForm({ requisitions, suppliers, initialReqId }: {
       if (!r.success) { toast.error(r.error); return }
       toast.success(`Payment saved on Req ${formatReqNo(req.req_no)}`)
       if (another) {
-        setReqText(''); setReqSlip(null); setPaySlip(null); setAmount(''); setReference(''); setNote(''); setBillId(''); setBillNo('')
+        setReqText(''); setReqSlip([]); setPaySlip([]); setAmount(''); setReference(''); setNote(''); setBillId(''); setBillNo('')
         router.refresh()
       } else {
         router.push(`/landscaping/requisitions/${r.data.requisition_id}`)
@@ -108,10 +108,10 @@ export function RecordPaymentForm({ requisitions, suppliers, initialReqId }: {
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
-          <PhotoInput value={reqSlip} onChange={setReqSlip} label={req?.has_slip ? 'Requisition slip (already attached — add to replace)' : 'Approved requisition slip (photo or PDF)'} />
+          <MultiPhotoInput value={reqSlip} onChange={setReqSlip} label={req?.has_slip ? 'Requisition slip (already attached — add to replace)' : 'Approved requisition slip (photos or PDF)'} />
         </div>
         <div>
-          <PhotoInput value={paySlip} onChange={setPaySlip} label="Payment slip — receipt / challan" />
+          <MultiPhotoInput value={paySlip} onChange={setPaySlip} label="Payment slips — receipts / challans" />
           {errors.paySlip && <p className="mt-1 text-xs text-red-600">{errors.paySlip}</p>}
         </div>
       </div>

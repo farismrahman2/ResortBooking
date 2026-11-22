@@ -70,9 +70,10 @@ export default async function RequisitionsPage({ searchParams }: { searchParams:
                     <span className="font-mono text-sm font-semibold text-gray-900">{formatReqNo(r.req_no)}</span>
                     <LsStatus status={r.status} />
                     {r.from_paper && <LsTag>Paper</LsTag>}
+                    {r.self_approved && <LsTag>Self-approved</LsTag>}
                   </div>
                   <p className="mt-0.5 truncate text-sm text-gray-700">{r.description}</p>
-                  <p className="text-xs text-gray-500">{[r.project_code, r.department, r.requested_by_name, r.req_date].filter(Boolean).join(' · ')}</p>
+                  <p className="text-xs text-gray-500">{[r.project_code, r.department, r.requested_by_name, r.req_date, r.status === 'approved' && r.approved_by_name ? `approved by ${r.approved_by_name}` : null].filter(Boolean).join(' · ')}</p>
                 </ListRow>
               ))}
             </ul>

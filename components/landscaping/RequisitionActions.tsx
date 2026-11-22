@@ -3,13 +3,14 @@
 import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Check, CheckCheck, FileDown, Pencil, Send, Undo2, X } from 'lucide-react'
+import { BadgeCheck, Check, CheckCheck, FileDown, Pencil, Send, Trash2, Undo2, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Textarea } from '@/components/ui/Textarea'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
-import { advanceRequisition, cancelRequisition, rejectRequisition, submitRequisition } from '@/lib/actions/landscaping'
-import { canActOnRequisition, editRule, formatReqNo } from '@/lib/landscaping/money'
+import { advanceRequisition, cancelRequisition, deleteRequisition, rejectRequisition, selfApproveRequisition, submitRequisition } from '@/lib/actions/landscaping'
+import { canActOnRequisition, canSelfApprove, deleteRule, editRule, formatReqNo } from '@/lib/landscaping/money'
+import { Input } from '@/components/ui/Input'
 import { formatBDT } from '@/lib/formatters/currency'
 import { safeCall } from '@/lib/actions/safe-call'
 import { toast } from '@/lib/toast'
@@ -18,7 +19,7 @@ import type { ActionResult } from '@/lib/actions/types'
 
 /** What this person may do with this requisition right now. */
 export function RequisitionActions({ req, me, hasBills }: {
-  req: { id: string; req_no: number; total: number; status: string; prepared_by: string | null; checked_by: string | null }
+  req: { id: string; req_no: number; total: number; status: string; prepared_by: string | null; checked_by: string | null; paper_approved_by?: string | null }
   me: LsMe
   hasBills: boolean
 }) {
@@ -27,6 +28,8 @@ export function RequisitionActions({ req, me, hasBills }: {
   const [busy, setBusy] = useState<string | null>(null)
   const [rejectOpen, setRejectOpen] = useState(false)
   const [note, setNote] = useState('')
+  const [approveOpen, setApproveOpen] = useState(false)
+  const [approverName, setApproverName] = useState(req.paper_approved_by || me.name)
   const confirm = useConfirm()
 
   const run = (key: string, fn: () => Promise<ActionResult>, done: string) => {
@@ -35,7 +38,8 @@ export function RequisitionActions({ req, me, hasBills }: {
       const r = await safeCall(fn)
       setBusy(null)
       if (!r.success) { toast.error(r.error); return }
-      toast.success(done); setRejectOpen(false); setNote('')
+      toast.success(done); setRejectOpen(false); setApproveOpen(false); setNote('')
+      if (key === 'delete') { router.push('/landscaping/requisitions'); return }
       router.refresh()
     })
   }
@@ -47,6 +51,9 @@ export function RequisitionActions({ req, me, hasBills }: {
   const canCheck = canActOnRequisition('check', req, me).ok
   const canApprove = canActOnRequisition('approve', req, me).ok
   const canReject = ['submitted', 'checked'].includes(req.status) && (!mine || me.is_admin) && (me.can_check || me.can_approve || me.is_admin)
+  // Approver/admin on their own requisition: approve in one step (the normal check → approve still applies to others').
+  const canApproveSelf = mine && canSelfApprove(req.status, me).ok
+  const canDelete = deleteRule(req.status, hasBills, mine, me.is_admin).ok
   const canCancel = !hasBills && !['cancelled'].includes(req.status) && (mine || me.is_admin) && req.status !== 'approved'
 
   return (
@@ -82,6 +89,11 @@ export function RequisitionActions({ req, me, hasBills }: {
           <CheckCheck size={14} /> Approve
         </Button>
       )}
+      {canApproveSelf && (
+        <Button size="md" variant="primary" className="gap-1.5" onClick={() => setApproveOpen(true)}>
+          <BadgeCheck size={14} /> Approve myself
+        </Button>
+      )}
       {canReject && (
         <Button size="md" variant="outline" className="gap-1.5" onClick={() => setRejectOpen(true)}>
           <Undo2 size={14} /> Send back
@@ -96,6 +108,24 @@ export function RequisitionActions({ req, me, hasBills }: {
           <X size={14} /> Cancel
         </Button>
       )}
+      {canDelete && (
+        <Button size="md" variant="outline" className="gap-1.5 text-red-700" loading={pending && busy === 'delete'}
+          onClick={async () => {
+            if (!(await confirm({ title: `Delete ${label}?`, description: 'It is removed for good (the Audit Log keeps a note). To keep the record, use Cancel instead.', confirmLabel: 'Delete', danger: true }))) return
+            run('delete', () => deleteRequisition(req.id), 'Requisition deleted')
+          }}>
+          <Trash2 size={14} /> Delete
+        </Button>
+      )}
+      <Modal open={approveOpen} onClose={() => setApproveOpen(false)} title={`Approve ${label}`}
+        footer={<><Button variant="outline" size="md" onClick={() => setApproveOpen(false)}>Close</Button>
+          <Button variant="primary" size="md" loading={pending && busy === 'self'} disabled={!approverName.trim()}
+            onClick={() => run('self', () => selfApproveRequisition(req.id, approverName), 'Approved')}>Approve</Button></>}>
+        <div className="space-y-3">
+          <p className="text-sm text-gray-600">You prepared this one. Approving it yourself skips checking; it is marked <b>Self-approved</b> and the admin sees it in the Audit Log.</p>
+          <Input label="Approved by (printed on the slip)" value={approverName} onChange={(e) => setApproverName(e.target.value)} />
+        </div>
+      </Modal>
       <Modal open={rejectOpen} onClose={() => setRejectOpen(false)} title="Send back for changes">
         <div className="space-y-3">
           <Textarea label="What needs changing? (required)" value={note} onChange={(e) => setNote(e.target.value)} rows={3} />

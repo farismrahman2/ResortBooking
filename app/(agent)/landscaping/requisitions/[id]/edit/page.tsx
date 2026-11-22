@@ -21,7 +21,7 @@ export default async function EditRequisitionPage({ params }: { params: { id: st
         {req.status === 'rejected' && req.reject_note && (
           <p className="mx-auto max-w-3xl rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"><b>Sent back:</b> {req.reject_note}</p>
         )}
-        <RequisitionForm status={req.status} slipPhotoPath={req.slip_photo_path} projects={projects} nextNo={req.req_no} myName={me?.name ?? ''} people={people} categories={categories} suggestions={suggestions} initial={{
+        <RequisitionForm status={req.status} slipPhotoPath={req.slip_photo_path} slipExtraPaths={req.extra_photo_paths ?? []} canApprove={!!me && (me.can_approve || me.is_admin)} projects={projects} nextNo={req.req_no} myName={me?.name ?? ''} people={people} categories={categories} suggestions={suggestions} initial={{
           id: req.id, req_no: req.req_no, project_id: req.project_id, req_date: req.req_date, department: req.department,
           description: req.description, area_note: req.area_note, remarks: req.remarks, requested_by_name: req.requested_by_name,
           category_id: req.category_id, requested_by_person: req.requested_by_person,

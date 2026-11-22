@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { Plus, Search } from 'lucide-react'
 import { Topbar } from '@/components/layout/Topbar'
 import { LsPage } from '@/components/landscaping/LsNav'
-import { ViewPhoto } from '@/components/landscaping/ViewPhoto'
+import { ViewPhotos } from '@/components/landscaping/ViewPhotos'
 import { EditPaymentButton } from '@/components/landscaping/PaymentRecordActions'
 import { LinkButton, LsEmpty, LsSection, StatTile, TAP } from '@/components/landscaping/ui'
 import { requirePermission } from '@/lib/auth/permissions'
@@ -83,7 +83,7 @@ export default async function PaymentRecordsPage({ searchParams }: {
             </ul>
             <div className="flex flex-wrap items-center gap-2 border-t border-gray-100 px-4 py-2 text-sm">
               <span className="text-gray-600">Approved slip:</span>
-              {single.req.slip_photo_path ? <ViewPhoto path={single.req.slip_photo_path} label="View requisition slip" /> : <span className="text-amber-700">not attached yet</span>}
+              <ViewPhotos paths={[single.req.slip_photo_path, ...(single.req.extra_photo_paths ?? [])]} label="View requisition slip" empty={<span className="text-amber-700">not attached yet</span>} />
               <span className="ml-auto text-xs text-gray-500">{single.req.department ?? ''}{single.req.requested_by_name ? ` · requested by ${single.req.requested_by_name}` : ''}</span>
             </div>
           </LsSection>
@@ -114,8 +114,8 @@ export default async function PaymentRecordsPage({ searchParams }: {
                     <p className="text-xs text-gray-500">{fmtDate(r.pay_date)} · {METHOD[r.method] ?? r.method}{r.supplier_name ? ` · ${r.supplier_name}` : ''}{r.reference ? ` · ${r.reference}` : ''}</p>
                     {r.note && <p className="text-xs text-gray-600">{r.note}</p>}
                     <div className="flex flex-wrap items-center gap-1">
-                      {r.req_slip_path ? <ViewPhoto path={r.req_slip_path} label="Requisition slip" /> : <span className="px-1.5 text-xs text-amber-700">No requisition slip</span>}
-                      {r.photo_path ? <ViewPhoto path={r.photo_path} label="Payment slip" /> : <span className="px-1.5 text-xs text-amber-700">No payment slip</span>}
+                      <ViewPhotos paths={[r.req_slip_path, ...r.req_slip_extra]} label="Requisition slip" empty={<span className="px-1.5 text-xs text-amber-700">No requisition slip</span>} />
+                      <ViewPhotos paths={[r.photo_path, ...r.extra_photo_paths]} label="Payment slip" empty={<span className="px-1.5 text-xs text-amber-700">No payment slip</span>} />
                       <span className="ml-auto"><EditPaymentButton payment={r} isAdmin={!!me?.is_admin} canEdit={!!me && (me.is_admin || r.created_by === me.user_id)} /></span>
                     </div>
                     <p className="text-[11px] text-gray-400">Uploaded by {r.uploaded_by ?? '—'} · {fmtStamp(r.created_at)}</p>
@@ -141,8 +141,8 @@ export default async function PaymentRecordsPage({ searchParams }: {
                         </td>
                         <td className="whitespace-nowrap px-2 py-2 text-right font-semibold tabular-nums">{formatBDT(r.amount)}<p className="text-xs font-normal text-gray-500">{METHOD[r.method] ?? r.method}{r.reference ? ` · ${r.reference}` : ''}</p></td>
                         <td className="whitespace-nowrap px-2 py-2">{fmtDate(r.pay_date)}</td>
-                        <td className="px-2 py-1">{r.req_slip_path ? <ViewPhoto path={r.req_slip_path} label="View" /> : <span className="text-xs text-amber-700">Not attached</span>}</td>
-                        <td className="px-2 py-1">{r.photo_path ? <ViewPhoto path={r.photo_path} label="View" /> : <span className="text-xs text-amber-700">Not attached</span>}</td>
+                        <td className="px-2 py-1"><ViewPhotos paths={[r.req_slip_path, ...r.req_slip_extra]} empty={<span className="text-xs text-amber-700">Not attached</span>} /></td>
+                        <td className="px-2 py-1"><ViewPhotos paths={[r.photo_path, ...r.extra_photo_paths]} empty={<span className="text-xs text-amber-700">Not attached</span>} /></td>
                         <td className="px-2 py-2 text-xs text-gray-600">{r.uploaded_by ?? '—'}<p className="text-gray-400">{fmtStamp(r.created_at)}</p></td>
                         <td className="px-4 py-1 text-right"><EditPaymentButton payment={r} isAdmin={!!me?.is_admin} canEdit={!!me && (me.is_admin || r.created_by === me.user_id)} /></td>
                       </tr>

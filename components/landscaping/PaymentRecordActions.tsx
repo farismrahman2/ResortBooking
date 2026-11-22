@@ -11,21 +11,21 @@ import { Textarea } from '@/components/ui/Textarea'
 import { setRequisitionSlip, updatePaymentRecord } from '@/lib/actions/landscaping'
 import { safeCall } from '@/lib/actions/safe-call'
 import { toast } from '@/lib/toast'
-import { PhotoInput } from './PhotoInput'
+import { MultiPhotoInput, joinPhotos } from './MultiPhotoInput'
 import { TAP } from './ui'
 
 type Method = 'cash' | 'bkash' | 'bank' | 'cheque'
 
 /** Edit one payment record: slip and remarks (who entered it, or admin); amount/date/method (admin). */
 export function EditPaymentButton({ payment, isAdmin, canEdit }: {
-  payment: { id: string; amount: number; pay_date: string; method: string; reference: string | null; note: string | null; photo_path: string | null }
+  payment: { id: string; amount: number; pay_date: string; method: string; reference: string | null; note: string | null; photo_path: string | null; extra_photo_paths?: string[] }
   isAdmin: boolean
   canEdit: boolean
 }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [pending, start] = useTransition()
-  const [photo, setPhoto] = useState<string | null>(payment.photo_path)
+  const [photos, setPhotos] = useState<string[]>(joinPhotos(payment.photo_path, payment.extra_photo_paths))
   const [note, setNote] = useState(payment.note ?? '')
   const [reference, setReference] = useState(payment.reference ?? '')
   const [amount, setAmount] = useState(String(payment.amount))
@@ -37,7 +37,7 @@ export function EditPaymentButton({ payment, isAdmin, canEdit }: {
   function save() {
     start(async () => {
       const r = await safeCall(() => updatePaymentRecord(payment.id, {
-        photo_path: photo, note, reference,
+        photo_paths: photos, note, reference,
         ...(isAdmin ? { amount: Number(amount), pay_date: date, method } : {}),
       }))
       if (!r.success) { toast.error(r.error); return }
@@ -52,7 +52,7 @@ export function EditPaymentButton({ payment, isAdmin, canEdit }: {
       <Modal open={open} onClose={() => setOpen(false)} title="Payment record"
         footer={<><Button variant="outline" size="md" className={TAP} onClick={() => setOpen(false)}>Cancel</Button><Button variant="primary" size="md" className={TAP} loading={pending} onClick={save}>Save</Button></>}>
         <div className="space-y-3">
-          <PhotoInput value={photo} onChange={setPhoto} label="Payment slip — receipt / challan" />
+          <MultiPhotoInput value={photos} onChange={setPhotos} label="Payment slips — receipts / challans" />
           {isAdmin ? (
             <div className="grid grid-cols-2 gap-3">
               <Input label="Amount (Tk)" type="number" step="any" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
@@ -80,14 +80,14 @@ export function RequisitionSlipButton({ requisitionId, hasSlip, isAdmin }: { req
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [pending, start] = useTransition()
-  const [photo, setPhoto] = useState<string | null>(null)
+  const [photos, setPhotos] = useState<string[]>([])
   if (hasSlip && !isAdmin) return null
   function save() {
-    if (!photo) { toast.error('Take or choose the slip photo'); return }
+    if (!photos.length) { toast.error('Take or choose the slip photos'); return }
     start(async () => {
-      const r = await safeCall(() => setRequisitionSlip(requisitionId, photo))
+      const r = await safeCall(() => setRequisitionSlip(requisitionId, photos))
       if (!r.success) { toast.error(r.error); return }
-      toast.success('Requisition slip saved'); setOpen(false); setPhoto(null); router.refresh()
+      toast.success('Requisition slip saved'); setOpen(false); setPhotos([]); router.refresh()
     })
   }
   return (
@@ -97,7 +97,7 @@ export function RequisitionSlipButton({ requisitionId, hasSlip, isAdmin }: { req
       </Button>
       <Modal open={open} onClose={() => setOpen(false)} title={hasSlip ? 'Replace the approved requisition slip' : 'Approved requisition slip'}
         footer={<><Button variant="outline" size="md" className={TAP} onClick={() => setOpen(false)}>Cancel</Button><Button variant="primary" size="md" className={TAP} loading={pending} onClick={save}>Save</Button></>}>
-        <PhotoInput value={photo} onChange={setPhoto} label="Photo or PDF of the signed slip" />
+        <MultiPhotoInput value={photos} onChange={setPhotos} label="Photos or PDF of the signed slip" />
         {hasSlip && <p className="mt-2 text-xs text-gray-500">Replacing it is recorded in the Audit Log.</p>}
       </Modal>
     </>

@@ -134,7 +134,26 @@ describe('editing a requisition', () => {
     expect(editRule('submitted', true, false)).toEqual({ ok: true, alreadySent: true })
     expect(editRule('checked', true, false).ok).toBe(false)
     expect(editRule('checked', false, true)).toEqual({ ok: true, alreadySent: true })
-    expect(editRule('approved', true, true).ok).toBe(false)
+    expect(editRule('approved', true, false).ok).toBe(false)
+    expect(editRule('approved', false, true)).toEqual({ ok: true, alreadySent: true, keepApproved: true })
     expect(editRule('submitted', false, false).ok).toBe(false)
+  })
+})
+
+import { canSelfApprove, deleteRule } from './money'
+
+describe('self-approval and delete', () => {
+  it('approvers and the admin may approve their own; others may not', () => {
+    expect(canSelfApprove('draft', { can_approve: true, is_admin: false }).ok).toBe(true)
+    expect(canSelfApprove('submitted', { can_approve: false, is_admin: true }).ok).toBe(true)
+    expect(canSelfApprove('draft', { can_approve: false, is_admin: false }).ok).toBe(false)
+    expect(canSelfApprove('approved', { can_approve: true, is_admin: true }).ok).toBe(false)
+  })
+  it('delete: never with bills; preparer until approved; admin any time', () => {
+    expect(deleteRule('draft', true, true, true).ok).toBe(false)
+    expect(deleteRule('submitted', false, true, false).ok).toBe(true)
+    expect(deleteRule('approved', false, true, false).ok).toBe(false)
+    expect(deleteRule('approved', false, false, true).ok).toBe(true)
+    expect(deleteRule('draft', false, false, false).ok).toBe(false)
   })
 })

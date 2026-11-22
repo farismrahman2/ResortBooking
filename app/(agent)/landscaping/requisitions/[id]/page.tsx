@@ -8,6 +8,7 @@ import { RequisitionActions } from '@/components/landscaping/RequisitionActions'
 import { BillForm } from '@/components/landscaping/BillForm'
 import { PayBillButton } from '@/components/landscaping/PayBillButton'
 import { ViewPhoto } from '@/components/landscaping/ViewPhoto'
+import { ViewPhotos } from '@/components/landscaping/ViewPhotos'
 import { LinkButton, LsEmpty, LsSection, Money, NextStep, StatTile } from '@/components/landscaping/ui'
 import { EditPaymentButton, RequisitionSlipButton } from '@/components/landscaping/PaymentRecordActions'
 import { listPaymentRecords } from '@/lib/queries/landscaping-payments'
@@ -67,7 +68,9 @@ export default async function RequisitionPage({ params }: { params: { id: string
             <span className="font-mono text-lg font-bold text-gray-900">{formatReqNo(req.req_no)}</span>
             <LsStatus status={req.status} />
             {req.from_paper && <LsTag>Entered from paper{names.prepared ? ` by ${names.prepared}` : ''}</LsTag>}
-            {req.slip_photo_path && <ViewPhoto path={req.slip_photo_path} label="Approved slip" />}
+            {req.self_approved && <LsTag>Self-approved</LsTag>}
+            {req.status === 'approved' && <span className="text-sm text-gray-700">Approved by <b>{req.paper_approved_by ?? names.approved ?? '—'}</b></span>}
+            <ViewPhotos paths={[req.slip_photo_path, ...(req.extra_photo_paths ?? [])]} label="Slip" />
           </div>
           <p className="text-sm text-gray-700">
             {projectLabel ? <Link href={`/landscaping/projects/${req.project.id}`} className="font-medium text-forest-700 hover:underline">{projectLabel}</Link> : 'No project'}
@@ -128,7 +131,7 @@ export default async function RequisitionPage({ params }: { params: { id: string
           <div className="grid grid-cols-1 gap-2 border-t border-gray-100 p-3 sm:grid-cols-3">
             {sign('Prepared by', req.paper_prepared_by, names.prepared, req.submitted_at)}
             {sign('Checked by', req.paper_checked_by, names.checked, req.checked_at)}
-            {sign('Approved by', req.paper_approved_by, names.approved, req.approved_at)}
+            {sign(req.self_approved ? 'Approved by (self-approved)' : 'Approved by', req.paper_approved_by, names.approved, req.approved_at)}
           </div>
         </LsSection>
 
@@ -137,7 +140,7 @@ export default async function RequisitionPage({ params }: { params: { id: string
             action={me.can_pay ? <LinkButton href={`/landscaping/payments/new?req=${req.id}`} variant="primary">Upload payment</LinkButton> : undefined}>
             <div className="flex flex-wrap items-center gap-2 border-b border-gray-100 px-4 py-2.5 text-sm">
               <span className="font-medium text-gray-700">Approved requisition slip:</span>
-              {req.slip_photo_path ? <ViewPhoto path={req.slip_photo_path} label="View" /> : <span className="text-amber-700">not attached yet</span>}
+              <ViewPhotos paths={[req.slip_photo_path, ...(req.extra_photo_paths ?? [])]} empty={<span className="text-amber-700">not attached yet</span>} />
               <span className="ml-auto"><RequisitionSlipButton requisitionId={req.id} hasSlip={!!req.slip_photo_path} isAdmin={me.is_admin} /></span>
             </div>
             {payments.length === 0 ? (
@@ -151,7 +154,7 @@ export default async function RequisitionPage({ params }: { params: { id: string
                       {p.note && <p className="text-xs text-gray-600">{p.note}</p>}
                       <p className="text-[11px] text-gray-400">Uploaded by {p.uploaded_by ?? '—'} · {new Date(p.created_at).toLocaleString('en-GB', { timeZone: 'Asia/Dhaka', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
                     </div>
-                    {p.photo_path ? <ViewPhoto path={p.photo_path} label="Payment slip" /> : <span className="text-xs text-amber-700">No slip</span>}
+                    <ViewPhotos paths={[p.photo_path, ...p.extra_photo_paths]} label="Payment slip" empty={<span className="text-xs text-amber-700">No slip</span>} />
                     <EditPaymentButton payment={p} isAdmin={me.is_admin} canEdit={me.is_admin || p.created_by === me.user_id} />
                   </li>
                 ))}
@@ -173,7 +176,7 @@ export default async function RequisitionPage({ params }: { params: { id: string
                     <div className="flex flex-wrap items-center gap-1.5">
                       <Link href={`/landscaping/suppliers/${b.supplier_id}`} className="font-medium text-forest-700 hover:underline">{b.supplier_name}</Link>
                       <LsStatus status={b.status} />
-                      {b.photo_path && <ViewPhoto path={b.photo_path} />}
+                      <ViewPhotos paths={[b.photo_path, ...((b as { extra_photo_paths?: string[] }).extra_photo_paths ?? [])]} label="Bill" />
                     </div>
                     <p className="text-xs text-gray-500">Bill {b.bill_no ?? '—'} · {b.bill_date}{b.note ? ` · ${b.note}` : ''}</p>
                   </div>

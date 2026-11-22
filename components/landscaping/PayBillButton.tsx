@@ -11,7 +11,7 @@ import { formatBDT } from '@/lib/formatters/currency'
 import { safeCall } from '@/lib/actions/safe-call'
 import { toast } from '@/lib/toast'
 import { TAP } from './ui'
-import { PhotoInput } from './PhotoInput'
+import { MultiPhotoInput } from './MultiPhotoInput'
 import { Textarea } from '@/components/ui/Textarea'
 
 type Method = 'cash' | 'cash_past' | 'bkash' | 'bank' | 'cheque'
@@ -31,7 +31,7 @@ export function PayBillButton({ billId, due, label, cashInHand }: {
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
   const [method, setMethod] = useState<Method>('cash')
   const [reference, setReference] = useState('')
-  const [slip, setSlip] = useState<string | null>(null)
+  const [slip, setSlip] = useState<string[]>([])
   const [note, setNote] = useState('')
   const [tried, setTried] = useState(false)
 
@@ -43,14 +43,14 @@ export function PayBillButton({ billId, due, label, cashInHand }: {
   const cashShort = method === 'cash' && typeof cashInHand === 'number' && Number.isFinite(value) && value > cashInHand + 0.005
 
   function openModal() {
-    setAmount(String(dueR)); setMethod('cash'); setReference(''); setSlip(null); setNote(''); setTried(false); setOpen(true)
+    setAmount(String(dueR)); setMethod('cash'); setReference(''); setSlip([]); setNote(''); setTried(false); setOpen(true)
   }
 
   function save() {
     setTried(true)
     if (amountError) return
     start(async () => {
-      const r = await safeCall(() => payBill({ bill_id: billId, amount: value, pay_date: date, method: method === 'cash_past' ? 'cash' : method, from_float: method !== 'cash_past', reference, photo_path: slip, note }))
+      const r = await safeCall(() => payBill({ bill_id: billId, amount: value, pay_date: date, method: method === 'cash_past' ? 'cash' : method, from_float: method !== 'cash_past', reference, photo_paths: slip, note }))
       if (!r.success) { toast.error(r.error); return }
       toast.success(value >= dueR - 0.005 ? 'Bill paid in full' : 'Part payment saved')
       setOpen(false); router.refresh()
@@ -104,7 +104,7 @@ export function PayBillButton({ billId, due, label, cashInHand }: {
           <Input label="Reference (optional)"
             placeholder={method === 'bkash' ? 'bKash TrxID' : method === 'cheque' ? 'Cheque no.' : method === 'bank' ? 'Bank reference' : 'Receipt no.'}
             value={reference} onChange={(e) => setReference(e.target.value)} />
-          <PhotoInput value={slip} onChange={setSlip} label="Payment slip — receipt / challan (optional, can add later)" />
+          <MultiPhotoInput value={slip} onChange={setSlip} label="Payment slips — receipts / challans (optional, can add later)" />
           <Textarea label="Remarks (optional)" rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
         </div>
       </Modal>

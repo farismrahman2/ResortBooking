@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { requirePermission } from '@/lib/auth/permissions'
 import { flagAlert } from '@/lib/auth/alerts'
 import { getLsMe, getRequisition, nextRequisitionNo, type LsMe } from '@/lib/queries/landscaping'
-import { canActOnRequisition, editRule, formatReqNo, lineAmount, requisitionSpend, requisitionTotal } from '@/lib/landscaping/money'
+import { canActOnRequisition, canSelfApprove, deleteRule, editRule, formatReqNo, lineAmount, requisitionSpend, requisitionTotal } from '@/lib/landscaping/money'
 import { formatBDT } from '@/lib/formatters/currency'
 import type { ActionResult, ActionData } from './types'
 
@@ -58,6 +58,10 @@ export interface RequisitionInput {
   slip_approved_by?: string | null
   /** Photo/PDF of the requisition slip (optional; undefined = leave as it is). */
   slip_photo_path?: string | null
+  /** Several photos/PDFs of the slip; replaces slip_photo_path + extras when given. */
+  slip_photo_paths?: string[]
+  /** Approver (or admin) approving their own requisition in one step, naming who approved it. */
+  self_approve?: { approved_by_name?: string | null }
   items: Array<{ description: string; qty: number; unit?: string | null; unit_price: number }>
   submit?: boolean
 }
@@ -84,6 +88,10 @@ export async function saveRequisition(input: RequisitionInput): Promise<ActionDa
   if (items.length === 0) return fail('Add at least one item')
   if (items.some((i) => Number(i.unit_price) < 0)) return fail('Prices cannot be negative')
   const total = requisitionTotal(items)
+  if (input.self_approve) {
+    const ok = canSelfApprove('draft', me)
+    if (!ok.ok) return fail(ok.reason)
+  }
 
   const header = {
     project_id: input.project_id || null, req_date: input.req_date || todayIso(),
@@ -92,7 +100,9 @@ export async function saveRequisition(input: RequisitionInput): Promise<ActionDa
     paper_prepared_by: input.slip_prepared_by?.trim() || null,
     paper_checked_by: input.slip_checked_by?.trim() || null,
     paper_approved_by: input.slip_approved_by?.trim() || null,
-    ...(input.slip_photo_path !== undefined ? { slip_photo_path: input.slip_photo_path || null } : {}),
+    ...(input.slip_photo_paths !== undefined
+      ? { slip_photo_path: input.slip_photo_paths[0] ?? null, extra_photo_paths: input.slip_photo_paths.slice(1) }
+      : input.slip_photo_path !== undefined ? { slip_photo_path: input.slip_photo_path || null } : {}),
     ...(input.submit ? { status: 'submitted', submitted_at: new Date().toISOString() } : {}),
   }
 
@@ -103,11 +113,15 @@ export async function saveRequisition(input: RequisitionInput): Promise<ActionDa
     const edit = editRule(cur.status, cur.prepared_by === me.user_id, me.is_admin)
     if (!edit.ok) return fail(edit.why)
     // Fixing a sent one keeps it in the queue for checking, with any check cleared.
+    // The admin correcting an approved one leaves it approved.
     const stillSent = edit.alreadySent
-    const { error } = await db().from('ls_requisitions').update({
-      ...header, ...(stillSent ? { status: 'submitted' } : input.submit ? {} : { status: 'draft' }),
-      checked_by: null, checked_at: null, rejected_by: null, rejected_at: null, reject_note: null, updated_at: new Date().toISOString(),
-    }).eq('id', id)
+    const keep = 'keepApproved' in edit && edit.keepApproved
+    const { error } = await db().from('ls_requisitions').update(keep
+      ? { ...header, status: 'approved', updated_at: new Date().toISOString() }
+      : {
+          ...header, ...(stillSent ? { status: 'submitted' } : input.submit ? {} : { status: 'draft' }),
+          checked_by: null, checked_at: null, rejected_by: null, rejected_at: null, reject_note: null, updated_at: new Date().toISOString(),
+        }).eq('id', id)
     if (error) return fail(error.message)
     if (stillSent) {
       await flagAlert({
@@ -134,8 +148,60 @@ export async function saveRequisition(input: RequisitionInput): Promise<ActionDa
     unit: i.unit?.trim() || null, unit_price: Number(i.unit_price), amount: lineAmount(i),
   })))
   if (itemErr) return fail(itemErr.message)
+  if (input.self_approve) {
+    const r = await selfApproveRequisition(id!, input.self_approve.approved_by_name ?? null)
+    if (!r.success) return fail(`Saved, but not approved: ${r.error}`)
+  }
   refresh('/landscaping/requisitions', `/landscaping/requisitions/${id}`)
   return { success: true, data: { id: id! } }
+}
+
+/**
+ * An approver (or the admin) approves a requisition in one step — usually one
+ * they prepared themselves. It is marked self-approved, the approver's name is
+ * printed on the slip, and the admin's Audit Log records it.
+ */
+export async function selfApproveRequisition(id: string, approvedByName: string | null): Promise<ActionResult> {
+  const me = await gate(); if (typeof me === 'string') return fail(me)
+  const { data: req } = await db().from('ls_requisitions').select('status, req_no, total, description, prepared_by').eq('id', id).maybeSingle()
+  if (!req) return fail('Requisition not found')
+  const ok = canSelfApprove(req.status, me)
+  if (!ok.ok) return fail(ok.reason)
+  const now = new Date().toISOString()
+  const name = approvedByName?.trim() || me.name
+  const { error } = await db().from('ls_requisitions').update({
+    status: 'approved', self_approved: true,
+    submitted_at: now, checked_by: me.user_id, checked_at: now, approved_by: me.user_id, approved_at: now,
+    paper_approved_by: name, rejected_by: null, rejected_at: null, reject_note: null, updated_at: now,
+  }).eq('id', id).eq('status', req.status)
+  if (error) return fail(error.message)
+  await flagAlert({
+    event_type: 'landscaping_money_changed', entity_type: 'ls_requisition', entity_id: id,
+    summary: `Landscaping Req ${formatReqNo(req.req_no)} self-approved by ${me.name}${name !== me.name ? ` (approved by ${name})` : ''} — ${formatBDT(Number(req.total))}, ${req.description}`,
+    payload: { approved_by_name: name, total: Number(req.total) }, created_by: me.user_id,
+  })
+  refresh('/landscaping/requisitions', `/landscaping/requisitions/${id}`, '/landscaping')
+  return { success: true }
+}
+
+/** Delete a requisition with no bills. Preparer until approved; the admin any time. Logged. */
+export async function deleteRequisition(id: string): Promise<ActionResult> {
+  const me = await gate(); if (typeof me === 'string') return fail(me)
+  const { data: req } = await db().from('ls_requisitions').select('id, req_no, status, total, description, prepared_by, ls_bills(id)').eq('id', id).maybeSingle()
+  if (!req) return fail('Requisition not found')
+  const ok = deleteRule(req.status, (req.ls_bills ?? []).length > 0, req.prepared_by === me.user_id, me.is_admin)
+  if (!ok.ok) return fail(ok.why)
+  const { error: itemErr } = await db().from('ls_requisition_items').delete().eq('requisition_id', id)
+  if (itemErr) return fail(itemErr.message)
+  const { error } = await db().from('ls_requisitions').delete().eq('id', id)
+  if (error) return fail(error.message)
+  await flagAlert({
+    event_type: 'landscaping_money_changed', entity_type: 'ls_requisition', entity_id: id,
+    summary: `Landscaping Req ${formatReqNo(req.req_no)} deleted (${req.status}) — ${formatBDT(Number(req.total))}, ${req.description}`,
+    payload: { req_no: req.req_no, status: req.status, total: Number(req.total) }, created_by: me.user_id,
+  })
+  refresh('/landscaping/requisitions', '/landscaping')
+  return { success: true }
 }
 
 export async function submitRequisition(id: string): Promise<ActionResult> {
@@ -213,6 +279,7 @@ export async function saveSupplier(input: { id?: string; name: string; phone?: s
 export async function addBill(input: {
   requisition_id: string; supplier_id?: string; new_supplier?: string
   bill_no?: string; bill_date: string; amount: number; note?: string; photo_path?: string | null
+  photo_paths?: string[]
 }): Promise<ActionData<{ id: string; overBy: number }>> {
   const me = await gate(); if (typeof me === 'string') return fail(me)
   if (!(me.can_prepare || me.can_pay || me.is_admin)) return fail('You are not set to record bills')
@@ -232,7 +299,9 @@ export async function addBill(input: {
 
   const { data, error } = await db().from('ls_bills').insert({
     requisition_id: req.id, supplier_id: supplierId, bill_no: input.bill_no?.trim() || null,
-    bill_date: input.bill_date || todayIso(), amount, note: input.note?.trim() || null, photo_path: input.photo_path || null,
+    bill_date: input.bill_date || todayIso(), amount, note: input.note?.trim() || null,
+    photo_path: input.photo_paths ? input.photo_paths[0] ?? null : input.photo_path || null,
+    extra_photo_paths: input.photo_paths ? input.photo_paths.slice(1) : [],
   }).select('id').single()
   if (error) return fail(error.message)
 
@@ -255,6 +324,7 @@ export async function payBill(input: {
   bill_id: string; amount: number; pay_date: string; method: Method; reference?: string; from_float?: boolean
   /** Photo/PDF of the payment slip (receipt / challan) and remarks. */
   photo_path?: string | null; note?: string
+  photo_paths?: string[]
 }): Promise<ActionResult> {
   const me = await gate('pay'); if (typeof me === 'string') return fail(me)
   if (!METHODS.includes(input.method)) return fail('Pick how it was paid')
@@ -269,7 +339,9 @@ export async function payBill(input: {
   const { error } = await db().from('ls_bill_payments').insert({
     bill_id: bill.id, amount, pay_date: input.pay_date || todayIso(), method: input.method, reference: input.reference?.trim() || null,
     float_holder: input.method === 'cash' && input.from_float !== false ? me.user_id : null,
-    photo_path: input.photo_path || null, note: input.note?.trim() || null,
+    photo_path: input.photo_paths ? input.photo_paths[0] ?? null : input.photo_path || null,
+    extra_photo_paths: input.photo_paths ? input.photo_paths.slice(1) : [],
+    note: input.note?.trim() || null,
   })
   if (error) return fail(error.message)
   refresh('/landscaping/bills', `/landscaping/requisitions/${bill.requisition_id}`, '/landscaping/suppliers', `/landscaping/suppliers/${bill.supplier_id}`, '/landscaping/cash')
@@ -283,7 +355,11 @@ export interface RequisitionPaymentInput {
   /** Photo/PDF of the signed, approved requisition slip (kept on the requisition). */
   requisition_slip_path?: string | null
   /** Photo/PDF of the payment slip (receipt / challan). */
-  payment_slip_path: string | null
+  payment_slip_path?: string | null
+  /** Several payment slip photos/PDFs. */
+  payment_slip_paths?: string[]
+  /** Several approved-slip photos/PDFs (replace what is attached). */
+  requisition_slip_paths?: string[]
   amount: number
   pay_date: string
   method: Method
@@ -305,7 +381,8 @@ export interface RequisitionPaymentInput {
  */
 export async function recordRequisitionPayment(input: RequisitionPaymentInput): Promise<ActionData<{ requisition_id: string }>> {
   const me = await gate('pay'); if (typeof me === 'string') return fail(me)
-  if (!input.payment_slip_path) return fail('Attach the payment slip photo')
+  const paySlips = input.payment_slip_paths ?? (input.payment_slip_path ? [input.payment_slip_path] : [])
+  if (!paySlips.length) return fail('Attach the payment slip photo')
   const amount = money(input.amount)
   if (amount <= 0) return fail('Enter the amount paid')
   const { data: req } = await db().from('ls_requisitions').select('id, req_no, status, slip_photo_path').eq('id', input.requisition_id).maybeSingle()
@@ -324,14 +401,16 @@ export async function recordRequisitionPayment(input: RequisitionPaymentInput): 
   }
   const paid = await payBill({
     bill_id: billId, amount, pay_date: input.pay_date, method: input.method, from_float: input.from_float,
-    reference: input.reference, photo_path: input.payment_slip_path, note: input.note,
+    reference: input.reference, photo_paths: paySlips, note: input.note,
   })
   if (!paid.success) {
     // A bill made only for this payment goes again if the payment failed.
     if (!input.bill_id) await db().from('ls_bills').delete().eq('id', billId)
     return fail(paid.error)
   }
-  if (input.requisition_slip_path && input.requisition_slip_path !== req.slip_photo_path) {
+  if (input.requisition_slip_paths?.length) {
+    await db().from('ls_requisitions').update({ slip_photo_path: input.requisition_slip_paths[0], extra_photo_paths: input.requisition_slip_paths.slice(1), updated_at: new Date().toISOString() }).eq('id', req.id)
+  } else if (input.requisition_slip_path && input.requisition_slip_path !== req.slip_photo_path) {
     await db().from('ls_requisitions').update({ slip_photo_path: input.requisition_slip_path, updated_at: new Date().toISOString() }).eq('id', req.id)
   }
   refresh('/landscaping/payments', `/landscaping/requisitions/${req.id}`)
@@ -339,13 +418,15 @@ export async function recordRequisitionPayment(input: RequisitionPaymentInput): 
 }
 
 /** Attach or replace the approved requisition slip photo. Replacing one is logged. */
-export async function setRequisitionSlip(requisitionId: string, path: string | null): Promise<ActionResult> {
+export async function setRequisitionSlip(requisitionId: string, pathOrPaths: string | string[] | null): Promise<ActionResult> {
+  const paths = Array.isArray(pathOrPaths) ? pathOrPaths : pathOrPaths ? [pathOrPaths] : []
+  const path = paths[0] ?? null
   const me = await gate(); if (typeof me === 'string') return fail(me)
   if (!(me.can_prepare || me.can_approve || me.can_pay || me.is_admin)) return fail('You cannot change this requisition')
   const { data: req } = await db().from('ls_requisitions').select('id, req_no, slip_photo_path').eq('id', requisitionId).maybeSingle()
   if (!req) return fail('Requisition not found')
   if (req.slip_photo_path && !me.is_admin) return fail('A slip photo is already attached — ask the admin to replace it')
-  const { error } = await db().from('ls_requisitions').update({ slip_photo_path: path, updated_at: new Date().toISOString() }).eq('id', requisitionId)
+  const { error } = await db().from('ls_requisitions').update({ slip_photo_path: path, extra_photo_paths: paths.slice(1), updated_at: new Date().toISOString() }).eq('id', requisitionId)
   if (error) return fail(error.message)
   if (req.slip_photo_path) {
     await flagAlert({
@@ -365,7 +446,9 @@ export async function setRequisitionSlip(requisitionId: string, path: string | n
 export async function updatePaymentRecord(paymentId: string, input: {
   photo_path?: string | null; note?: string; reference?: string
   amount?: number; pay_date?: string; method?: Method
+  photo_paths?: string[]
 }): Promise<ActionResult> {
+  if (input.photo_paths !== undefined) input = { ...input, photo_path: input.photo_paths[0] ?? null }
   const me = await gate(); if (typeof me === 'string') return fail(me)
   const { data: p } = await db().from('ls_bill_payments').select('*, bill:ls_bills(id, amount, bill_no, requisition_id, ls_bill_payments(id, amount))').eq('id', paymentId).maybeSingle()
   if (!p) return fail('Payment not found')
@@ -377,6 +460,7 @@ export async function updatePaymentRecord(paymentId: string, input: {
   if (moneyChange && !me.is_admin) return fail('Only the admin can change the amount, date or method')
   const patch: Record<string, unknown> = { updated_by: me.user_id, updated_at: new Date().toISOString() }
   if (input.photo_path !== undefined) patch.photo_path = input.photo_path || null
+  if (input.photo_paths !== undefined) patch.extra_photo_paths = input.photo_paths.slice(1)
   if (input.note !== undefined) patch.note = input.note.trim() || null
   if (input.reference !== undefined) patch.reference = input.reference.trim() || null
   if (moneyChange) {
@@ -617,10 +701,11 @@ export interface PastRequisitionInput {
   paper_checked_by?: string | null
   paper_approved_by?: string | null
   slip_photo_path?: string | null
+  slip_photo_paths?: string[]
   items: Array<{ description: string; qty: number; unit?: string | null; unit_price: number }>
   bills: Array<{
     supplier_id?: string; new_supplier?: string; bill_no?: string; bill_date: string; amount: number
-    note?: string; photo_path?: string | null
+    note?: string; photo_path?: string | null; photo_paths?: string[]
     paid_amount?: number; paid_date?: string; paid_method?: Method; paid_reference?: string
   }>
 }
@@ -660,7 +745,8 @@ export async function recordPastRequisition(input: PastRequisitionInput): Promis
     paper_prepared_by: input.paper_prepared_by?.trim() || null,
     paper_checked_by: input.paper_checked_by?.trim() || null,
     paper_approved_by: input.paper_approved_by?.trim() || null,
-    slip_photo_path: input.slip_photo_path || null,
+    slip_photo_path: input.slip_photo_paths ? input.slip_photo_paths[0] ?? null : input.slip_photo_path || null,
+    extra_photo_paths: input.slip_photo_paths ? input.slip_photo_paths.slice(1) : [],
   }).select('id').single()
   if (error) return fail(/duplicate|unique/i.test(error.message) ? `Requisition no. ${formatReqNo(reqNo)} is already in the system` : error.message)
 
@@ -694,7 +780,8 @@ export async function recordPastRequisition(input: PastRequisitionInput): Promis
     }
     const { data: bill, error: billErr } = await db().from('ls_bills').insert({
       requisition_id: req.id, supplier_id: supplierId, bill_no: b.bill_no?.trim() || null,
-      bill_date: b.bill_date || reqDate, amount: money(b.amount), note: b.note?.trim() || null, photo_path: b.photo_path || null,
+      bill_date: b.bill_date || reqDate, amount: money(b.amount), note: b.note?.trim() || null,
+      photo_path: b.photo_paths ? b.photo_paths[0] ?? null : b.photo_path || null, extra_photo_paths: b.photo_paths ? b.photo_paths.slice(1) : [],
     }).select('id').single()
     if (billErr) return undo(billErr.message)
     billIds.push(bill.id)

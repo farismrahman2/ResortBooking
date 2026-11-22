@@ -27,6 +27,8 @@ export interface PaymentRecord {
   reference: string | null
   note: string | null
   photo_path: string | null
+  extra_photo_paths: string[]
+  req_slip_extra: string[]
   created_by: string | null
   uploaded_by: string | null
   created_at: string
@@ -46,7 +48,7 @@ export interface PaymentFilter {
 
 export async function listPaymentRecords(f: PaymentFilter = {}): Promise<PaymentRecord[]> {
   let q = db().from('ls_bill_payments')
-    .select('id, amount, pay_date, method, reference, note, photo_path, created_by, created_at, updated_at, bill:ls_bills!inner(id, bill_no, supplier:ls_suppliers(name), req:ls_requisitions!inner(id, req_no, description, total, slip_photo_path, project:ls_projects(code)))')
+    .select('id, amount, pay_date, method, reference, note, photo_path, extra_photo_paths, created_by, created_at, updated_at, bill:ls_bills!inner(id, bill_no, supplier:ls_suppliers(name), req:ls_requisitions!inner(id, req_no, description, total, slip_photo_path, extra_photo_paths, project:ls_projects(code)))')
     .order('pay_date', { ascending: false }).order('created_at', { ascending: false }).limit(1000)
   if (f.reqNo) q = q.eq('bill.req.req_no', f.reqNo)
   if (f.from) q = q.gte('pay_date', f.from)
@@ -67,7 +69,7 @@ export async function listPaymentRecords(f: PaymentFilter = {}): Promise<Payment
     id: r.id, requisition_id: r.bill.req.id, req_no: r.bill.req.req_no, req_description: r.bill.req.description,
     req_total: n(r.bill.req.total), req_slip_path: r.bill.req.slip_photo_path ?? null, project_code: r.bill.req.project?.code ?? null,
     supplier_name: r.bill.supplier?.name ?? null, bill_id: r.bill.id, bill_no: r.bill.bill_no,
-    amount: n(r.amount), pay_date: r.pay_date, method: r.method, reference: r.reference, note: r.note, photo_path: r.photo_path,
+    amount: n(r.amount), pay_date: r.pay_date, method: r.method, reference: r.reference, note: r.note, photo_path: r.photo_path, extra_photo_paths: r.extra_photo_paths ?? [], req_slip_extra: r.bill.req.extra_photo_paths ?? [],
     created_by: r.created_by, uploaded_by: r.created_by ? names.get(r.created_by) ?? null : null,
     created_at: r.created_at, updated_at: r.updated_at,
   }))

@@ -13,7 +13,7 @@ import { formatBDT } from '@/lib/formatters/currency'
 import { safeCall } from '@/lib/actions/safe-call'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
-import { PhotoInput } from './PhotoInput'
+import { MultiPhotoInput } from './MultiPhotoInput'
 import { TAP } from './ui'
 
 type Req = {
@@ -47,7 +47,7 @@ export function BillForm({ requisitions, suppliers, fixedRequisitionId, fixedLef
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
   const [amount, setAmount] = useState('')
   const [note, setNote] = useState('')
-  const [photo, setPhoto] = useState<string | null>(null)
+  const [photos, setPhotos] = useState<string[]>([])
   const [errors, setErrors] = useState<Errors>({})
 
   // ── Supplier type-ahead ──
@@ -69,7 +69,7 @@ export function BillForm({ requisitions, suppliers, fixedRequisitionId, fixedLef
   const overBy = typeof left === 'number' && Number.isFinite(amt) && amt > 0 ? Math.round((amt - Math.max(left, 0)) * 100) / 100 : 0
 
   function reset() {
-    setReqId(fixedRequisitionId ?? ''); setSupplierText(''); setBillNo(''); setAmount(''); setNote(''); setPhoto(null); setErrors({})
+    setReqId(fixedRequisitionId ?? ''); setSupplierText(''); setBillNo(''); setAmount(''); setNote(''); setPhotos([]); setErrors({})
     setDate(new Date().toISOString().slice(0, 10))
   }
 
@@ -90,7 +90,7 @@ export function BillForm({ requisitions, suppliers, fixedRequisitionId, fixedLef
         requisition_id: reqId,
         supplier_id: exact?.id,
         new_supplier: exact ? undefined : supplierText.trim(),
-        bill_no: billNo, bill_date: date, amount: amt, note, photo_path: photo,
+        bill_no: billNo, bill_date: date, amount: amt, note, photo_paths: photos,
       }))
       if (!r.success) {
         if (/requisition/i.test(r.error)) setErrors({ req: r.error })
@@ -196,7 +196,7 @@ export function BillForm({ requisitions, suppliers, fixedRequisitionId, fixedLef
           </div>
 
           <Input label="Note (optional)" placeholder="e.g. 10mm rod 3,500 kg" value={note} onChange={(e) => setNote(e.target.value)} />
-          <PhotoInput value={photo} onChange={setPhoto} />
+          <MultiPhotoInput value={photos} onChange={setPhotos} label="Photos of the bill / challan" />
         </div>
       </Modal>
     </>

@@ -11,18 +11,18 @@ import { lineAmount, requisitionTotal } from '@/lib/landscaping/money'
 import { formatBDT } from '@/lib/formatters/currency'
 import { safeCall } from '@/lib/actions/safe-call'
 import { toast } from '@/lib/toast'
-import { PhotoInput } from './PhotoInput'
+import { MultiPhotoInput } from './MultiPhotoInput'
 import { StickyActions, TAP } from './ui'
 import { CategoryPick, ItemDatalist, PersonPick, RateHint, findSuggestion, remember, type CategoryOpt, type ItemSuggestion, type PersonOpt } from './Picks'
 
 type Item = { description: string; qty: string; unit: string; unit_price: string }
 type Bill = {
-  supplier_id: string; new_supplier: string; bill_no: string; bill_date: string; amount: string; photo: string | null
+  supplier_id: string; new_supplier: string; bill_no: string; bill_date: string; amount: string; photos: string[]
   paid_amount: string; paid_date: string; paid_method: 'cash' | 'bkash' | 'bank' | 'cheque'; paid_reference: string
 }
 const blankItem = (): Item => ({ description: '', qty: '', unit: '', unit_price: '' })
 const blankBill = (date: string): Bill => ({
-  supplier_id: '', new_supplier: '', bill_no: '', bill_date: date, amount: '', photo: null,
+  supplier_id: '', new_supplier: '', bill_no: '', bill_date: date, amount: '', photos: [],
   paid_amount: '', paid_date: date, paid_method: 'cash', paid_reference: '',
 })
 const H = ({ children }: { children: React.ReactNode }) => <h3 className="section-label mb-2">{children}</h3>
@@ -50,7 +50,7 @@ export function PastRequisitionForm({ projects, suppliers, people, categories, s
   const [checked, setChecked] = useState(blank)
   const [approved, setApproved] = useState(blank)
   const nameOf = (v: { personId: string; name: string }) => (v.personId ? people.find((p) => p.id === v.personId)?.name ?? '' : v.name.trim())
-  const [slipPhoto, setSlipPhoto] = useState<string | null>(null)
+  const [slipPhotos, setSlipPhotos] = useState<string[]>([])
   const [items, setItems] = useState<Item[]>([blankItem()])
   const [bills, setBills] = useState<Bill[]>([])
 
@@ -72,11 +72,11 @@ export function PastRequisitionForm({ projects, suppliers, people, categories, s
         req_no: Number(reqNo), project_id: projectId || null, req_date: date, category_id: categoryId, description, area_note: area, remarks,
         requested_by_person: requester.personId || null, requested_by_name: requester.name,
         paper_prepared_by: nameOf(prepared), paper_checked_by: nameOf(checked), paper_approved_by: nameOf(approved),
-        slip_photo_path: slipPhoto, items: parsed,
+        slip_photo_paths: slipPhotos, items: parsed,
         bills: bills.map((b) => ({
           supplier_id: b.supplier_id && b.supplier_id !== '__new' ? b.supplier_id : undefined,
           new_supplier: b.supplier_id === '__new' ? b.new_supplier : undefined,
-          bill_no: b.bill_no, bill_date: b.bill_date || date, amount: Number(b.amount), photo_path: b.photo,
+          bill_no: b.bill_no, bill_date: b.bill_date || date, amount: Number(b.amount), photo_paths: b.photos,
           paid_amount: Number(b.paid_amount) || 0, paid_date: b.paid_date || b.bill_date || date, paid_method: b.paid_method, paid_reference: b.paid_reference,
         })),
       }))
@@ -86,7 +86,7 @@ export function PastRequisitionForm({ projects, suppliers, people, categories, s
       toast.success(`Req ${reqNo.padStart(5, '0')} entered from paper`)
       if (another) {
         // Keep the project, department and names — the next slip usually shares them.
-        setReqNo(''); setDescription(''); setArea(''); setRemarks(''); setSlipPhoto(null); setItems([blankItem()]); setBills([])
+        setReqNo(''); setDescription(''); setArea(''); setRemarks(''); setSlipPhotos([]); setItems([blankItem()]); setBills([])
         router.refresh()
       } else {
         router.push(`/landscaping/requisitions/${r.data.id}`)
@@ -154,7 +154,7 @@ export function PastRequisitionForm({ projects, suppliers, people, categories, s
           <PersonPick label="Checked by" people={people} personId={checked.personId} name={checked.name} onChange={setChecked} rememberKey="past.checked" placeholder="Faris" />
           <PersonPick label="Approved by" people={people} personId={approved.personId} name={approved.name} onChange={setApproved} rememberKey="past.approved" fallbackName="MD" />
         </div>
-        <div className="mt-3"><PhotoInput value={slipPhoto} onChange={setSlipPhoto} label="Photo of the signed slip (optional)" /></div>
+        <div className="mt-3"><MultiPhotoInput value={slipPhotos} onChange={setSlipPhotos} label="Photos of the signed slip (optional)" /></div>
       </section>
 
       <section>
@@ -175,7 +175,7 @@ export function PastRequisitionForm({ projects, suppliers, people, categories, s
                 <Input label="Bill date" type="date" value={b.bill_date} onChange={(e) => setBill(k, { bill_date: e.target.value })} />
                 <Input label="Bill total (Tk)" type="number" step="any" inputMode="decimal" value={b.amount} onChange={(e) => setBill(k, { amount: e.target.value })} />
               </div>
-              <PhotoInput value={b.photo} onChange={(photo) => setBill(k, { photo })} />
+              <MultiPhotoInput value={b.photos} onChange={(photos) => setBill(k, { photos })} label="Photos of the bill / challan" />
               <div className="rounded-lg bg-gray-50 p-3">
                 <p className="mb-2 text-xs text-gray-600">Paid already? Leave blank if still unpaid.</p>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
