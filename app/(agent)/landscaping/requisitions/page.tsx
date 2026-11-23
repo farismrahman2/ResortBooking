@@ -11,14 +11,16 @@ import { formatBDT } from '@/lib/formatters/currency'
 export const dynamic = 'force-dynamic'
 
 const FILTERS: Array<{ key: string; label: string; test: (r: LsRequisitionRow, me: string) => boolean }> = [
-  { key: '', label: 'All', test: () => true },
-  { key: 'mine', label: 'Mine', test: (r, me) => r.prepared_by === me },
+  // Cancelled requisitions are hidden everywhere except their own filter.
+  { key: '', label: 'All', test: (r) => r.status !== 'cancelled' },
+  { key: 'mine', label: 'Mine', test: (r, me) => r.prepared_by === me && r.status !== 'cancelled' },
   { key: 'submitted', label: 'Waiting check', test: (r) => r.status === 'submitted' },
   { key: 'checked', label: 'Waiting approval', test: (r) => r.status === 'checked' },
   { key: 'approved', label: 'Approved', test: (r) => r.status === 'approved' },
   { key: 'to_bill', label: 'Not fully billed', test: (r) => r.status === 'approved' && r.billed < r.total - 0.5 },
   { key: 'draft', label: 'Drafts', test: (r) => r.status === 'draft' },
   { key: 'rejected', label: 'Sent back', test: (r) => r.status === 'rejected' },
+  { key: 'cancelled', label: 'Cancelled', test: (r) => r.status === 'cancelled' },
 ]
 
 export default async function RequisitionsPage({ searchParams }: { searchParams: { status?: string; q?: string } }) {
