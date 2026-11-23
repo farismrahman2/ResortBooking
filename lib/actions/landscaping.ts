@@ -134,12 +134,13 @@ export async function saveRequisition(input: RequisitionInput): Promise<ActionDa
     if (delErr) return fail(delErr.message)
   } else {
     const reqNo = Number(input.req_no) > 0 ? Math.floor(Number(input.req_no)) : await nextRequisitionNo()
+    await freeCancelledNumber(reqNo, me.user_id)
     const { data, error } = await db().from('ls_requisitions').insert({ ...header, req_no: reqNo, prepared_by: me.user_id }).select('id').single()
     if (error) {
       if (!/duplicate|unique/i.test(error.message)) return fail(error.message)
       const { data: taken } = await db().from('ls_requisitions').select('status').eq('req_no', reqNo).maybeSingle()
       const next = await nextRequisitionNo()
-      return fail(`Requisition no. ${formatReqNo(reqNo)} is already used${taken?.status === 'cancelled' ? ' by a cancelled requisition (cancelled numbers are not reused)' : ''}. Next free number: ${formatReqNo(next)}`)
+      return fail(`Requisition no. ${formatReqNo(reqNo)} is already used${taken?.status ? ` (${taken.status})` : ''}. Next free number: ${formatReqNo(next)}`)
     }
     id = data.id as string
   }
@@ -191,15 +192,8 @@ export async function deleteRequisition(id: string): Promise<ActionResult> {
   if (!req) return fail('Requisition not found')
   const ok = deleteRule(req.status, (req.ls_bills ?? []).length > 0, req.prepared_by === me.user_id, me.is_admin)
   if (!ok.ok) return fail(ok.why)
-  const { error: itemErr } = await db().from('ls_requisition_items').delete().eq('requisition_id', id)
-  if (itemErr) return fail(itemErr.message)
-  const { error } = await db().from('ls_requisitions').delete().eq('id', id)
-  if (error) return fail(error.message)
-  await flagAlert({
-    event_type: 'landscaping_money_changed', entity_type: 'ls_requisition', entity_id: id,
-    summary: `Landscaping Req ${formatReqNo(req.req_no)} deleted (${req.status}) — ${formatBDT(Number(req.total))}, ${req.description}`,
-    payload: { req_no: req.req_no, status: req.status, total: Number(req.total) }, created_by: me.user_id,
-  })
+  const r = await removeRequisition(id, me.user_id, 'deleted')
+  if (!r.success) return r
   refresh('/landscaping/requisitions', '/landscaping')
   return { success: true }
 }
@@ -247,16 +241,44 @@ export async function rejectRequisition(id: string, note: string): Promise<Actio
   return { success: true }
 }
 
+/**
+ * Cancel = remove. A cancelled requisition is deleted (with its items) so its
+ * number is free again — e.g. to enter the real paper slip with that number.
+ * The Audit Log keeps a note of what was removed. Not allowed once it has bills.
+ */
 export async function cancelRequisition(id: string): Promise<ActionResult> {
   const me = await gate(); if (typeof me === 'string') return fail(me)
   const { data: req } = await db().from('ls_requisitions').select('status, prepared_by, ls_bills(id)').eq('id', id).maybeSingle()
   if (!req) return fail('Requisition not found')
   if ((req.ls_bills ?? []).length) return fail('This requisition already has bills — it cannot be cancelled')
   if (req.prepared_by !== me.user_id && !me.is_admin) return fail('Only the person who prepared it, or the admin, can cancel it')
-  const { error } = await db().from('ls_requisitions').update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('id', id)
-  if (error) return fail(error.message)
-  refresh('/landscaping/requisitions', `/landscaping/requisitions/${id}`)
+  if (req.status === 'approved' && !me.is_admin) return fail('It is approved — ask the admin to cancel it')
+  const r = await removeRequisition(id, me.user_id, 'cancelled')
+  if (!r.success) return r
+  refresh('/landscaping/requisitions', '/landscaping')
   return { success: true }
+}
+
+/** Delete a requisition and its items, leaving a note in the Audit Log. */
+async function removeRequisition(id: string, by: string, how: 'cancelled' | 'deleted'): Promise<ActionResult> {
+  const { data: req } = await db().from('ls_requisitions').select('req_no, status, total, description').eq('id', id).maybeSingle()
+  if (!req) return fail('Requisition not found')
+  const { error: itemErr } = await db().from('ls_requisition_items').delete().eq('requisition_id', id)
+  if (itemErr) return fail(itemErr.message)
+  const { error } = await db().from('ls_requisitions').delete().eq('id', id)
+  if (error) return fail(error.message)
+  await flagAlert({
+    event_type: 'landscaping_money_changed', entity_type: 'ls_requisition', entity_id: id,
+    summary: `Landscaping Req ${formatReqNo(req.req_no)} ${how} and removed (was ${req.status}) — ${formatBDT(Number(req.total))}, ${req.description}. Its number is free again.`,
+    payload: { req_no: req.req_no, status: req.status, total: Number(req.total) }, created_by: by,
+  })
+  return { success: true }
+}
+
+/** If an old cancelled requisition (no bills) still holds this number, remove it so the number can be used. */
+async function freeCancelledNumber(reqNo: number, by: string) {
+  const { data } = await db().from('ls_requisitions').select('id, status, ls_bills(id)').eq('req_no', reqNo).maybeSingle()
+  if (data && data.status === 'cancelled' && !(data.ls_bills ?? []).length) await removeRequisition(data.id, by, 'cancelled')
 }
 
 // ─── Suppliers, bills, payments ─────────────────────────────────────────────
@@ -731,6 +753,7 @@ export async function recordPastRequisition(input: PastRequisitionInput): Promis
     if (paid > money(b.amount) + 0.005) return fail(`Bill ${k + 1}: paid is more than the bill`)
     if (paid > 0 && !METHODS.includes(b.paid_method as Method)) return fail(`Bill ${k + 1}: how was it paid?`)
   }
+  await freeCancelledNumber(reqNo, me.user_id)
   const { data: taken } = await db().from('ls_requisitions').select('id').eq('req_no', reqNo).maybeSingle()
   if (taken) return fail(`Requisition no. ${formatReqNo(reqNo)} is already in the system`)
 

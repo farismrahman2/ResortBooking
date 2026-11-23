@@ -401,13 +401,14 @@ export async function getRequisition(id: string) {
 }
 
 export async function nextRequisitionNo(): Promise<number> {
-  const { data } = await db().from('ls_requisitions').select('req_no').order('req_no', { ascending: false }).limit(1)
+  const { data } = await db().from('ls_requisitions').select('req_no').neq('status', 'cancelled').order('req_no', { ascending: false }).limit(1)
   return nextReqNo(data?.[0]?.req_no ?? null)
 }
 
 /** Requisition numbers already taken, with their status — so the form can warn before saving. */
 export async function usedRequisitionNos(): Promise<Array<{ req_no: number; status: string }>> {
-  const { data } = await db().from('ls_requisitions').select('req_no, status').order('req_no').limit(5000)
+  // Cancelled ones don't hold their number (they are removed when the number is reused).
+  const { data } = await db().from('ls_requisitions').select('req_no, status').neq('status', 'cancelled').order('req_no').limit(5000)
   return (data ?? []) as Array<{ req_no: number; status: string }>
 }
 

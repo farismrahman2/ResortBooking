@@ -20,7 +20,6 @@ const FILTERS: Array<{ key: string; label: string; test: (r: LsRequisitionRow, m
   { key: 'to_bill', label: 'Not fully billed', test: (r) => r.status === 'approved' && r.billed < r.total - 0.5 },
   { key: 'draft', label: 'Drafts', test: (r) => r.status === 'draft' },
   { key: 'rejected', label: 'Sent back', test: (r) => r.status === 'rejected' },
-  { key: 'cancelled', label: 'Cancelled', test: (r) => r.status === 'cancelled' },
 ]
 
 export default async function RequisitionsPage({ searchParams }: { searchParams: { status?: string; q?: string } }) {

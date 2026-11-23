@@ -39,7 +39,7 @@ export function RequisitionActions({ req, me, hasBills }: {
       setBusy(null)
       if (!r.success) { toast.error(r.error); return }
       toast.success(done); setRejectOpen(false); setApproveOpen(false); setNote('')
-      if (key === 'delete') { router.push('/landscaping/requisitions'); return }
+      if (key === 'delete' || key === 'cancel') { router.push('/landscaping/requisitions'); return }
       router.refresh()
     })
   }
@@ -102,8 +102,8 @@ export function RequisitionActions({ req, me, hasBills }: {
       {canCancel && (
         <Button size="md" variant="outline" className="gap-1.5" loading={pending && busy === 'cancel'}
           onClick={async () => {
-            if (!(await confirm({ title: `Cancel ${label}?`, description: 'It stays on record as cancelled and cannot be used for bills.', confirmLabel: 'Cancel requisition', danger: true }))) return
-            run('cancel', () => cancelRequisition(req.id), 'Requisition cancelled')
+            if (!(await confirm({ title: `Cancel ${label}?`, description: 'It is removed and its number becomes free again (the Audit Log keeps a note).', confirmLabel: 'Cancel requisition', danger: true }))) return
+            run('cancel', () => cancelRequisition(req.id), 'Requisition cancelled — its number is free again')
           }}>
           <X size={14} /> Cancel
         </Button>
