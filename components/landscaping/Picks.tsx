@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { itemKey, rateJump } from '@/lib/landscaping/money'
 import { formatBDT } from '@/lib/formatters/currency'
+import { fmtDay } from './ui'
 
 /**
  * Pick lists for the landscaping forms: people, work categories and items
@@ -100,7 +101,7 @@ export function RateHint({ list, description, rate }: { list: ItemSuggestion[]; 
   return (
     <p className={`col-span-12 text-xs ${jump ? 'font-semibold text-red-600' : 'text-gray-500'}`}>
       {jump && <AlertTriangle size={11} className="mr-1 inline" />}
-      Last time {formatBDT(s.rate)}{s.unit ? ` / ${s.unit}` : ''} ({s.date}){jump ? ` — this rate is ${jump}% higher` : ''}
+      Last time {formatBDT(s.rate)}{s.unit ? ` / ${s.unit}` : ''} ({fmtDay(s.date)}){jump ? ` — this rate is ${jump}% higher` : ''}
     </p>
   )
 }

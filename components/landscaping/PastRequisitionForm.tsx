@@ -12,7 +12,9 @@ import { formatBDT } from '@/lib/formatters/currency'
 import { safeCall } from '@/lib/actions/safe-call'
 import { toast } from '@/lib/toast'
 import { MultiPhotoInput } from './MultiPhotoInput'
-import { StickyActions, TAP } from './ui'
+import { TAP } from './ui'
+import { FORM_CARD, FormActionBar } from './RequisitionForm'
+import { cn } from '@/lib/utils'
 import { CategoryPick, ItemDatalist, PersonPick, RateHint, findSuggestion, remember, type CategoryOpt, type ItemSuggestion, type PersonOpt } from './Picks'
 
 type Item = { description: string; qty: string; unit: string; unit_price: string }
@@ -95,7 +97,7 @@ export function PastRequisitionForm({ projects, suppliers, people, categories, s
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-5 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
+    <div className={cn(FORM_CARD, 'space-y-5')}>
       <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
         For slips already signed on paper. It is saved as <b>approved</b>, marked “Entered from paper”, and logged.
         Cash paid back then is <b>not</b> taken from anyone’s current cash in hand.
@@ -194,10 +196,9 @@ export function PastRequisitionForm({ projects, suppliers, people, categories, s
         </div>
       </section>
 
-      <StickyActions note={<span className="text-gray-700">Total <b className="tabular-nums">{formatBDT(total)}</b>{bills.length > 0 && <> · paid <b className="tabular-nums">{formatBDT(paid)}</b></>}</span>}>
-        <Button variant="outline" size="md" className={TAP} loading={pending} onClick={() => save(true)}>Save & next slip</Button>
-        <Button variant="primary" size="md" className={TAP} loading={pending} onClick={() => save(false)}>Save</Button>
-      </StickyActions>
+      <FormActionBar summary={<span className="text-gray-700">Total <b className="tabular-nums">{formatBDT(total)}</b>{bills.length > 0 && <> · paid <b className="tabular-nums">{formatBDT(paid)}</b></>}</span>}
+        secondary={<Button variant="outline" size="md" className={cn(TAP, 'px-3')} loading={pending} onClick={() => save(true)}>Save &amp; next slip</Button>}
+        primary={<Button variant="primary" size="md" className={TAP} loading={pending} onClick={() => save(false)}>Save</Button>} />
     </div>
   )
 }

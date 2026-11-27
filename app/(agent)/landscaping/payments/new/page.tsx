@@ -1,5 +1,4 @@
 import { redirect } from 'next/navigation'
-import { Topbar } from '@/components/layout/Topbar'
 import { LsPage } from '@/components/landscaping/LsNav'
 import { RecordPaymentForm } from '@/components/landscaping/RecordPaymentForm'
 import { requirePermission } from '@/lib/auth/permissions'
@@ -15,11 +14,8 @@ export default async function NewPaymentRecordPage({ searchParams }: { searchPar
   if (!me?.can_pay) redirect('/landscaping/payments')
   const [requisitions, suppliers] = await Promise.all([approvedForPayment(), listSuppliers()])
   return (
-    <div className="flex h-full flex-col">
-      <Topbar title="Upload payment" subtitle="Approved requisition · requisition slip · payment slip" />
-      <LsPage tab="payments">
+    <LsPage tab="payments" title="Upload payment" back="/landscaping/payments" narrow>
         <RecordPaymentForm requisitions={requisitions} suppliers={suppliers.map((s) => ({ id: s.id, name: s.name }))} initialReqId={searchParams.req} />
-      </LsPage>
-    </div>
+    </LsPage>
   )
 }

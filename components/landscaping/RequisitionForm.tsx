@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, RotateCcw, Trash2 } from 'lucide-react'
+import { Plus, RotateCcw, Send, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
@@ -16,12 +16,34 @@ import { CategoryPick, ItemDatalist, PersonPick, RateHint, findSuggestion, remem
 import { StickyActions, TAP } from './ui'
 import { MultiPhotoInput, joinPhotos } from './MultiPhotoInput'
 import { useConfirm } from '@/components/ui/ConfirmDialog'
+import { cn } from '@/lib/utils'
 
 type Item = { description: string; qty: string; unit: string; unit_price: string }
 type Pick = { personId: string; name: string }
 const blank = (): Item => ({ description: '', qty: '', unit: '', unit_price: '' })
 const UNITS = ['CFT', 'SFT', 'RFT', 'Gari', 'Bag', 'Kg', 'Ton', 'Pcs', 'Nos', 'Litre', 'Day', 'Job']
 const DRAFT_KEY = 'ls.req.unsaved'
+
+/** Landscaping form body: edge to edge on a phone (no card inside the page padding), a card on a computer. */
+export const FORM_CARD = '-mx-4 space-y-4 border-y border-gray-200 bg-white p-4 sm:mx-auto sm:max-w-3xl sm:rounded-xl sm:border sm:p-5 sm:shadow-sm'
+
+/**
+ * The form's sticky save bar. Phone: the total and the smaller choices on one
+ * line, the main button full width underneath (easy to reach). Computer: one row.
+ */
+export function FormActionBar({ summary, secondary, primary }: { summary?: React.ReactNode; secondary?: React.ReactNode; primary: React.ReactNode }) {
+  return (
+    <StickyActions>
+      <div className="sm:!flex-1">
+        <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+          <div className="mr-auto min-w-0 text-sm">{summary}</div>
+          {secondary}
+          <div className="w-full sm:w-auto [&>*]:w-full">{primary}</div>
+        </div>
+      </div>
+    </StickyActions>
+  )
+}
 
 /** New, sent-back or not-yet-checked requisition — the ASU Requisition Slip, typed on a phone. */
 export function RequisitionForm({ initial, projects, nextNo, myName, people, categories, suggestions, initialProjectId, status, usedNos = [], slipPhotoPath = null, slipExtraPaths = [], canApprove = false }: {
@@ -168,7 +190,7 @@ export function RequisitionForm({ initial, projects, nextNo, myName, people, cat
 
   const err = (k: string) => errors[k]
   return (
-    <div className="mx-auto max-w-3xl space-y-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
+    <div className={FORM_CARD}>
       {restorable && (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
           <RotateCcw size={15} /> <span className="flex-1">You have an unsaved requisition on this phone.</span>
@@ -284,16 +306,16 @@ export function RequisitionForm({ initial, projects, nextNo, myName, people, cat
         </div>
       </div>
 
-      <StickyActions note={<span className="font-semibold text-forest-900">Total <span className="tabular-nums">{formatBDT(total)}</span></span>}>
-        {isApproved || alreadySent ? (<>
-          {alreadySent && canApprove && <Button variant="outline" size="md" className={TAP} loading={pending} onClick={() => save(true, true)}>Save & approve now</Button>}
-          <Button variant="primary" size="md" className={TAP} loading={pending} onClick={() => save(true)}>Save changes</Button>
-        </>) : (<>
-          <Button variant="outline" size="md" className={TAP} loading={pending} onClick={() => save(false)}>Save draft</Button>
-          {canApprove && <Button variant="outline" size="md" className={TAP} loading={pending} onClick={() => save(true, true)}>Save & approve now</Button>}
-          <Button variant="primary" size="md" className={TAP} loading={pending} onClick={() => save(true)}>Send for checking</Button>
+      <FormActionBar summary={<span className="font-semibold text-forest-900">Total <span className="tabular-nums">{formatBDT(total)}</span></span>}
+        secondary={isApproved || alreadySent ? (
+          alreadySent && canApprove ? <Button variant="outline" size="md" className={cn(TAP, 'px-3')} loading={pending} onClick={() => save(true, true)}><span className="sm:hidden">Approve now</span><span className="hidden sm:inline">Save &amp; approve now</span></Button> : null
+        ) : (<>
+          <Button variant="ghost" size="md" className={cn(TAP, 'px-3 text-forest-800')} loading={pending} onClick={() => save(false)}>Save draft</Button>
+          {canApprove && <Button variant="outline" size="md" className={cn(TAP, 'px-3')} loading={pending} onClick={() => save(true, true)}><span className="sm:hidden">Approve now</span><span className="hidden sm:inline">Save &amp; approve now</span></Button>}
         </>)}
-      </StickyActions>
+        primary={isApproved || alreadySent
+          ? <Button variant="primary" size="md" className={TAP} loading={pending} onClick={() => save(true)}>Save changes</Button>
+          : <Button variant="primary" size="md" className={TAP} loading={pending} onClick={() => save(true)}><Send size={15} /> Send for checking</Button>} />
     </div>
   )
 }

@@ -1,10 +1,10 @@
 import Link from 'next/link'
-import { Plus, Search } from 'lucide-react'
-import { Topbar } from '@/components/layout/Topbar'
+import { ChevronDown, Plus, Search } from 'lucide-react'
 import { LsPage } from '@/components/landscaping/LsNav'
 import { ViewPhotos } from '@/components/landscaping/ViewPhotos'
+import { StampedPhotos } from '@/components/landscaping/StampedPhotos'
 import { EditPaymentButton } from '@/components/landscaping/PaymentRecordActions'
-import { LinkButton, LsEmpty, LsSection, StatTile, TAP } from '@/components/landscaping/ui'
+import { LinkButton, LsEmpty, LsSection, StatTile, TAP, fmtDay } from '@/components/landscaping/ui'
 import { requirePermission } from '@/lib/auth/permissions'
 import { getLsMe, getRequisition } from '@/lib/queries/landscaping'
 import { listPaymentRecords } from '@/lib/queries/landscaping-payments'
@@ -15,7 +15,6 @@ export const dynamic = 'force-dynamic'
 
 const day = (v?: string) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined)
 const num = (v?: string) => (v && Number(v) >= 0 ? Number(v) : undefined)
-const fmtDate = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 const fmtStamp = (iso: string) => new Date(iso).toLocaleString('en-GB', { timeZone: 'Asia/Dhaka', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 const METHOD: Record<string, string> = { cash: 'Cash', bkash: 'bKash', bank: 'Bank', cheque: 'Cheque' }
 const box = `${TAP} w-full rounded-lg border border-gray-300 bg-white px-2.5 text-sm focus:border-forest-600 focus:outline-none focus:ring-2 focus:ring-forest-200`
@@ -37,34 +36,43 @@ export default async function PaymentRecordsPage({ searchParams }: {
   const [me, rows] = await Promise.all([getLsMe(), listPaymentRecords(filter)])
   const total = rows.reduce((s, r) => s + r.amount, 0)
   const missing = rows.filter((r) => !r.photo_path).length
-  const filtered = !!(reqNo || filter.from || filter.to || filter.min !== undefined || filter.max !== undefined || filter.missingSlip)
+  const moreCount = [filter.from, filter.to, filter.min, filter.max].filter((v) => v !== undefined).length + (filter.missingSlip ? 1 : 0)
+  const filtered = !!reqNo || moreCount > 0
 
   // Searching one requisition: show what was requisitioned and approved, with its slip.
   const single = reqNo && rows[0] ? await getRequisition(rows[0].requisition_id) : null
 
   return (
-    <div className="flex h-full flex-col">
-      <Topbar title="Payment records" subtitle="Approved requisitions with their payment slips — proof of every payment" />
-      <LsPage tab="payments">
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="min-w-0 flex-1 text-sm text-gray-600">Search a requisition number to see what was approved, the signed slip, what was paid and the payment slips.</p>
-          {me?.can_pay && <LinkButton href="/landscaping/payments/new" variant="primary"><Plus size={15} /> Upload payment</LinkButton>}
-        </div>
-
-        <form action="/landscaping/payments" className="grid grid-cols-2 gap-2 rounded-xl border border-gray-200 bg-white p-3 shadow-sm sm:grid-cols-6 sm:items-end">
-          <label className="col-span-2 block sm:col-span-1"><span className={lbl}>Requisition No.</span>
-            <input name="req" inputMode="numeric" placeholder="00039" defaultValue={searchParams.req ?? ''} className={box} /></label>
-          <label className="block"><span className={lbl}>From</span><input type="date" name="from" defaultValue={filter.from ?? ''} className={box} /></label>
-          <label className="block"><span className={lbl}>To</span><input type="date" name="to" defaultValue={filter.to ?? ''} className={box} /></label>
-          <label className="block"><span className={lbl}>Min Tk</span><input name="min" type="number" inputMode="decimal" step="any" defaultValue={searchParams.min ?? ''} className={box} /></label>
-          <label className="block"><span className={lbl}>Max Tk</span><input name="max" type="number" inputMode="decimal" step="any" defaultValue={searchParams.max ?? ''} className={box} /></label>
-          <div className="col-span-2 flex flex-wrap items-center gap-2 sm:col-span-1">
-            <button type="submit" className={`${TAP} inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-forest-700 px-4 text-sm font-medium text-white`}><Search size={15} /> Search</button>
-            {filtered && <Link href="/landscaping/payments" className={`${TAP} inline-flex items-center px-2 text-sm text-gray-600 hover:underline`}>Clear</Link>}
+    <LsPage tab="payments" title="Payment records" subtitle="Every payment with its slips"
+      actions={me?.can_pay ? (
+        <LinkButton href="/landscaping/payments/new" variant="primary" className="px-3 sm:px-4">
+          <Plus size={15} /> <span className="sm:hidden">Upload</span><span className="hidden sm:inline">Upload payment</span>
+        </LinkButton>
+      ) : undefined}>
+        <form action="/landscaping/payments" className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+          <div className="flex gap-2">
+            <div className="relative min-w-0 flex-1 sm:max-w-xs">
+              <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input name="req" inputMode="numeric" placeholder="Req. No., e.g. 00039" aria-label="Requisition No." defaultValue={searchParams.req ?? ''} className={`${box} pl-9`} />
+            </div>
+            <button type="submit" className={`${TAP} inline-flex flex-shrink-0 items-center justify-center rounded-lg bg-forest-700 px-4 text-sm font-medium text-white hover:bg-forest-800`}>Search</button>
+            {filtered && <Link href="/landscaping/payments" className={`${TAP} inline-flex flex-shrink-0 items-center px-2 text-sm text-gray-600 hover:underline`}>Clear</Link>}
           </div>
-          <label className="col-span-2 flex items-center gap-2 text-sm text-gray-700 sm:col-span-6">
-            <input type="checkbox" name="missing" value="1" defaultChecked={filter.missingSlip} className="h-5 w-5 rounded border-gray-300" /> Only payments without a slip yet
-          </label>
+          <details open={moreCount > 0} className="group mt-1">
+            <summary className={`${TAP} inline-flex cursor-pointer list-none items-center gap-1 rounded-lg px-1 text-sm font-medium text-forest-700 hover:underline [&::-webkit-details-marker]:hidden`}>
+              <ChevronDown size={15} className="transition-transform group-open:rotate-180" /> More filters{moreCount ? ` (${moreCount})` : ''}
+            </summary>
+            <div className="grid grid-cols-2 gap-2 pt-1 sm:grid-cols-4">
+              <label className="block"><span className={lbl}>From</span><input type="date" name="from" defaultValue={filter.from ?? ''} className={box} /></label>
+              <label className="block"><span className={lbl}>To</span><input type="date" name="to" defaultValue={filter.to ?? ''} className={box} /></label>
+              <label className="block"><span className={lbl}>Min Tk</span><input name="min" type="number" inputMode="decimal" step="any" defaultValue={searchParams.min ?? ''} className={box} /></label>
+              <label className="block"><span className={lbl}>Max Tk</span><input name="max" type="number" inputMode="decimal" step="any" defaultValue={searchParams.max ?? ''} className={box} /></label>
+              <label className={`${TAP} col-span-2 flex items-center gap-2 text-sm text-gray-700 sm:col-span-4`}>
+                <input type="checkbox" name="missing" value="1" defaultChecked={filter.missingSlip} className="h-5 w-5 rounded border-gray-300" /> Only payments without a slip yet
+              </label>
+            </div>
+          </details>
+          <p className="mt-1 text-xs text-gray-500">Search a requisition number to see what was approved, the signed slip, what was paid and the payment slips.</p>
         </form>
 
         {single && (
@@ -89,9 +97,9 @@ export default async function PaymentRecordsPage({ searchParams }: {
           </LsSection>
         )}
 
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3">
+          <div className="col-span-2 grid sm:col-span-1"><StatTile label="Total paid" value={formatBDT(total)} /></div>
           <StatTile label="Payments" value={rows.length.toLocaleString('en-IN')} />
-          <StatTile label="Total paid" value={formatBDT(total)} />
           <StatTile label="Without slip" value={missing} tone={missing ? 'warn' : 'neutral'} href={missing && !filter.missingSlip ? '/landscaping/payments?missing=1' : undefined} />
         </div>
 
@@ -111,11 +119,11 @@ export default async function PaymentRecordsPage({ searchParams }: {
                       <span className="ml-auto font-semibold tabular-nums">{formatBDT(r.amount)}</span>
                     </div>
                     <p className="text-gray-700">{r.req_description}</p>
-                    <p className="text-xs text-gray-500">{fmtDate(r.pay_date)} · {METHOD[r.method] ?? r.method}{r.supplier_name ? ` · ${r.supplier_name}` : ''}{r.reference ? ` · ${r.reference}` : ''}</p>
+                    <p className="text-xs text-gray-500">{fmtDay(r.pay_date)} · {METHOD[r.method] ?? r.method}{r.supplier_name ? ` · ${r.supplier_name}` : ''}{r.reference ? ` · ${r.reference}` : ''}</p>
                     {r.note && <p className="text-xs text-gray-600">{r.note}</p>}
                     <div className="flex flex-wrap items-center gap-1">
                       <ViewPhotos paths={[r.req_slip_path, ...r.req_slip_extra]} label="Requisition slip" empty={<span className="px-1.5 text-xs text-amber-700">No requisition slip</span>} />
-                      <ViewPhotos paths={[r.photo_path, ...r.extra_photo_paths]} label="Payment slip" empty={<span className="px-1.5 text-xs text-amber-700">No payment slip</span>} />
+                      <StampedPhotos paths={[r.photo_path, ...r.extra_photo_paths]} reqNo={r.req_no} label="Payment slip" kind="payment-slip" empty={<span className="px-1.5 text-xs text-amber-700">No payment slip</span>} />
                       <span className="ml-auto"><EditPaymentButton payment={r} isAdmin={!!me?.is_admin} canEdit={!!me && (me.is_admin || r.created_by === me.user_id)} /></span>
                     </div>
                     <p className="text-[11px] text-gray-400">Uploaded by {r.uploaded_by ?? '—'} · {fmtStamp(r.created_at)}</p>
@@ -140,9 +148,9 @@ export default async function PaymentRecordsPage({ searchParams }: {
                           {r.note && <p className="max-w-[260px] text-xs text-gray-600">{r.note}</p>}
                         </td>
                         <td className="whitespace-nowrap px-2 py-2 text-right font-semibold tabular-nums">{formatBDT(r.amount)}<p className="text-xs font-normal text-gray-500">{METHOD[r.method] ?? r.method}{r.reference ? ` · ${r.reference}` : ''}</p></td>
-                        <td className="whitespace-nowrap px-2 py-2">{fmtDate(r.pay_date)}</td>
+                        <td className="whitespace-nowrap px-2 py-2">{fmtDay(r.pay_date)}</td>
                         <td className="px-2 py-1"><ViewPhotos paths={[r.req_slip_path, ...r.req_slip_extra]} empty={<span className="text-xs text-amber-700">Not attached</span>} /></td>
-                        <td className="px-2 py-1"><ViewPhotos paths={[r.photo_path, ...r.extra_photo_paths]} empty={<span className="text-xs text-amber-700">Not attached</span>} /></td>
+                        <td className="px-2 py-1"><StampedPhotos paths={[r.photo_path, ...r.extra_photo_paths]} reqNo={r.req_no} label="View" kind="payment-slip" empty={<span className="text-xs text-amber-700">Not attached</span>} /></td>
                         <td className="px-2 py-2 text-xs text-gray-600">{r.uploaded_by ?? '—'}<p className="text-gray-400">{fmtStamp(r.created_at)}</p></td>
                         <td className="px-4 py-1 text-right"><EditPaymentButton payment={r} isAdmin={!!me?.is_admin} canEdit={!!me && (me.is_admin || r.created_by === me.user_id)} /></td>
                       </tr>
@@ -153,7 +161,6 @@ export default async function PaymentRecordsPage({ searchParams }: {
             </>
           )}
         </LsSection>
-      </LsPage>
-    </div>
+    </LsPage>
   )
 }

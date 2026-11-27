@@ -1,5 +1,4 @@
 import { notFound, redirect } from 'next/navigation'
-import { Topbar } from '@/components/layout/Topbar'
 import { LsPage } from '@/components/landscaping/LsNav'
 import { RequisitionForm } from '@/components/landscaping/RequisitionForm'
 import { requirePermission } from '@/lib/auth/permissions'
@@ -15,9 +14,7 @@ export default async function EditRequisitionPage({ params }: { params: { id: st
   const { req, items } = data
   if (!me || !editRule(req.status, req.prepared_by === me.user_id, me.is_admin).ok) redirect(`/landscaping/requisitions/${params.id}`)
   return (
-    <div className="flex h-full flex-col">
-      <Topbar title={`Edit requisition ${formatReqNo(req.req_no)}`} subtitle="Landscaping" />
-      <LsPage tab="requisitions">
+    <LsPage tab="requisitions" title={`Edit ${formatReqNo(req.req_no)}`} back={`/landscaping/requisitions/${req.id}`} narrow>
         {req.status === 'rejected' && req.reject_note && (
           <p className="mx-auto max-w-3xl rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"><b>Sent back:</b> {req.reject_note}</p>
         )}
@@ -28,7 +25,6 @@ export default async function EditRequisitionPage({ params }: { params: { id: st
           slip_prepared_by: req.paper_prepared_by, slip_checked_by: req.paper_checked_by, slip_approved_by: req.paper_approved_by,
           items: items.map((i) => ({ description: i.description, qty: i.qty, unit: i.unit, unit_price: i.unit_price })),
         }} />
-      </LsPage>
-    </div>
+    </LsPage>
   )
 }

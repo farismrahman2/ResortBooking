@@ -1,6 +1,5 @@
-import { Topbar } from '@/components/layout/Topbar'
 import { LsPage } from '@/components/landscaping/LsNav'
-import { LsEmpty, LsSection, Money } from '@/components/landscaping/ui'
+import { LsEmpty, LsSection, Money, fmtTk } from '@/components/landscaping/ui'
 import { requirePermission } from '@/lib/auth/permissions'
 import { cashFloats, itemPriceHistory, listSuppliers, monthlyPnl, projectsWithFinancials, spendAnalysis } from '@/lib/queries/landscaping'
 import { formatBDT } from '@/lib/formatters/currency'
@@ -12,6 +11,18 @@ export const dynamic = 'force-dynamic'
 
 const TH = 'px-2 py-2 text-right whitespace-nowrap'
 const TD = 'px-2 py-2 text-right tabular-nums whitespace-nowrap'
+
+/** Item rates: rows shown on a phone (a computer shows up to 40). */
+const PHONE_ITEMS = 12
+
+/** "2026-11" → "Nov 2026" */
+function fmtMonth(ym: string): string {
+  const d = new Date(`${ym}-01T00:00:00`)
+  return Number.isNaN(d.getTime()) ? ym : d.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })
+}
+/** No contract value entered: profit would read as a big false loss. */
+const noContract = (p: { f: { contractTotal: number } }) => p.f.contractTotal <= 0.005
+const NotSet = () => <span className="font-normal text-gray-400">Not set</span>
 
 export default async function LandscapingReports({ searchParams }: { searchParams: { period?: string; from?: string; to?: string } }) {
   await requirePermission('landscaping', 'read')
@@ -25,10 +36,8 @@ export default async function LandscapingReports({ searchParams }: { searchParam
   const tot = { moneyIn: sum('moneyIn'), bills: sum('bills'), labour: sum('labour'), food: sum('food'), other: sum('other'), moneyOut: sum('moneyOut'), net: sum('net') }
   const owed = suppliers.filter((s) => s.owed > 0)
   return (
-    <div className="flex h-full flex-col">
-      <Topbar title="Reports" subtitle={`Landscaping only — never mixed with the resort · ${period.label}`} />
-      <LsPage tab="reports">
-        <div className="sticky top-0 z-20 -mx-4 border-b border-gray-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur sm:-mx-6 sm:px-6 print:hidden">
+    <LsPage tab="reports" title="Reports" subtitle={period.label}>
+        <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm print:hidden">
           <PeriodPicker current={preset} customFrom={customFrom} customTo={customTo} from={range.from} to={range.to} />
           <p className="mt-1.5 text-xs text-gray-500">Dates apply to money in/out, spending by category, requisitions by person and item rates. Project profit, supplier dues and cash in hand are always as of today.</p>
         </div>
@@ -39,7 +48,7 @@ export default async function LandscapingReports({ searchParams }: { searchParam
               <ul className="divide-y divide-gray-100 sm:hidden">
                 {months.map((m) => (
                   <li key={m.month} className="px-4 py-3 text-sm">
-                    <div className="flex items-baseline"><span className="font-semibold text-gray-900">{m.month}</span><span className="ml-auto text-xs text-gray-500">Net <Money value={m.net} kind="profit" className="text-sm" /></span></div>
+                    <div className="flex items-baseline"><span className="font-semibold text-gray-900">{fmtMonth(m.month)}</span><span className="ml-auto text-xs text-gray-500">Net <Money value={m.net} kind="profit" className="text-sm" /></span></div>
                     <p className="mt-1 text-xs text-gray-600">In <Money value={m.moneyIn} className="text-emerald-700" /> · Out <Money value={m.moneyOut} className="text-gray-900" /></p>
                     <p className="text-xs text-gray-500">Bills {formatBDT(m.bills)} · labour {formatBDT(m.labour)} · food {formatBDT(m.food)} · other {formatBDT(m.other)}</p>
                   </li>
@@ -54,7 +63,7 @@ export default async function LandscapingReports({ searchParams }: { searchParam
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-left text-xs text-gray-500"><tr><th className="px-4 py-2">Month</th><th className={TH}>Client payments</th><th className={TH}>Supplier bills paid</th><th className={TH}>Labour</th><th className={TH}>Food</th><th className={TH}>Other</th><th className="px-4 py-2 text-right">Net</th></tr></thead>
                   <tbody>{months.map((m) => (
-                    <tr key={m.month} className="border-t border-gray-100"><td className="whitespace-nowrap px-4 py-2">{m.month}</td>
+                    <tr key={m.month} className="border-t border-gray-100"><td className="whitespace-nowrap px-4 py-2">{fmtMonth(m.month)}</td>
                       <td className={TD}><Money value={m.moneyIn} className="text-emerald-700" /></td>
                       {[m.bills, m.labour, m.food, m.other].map((v, k) => <td key={k} className={TD}>{formatBDT(v)}</td>)}
                       <td className="whitespace-nowrap px-4 py-2 text-right"><Money value={m.net} kind="profit" /></td></tr>
@@ -82,8 +91,8 @@ export default async function LandscapingReports({ searchParams }: { searchParam
                   </li>
                 ) : (
                   <li key={p.id} className="px-4 py-3 text-sm">
-                    <div className="flex items-baseline gap-2"><span className="min-w-0 flex-1 font-medium text-gray-900">{p.code} · {p.title}</span><Money value={p.f.profit} kind="profit" className="flex-shrink-0" /></div>
-                    <p className="text-xs text-gray-600">Contract {formatBDT(p.f.contractTotal)} · received {formatBDT(p.f.received)} · spent {formatBDT(p.f.spent)}{p.f.margin !== null ? ` · ${p.f.margin}% margin` : ''}</p>
+                    <div className="flex items-baseline gap-2"><span className="min-w-0 flex-1 font-medium text-gray-900">{p.code} · {p.title}</span>{noContract(p) ? <span className="flex-shrink-0 text-xs"><NotSet /></span> : <Money value={p.f.profit} kind="profit" className="flex-shrink-0" />}</div>
+                    <p className="text-xs text-gray-600">{noContract(p) ? 'No contract value yet' : `Contract ${formatBDT(p.f.contractTotal)}`} · received {formatBDT(p.f.received)} · spent {formatBDT(p.f.spent)}{p.f.margin !== null ? ` · ${p.f.margin}% margin` : ''}</p>
                   </li>
                 ))}
               </ul>
@@ -98,9 +107,9 @@ export default async function LandscapingReports({ searchParams }: { searchParam
                       <td className="whitespace-nowrap px-4 py-2 text-right text-gray-600">{p.budget ? <><Money value={p.budget.remaining} kind={p.budget.remaining < 0 ? 'profit' : 'plain'} /> left of budget</> : ''}</td></tr>
                   ) : (
                     <tr key={p.id} className="border-t border-gray-100"><td className="px-4 py-2">{p.code} · {p.title}{p.subIds.length ? <span className="text-xs text-gray-500"> (incl. sub-projects)</span> : null}</td>
-                      <td className={TD}>{formatBDT(p.f.contractTotal)}</td><td className={TD}>{formatBDT(p.f.received)}</td>
+                      <td className={TD}>{noContract(p) ? <NotSet /> : formatBDT(p.f.contractTotal)}</td><td className={TD}>{formatBDT(p.f.received)}</td>
                       <td className={TD}>{formatBDT(p.f.spent)}</td>
-                      <td className="whitespace-nowrap px-4 py-2 text-right"><Money value={p.f.profit} kind="profit" />{p.f.margin !== null ? <span className="text-xs text-gray-500"> ({p.f.margin}%)</span> : ''}</td></tr>
+                      <td className="whitespace-nowrap px-4 py-2 text-right">{noContract(p) ? <NotSet /> : <><Money value={p.f.profit} kind="profit" />{p.f.margin !== null ? <span className="text-xs text-gray-500"> ({p.f.margin}%)</span> : ''}</>}</td></tr>
                   ))}</tbody>
                 </table>
               </div>
@@ -132,9 +141,9 @@ export default async function LandscapingReports({ searchParams }: { searchParam
             {spend.byRequester.length === 0 ? <LsEmpty title="No approved requisitions yet." /> : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead className="bg-gray-50 text-left text-xs text-gray-500"><tr><th className="px-4 py-2">Requested by</th><th className={TH}>Approved</th><th className={TH}>Approved total</th><th className="px-4 py-2 text-right">Billed</th></tr></thead>
+                  <thead className="bg-gray-50 text-left text-xs text-gray-500"><tr><th className="px-4 py-2">Requested by</th><th className={`${TH} hidden sm:table-cell`}>Approved</th><th className={TH}><span className="sm:hidden">Approved</span><span className="hidden sm:inline">Approved total</span></th><th className="px-4 py-2 text-right">Billed</th></tr></thead>
                   <tbody>{spend.byRequester.map((r) => (
-                    <tr key={r.name} className="border-t border-gray-100"><td className="px-4 py-2">{r.name}</td><td className={TD}>{r.count}</td>
+                    <tr key={r.name} className="border-t border-gray-100"><td className="px-4 py-2">{r.name}<span className="block text-xs text-gray-500 sm:hidden">{r.count} approved</span></td><td className={`${TD} hidden sm:table-cell`}>{r.count}</td>
                       <td className={TD}>{formatBDT(r.approved)}</td>
                       <td className="whitespace-nowrap px-4 py-2 text-right"><Money value={r.billed} className={r.billed > r.approved + 0.005 ? 'font-semibold text-red-600' : ''} /></td></tr>
                   ))}</tbody>
@@ -147,17 +156,18 @@ export default async function LandscapingReports({ searchParams }: { searchParam
               <>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
-                    <thead className="bg-gray-50 text-left text-xs text-gray-500"><tr><th className="px-4 py-2">Item</th><th className={TH}>Times</th><th className={TH}>First → last</th><th className={`${TH} hidden sm:table-cell`}>Low – high</th><th className="px-4 py-2 text-right">Change</th></tr></thead>
-                    <tbody>{prices.slice(0, 40).map((i) => (
-                      <tr key={i.item} className="border-t border-gray-100"><td className="px-4 py-2">{i.item}{i.unit ? <span className="text-xs text-gray-500"> / {i.unit}</span> : null}</td>
-                        <td className={TD}>{i.times}</td>
-                        <td className={TD}>{formatBDT(i.first)} → {formatBDT(i.last)}</td>
+                    <thead className="bg-gray-50 text-left text-xs text-gray-500"><tr><th className="px-4 py-2">Item</th><th className={`${TH} hidden sm:table-cell`}>Times</th><th className={TH}>First → last</th><th className={`${TH} hidden sm:table-cell`}>Low – high</th><th className="px-4 py-2 text-right">Change</th></tr></thead>
+                    <tbody>{prices.slice(0, 40).map((i, k) => (
+                      <tr key={i.item} className={`border-t border-gray-100 ${k >= PHONE_ITEMS ? 'hidden sm:table-row' : ''}`}><td className="px-4 py-2">{i.item}{i.unit ? <span className="text-xs text-gray-500"> / {i.unit}</span> : null}<span className="block text-xs text-gray-500 sm:hidden">bought {i.times}×</span></td>
+                        <td className={`${TD} hidden sm:table-cell`}>{i.times}</td>
+                        <td className={TD}>{Math.abs(i.first - i.last) < 0.005 ? formatBDT(i.last) : <>{formatBDT(i.first)} → <span className="block sm:inline">{formatBDT(i.last)}</span></>}</td>
                         <td className={`${TD} hidden text-gray-500 sm:table-cell`}>{formatBDT(i.low)} – {formatBDT(i.high)}</td>
                         <td className={`whitespace-nowrap px-4 py-2 text-right tabular-nums ${i.changePct && i.changePct > 15 ? 'font-semibold text-red-600' : i.changePct && i.changePct < 0 ? 'text-emerald-700' : ''}`}>{i.changePct === null || i.times < 2 ? '—' : `${i.changePct > 0 ? '+' : ''}${i.changePct}%`}</td></tr>
                     ))}</tbody>
                   </table>
                 </div>
-                {prices.length > 40 && <p className="px-4 py-2 text-xs text-gray-500">Showing the 40 most-bought items — the CSV has every line with supplier and project.</p>}
+                {prices.length > PHONE_ITEMS && <p className="px-4 py-2 text-xs text-gray-500 sm:hidden">Showing the {PHONE_ITEMS} most-bought items — open Reports on a computer or download the CSV for the rest.</p>}
+                {prices.length > 40 && <p className="hidden px-4 py-2 text-xs text-gray-500 sm:block">Showing the 40 most-bought items — the CSV has every line with supplier and project.</p>}
               </>
             )}
           </LsSection>
@@ -174,12 +184,11 @@ export default async function LandscapingReports({ searchParams }: { searchParam
           <LsSection title="Cash with each accountant">
             {floats.length === 0 ? <LsEmpty title="No cash handed out yet." /> : (
               <ul className="divide-y divide-gray-100">{floats.map((f) => (
-                <li key={f.holder} className="flex gap-3 px-4 py-2.5 text-sm"><span className="min-w-0 flex-1">{f.name}</span><Money value={f.balance} className={`flex-shrink-0 font-semibold ${f.balance < 0 ? 'text-red-600' : ''}`} /></li>
+                <li key={f.holder} className="flex gap-3 px-4 py-2.5 text-sm"><span className="min-w-0 flex-1">{f.name}</span><span className={`flex-shrink-0 font-semibold tabular-nums ${f.balance < 0 ? 'text-red-600' : ''}`}>{fmtTk(f.balance)}</span></li>
               ))}</ul>
             )}
           </LsSection>
         </div>
-      </LsPage>
-    </div>
+    </LsPage>
   )
 }

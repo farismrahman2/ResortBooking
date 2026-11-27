@@ -43,8 +43,9 @@ export function SupplierForm({ supplier, canSetOpening }: {
 
   return (
     <>
-      <Button variant={supplier ? 'outline' : 'primary'} size="md" className={TAP} onClick={() => { setErrors({}); setOpen(true) }}>
-        {supplier ? <><Pencil size={14} /> Edit supplier</> : <><Plus size={14} /> Add supplier</>}
+      <Button variant={supplier ? 'outline' : 'primary'} size="md" className={`${TAP} gap-1.5`} onClick={() => { setErrors({}); setOpen(true) }}>
+        {/* Short on a phone (it sits in the page header), full on a computer. */}
+        {supplier ? <><Pencil size={14} /> Edit<span className="hidden sm:inline"> supplier</span></> : <><Plus size={15} /> Add<span className="hidden sm:inline"> supplier</span></>}
       </Button>
       <Modal open={open} onClose={() => setOpen(false)} title={supplier ? 'Edit supplier' : 'New supplier'}
         footer={<>

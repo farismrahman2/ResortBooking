@@ -31,7 +31,7 @@ function generatePassword(): string {
   return out
 }
 
-export function UserForm({ roles }: Props) {
+export function UserForm({ roles, defaultRoleSlug }: Props & { defaultRoleSlug?: string }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -48,7 +48,7 @@ export function UserForm({ roles }: Props) {
       full_name: '',
       email:     '',
       phone:     '',
-      role_id:   roles.find((r) => r.slug === 'front_desk')?.id ?? roles[0]?.id ?? '',
+      role_id:   roles.find((r) => r.slug === (defaultRoleSlug ?? 'front_desk'))?.id ?? roles.find((r) => r.slug === 'front_desk')?.id ?? roles[0]?.id ?? '',
       password:  '',
     },
   })

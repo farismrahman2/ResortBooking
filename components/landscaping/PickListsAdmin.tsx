@@ -54,13 +54,17 @@ export function PeopleList({ people, editable }: { people: LsPerson[]; editable:
         </ul>
       )}
       {editable && (
-        <div className="grid grid-cols-1 items-start gap-2 border-t border-gray-100 p-3 sm:grid-cols-4">
-          <Input label="Name" required placeholder="Liton" value={name} error={err} onChange={(e) => { setName(e.target.value); setErr(undefined) }} />
-          <Input label="Designation" placeholder="Site manager" value={designation} onChange={(e) => setDesignation(e.target.value)} />
-          <Input label="Phone (optional)" value={phone} onChange={(e) => setPhone(e.target.value)} />
-          <Button variant="primary" size="md" className={cn(TAP, 'gap-1.5 sm:mt-6')} loading={pending} onClick={add}>
-            <Plus size={14} /> Add person
-          </Button>
+        <div className="space-y-2 border-t border-gray-100 p-3">
+          <div className="grid grid-cols-1 items-start gap-2 sm:grid-cols-3">
+            <Input label="Name" required placeholder="Liton" value={name} error={err} onChange={(e) => { setName(e.target.value); setErr(undefined) }} />
+            <Input label="Designation" placeholder="Site manager" value={designation} onChange={(e) => setDesignation(e.target.value)} />
+            <Input label="Phone (optional)" type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
+          </div>
+          <div className="flex justify-end">
+            <Button variant="primary" size="md" className={cn(TAP, 'w-full gap-1.5 sm:w-auto')} loading={pending} onClick={add}>
+              <Plus size={14} /> Add person
+            </Button>
+          </div>
         </div>
       )}
     </LsSection>

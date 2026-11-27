@@ -1,5 +1,4 @@
 import { redirect } from 'next/navigation'
-import { Topbar } from '@/components/layout/Topbar'
 import { LsPage } from '@/components/landscaping/LsNav'
 import { PastRequisitionForm } from '@/components/landscaping/PastRequisitionForm'
 import { requirePermission } from '@/lib/auth/permissions'
@@ -14,12 +13,9 @@ export default async function PastRequisitionPage() {
   if (!me?.is_admin) redirect('/landscaping/requisitions')
   const [projects, suppliers, people, categories, suggestions] = await Promise.all([listProjects(), listSuppliers(), listPeople(), listWorkCategories(), itemSuggestions()])
   return (
-    <div className="flex h-full flex-col">
-      <Topbar title="Record past requisition" subtitle="Landscaping · bring old paper slips, bills and payments into the system" />
-      <LsPage tab="requisitions">
+    <LsPage tab="requisitions" title="Record past slip" subtitle="Already approved on paper" back="/landscaping/requisitions" narrow>
         <PastRequisitionForm projects={projects.map((p) => ({ id: p.id, label: p.label, title: p.title }))} suppliers={suppliers.map((s) => ({ id: s.id, name: s.name }))}
           people={people} categories={categories} suggestions={suggestions} />
-      </LsPage>
-    </div>
+    </LsPage>
   )
 }

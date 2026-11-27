@@ -1,10 +1,9 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { AlertTriangle, ChevronRight, Plus } from 'lucide-react'
-import { Topbar } from '@/components/layout/Topbar'
 import { LsPage } from '@/components/landscaping/LsNav'
 import { LsStatus } from '@/components/landscaping/LsStatus'
-import { LinkButton, LsEmpty, LsSection, Money, StatTile } from '@/components/landscaping/ui'
+import { LinkButton, LsEmpty, LsSection, Money, StatTile, fmtDay, fmtTk } from '@/components/landscaping/ui'
 import { ClientReceiptForm, ProjectForm, VariationForm } from '@/components/landscaping/ProjectForms'
 import { requirePermission } from '@/lib/auth/permissions'
 import { getLsMe, getProject, listClients } from '@/lib/queries/landscaping'
@@ -35,27 +34,52 @@ export default async function ProjectPage({ params }: { params: { id: string } }
   const vars = variations as any[], recs = receipts as any[]
   const lines = [...account.lines].reverse().slice(0, 200)
   const newReq = `/landscaping/requisitions/new?project=${p.id}`
+  /** Show the latest few here; the full list lives on the Requisitions page. */
+  const REQ_SHOWN = 8
+  const latestReqs = requisitions.slice(0, REQ_SHOWN)
+  /** No contract value yet: profit would read as a big false loss, so say "Not set" instead. */
+  const noContract = f.contractTotal <= 0.005
+  const canReceive = !!me && (me.can_pay || me.is_admin)
+  const more = [
+    canReceive && <ClientReceiptForm key="rec" projectId={p.id} />,
+    manage && !isSub && <VariationForm key="var" projectId={p.id} />,
+    manage && !isSub && <ProjectForm key="sub" clients={clients} parentId={p.id} label="+ Sub-project" />,
+    manage && <ProjectForm key="edit" clients={clients} project={p} />,
+  ].filter(Boolean)
+  /** Phones: the newest account entries first; older ones fold away. */
+  const PHONE_LINES = 15
+
+  const phoneLine = (l: (typeof lines)[number], k: number) => (
+    <li key={k} className="flex items-start gap-3 px-4 py-2.5 text-sm">
+      <div className="min-w-0 flex-1">
+        <p className="break-words text-gray-800">{l.label}</p>
+        <p className="text-xs text-gray-500">{fmtDay(l.date)}{hasSubs ? ` · ${l.where ?? p.code}` : ''}</p>
+      </div>
+      <div className="flex-shrink-0 text-right">
+        <Money value={l.amount} kind={l.direction === 'in' ? 'in' : 'out'} className="block font-medium" />
+        <p className="text-xs text-gray-500">Bal. <Money value={l.balance} className={l.balance < 0 ? 'font-semibold text-red-600' : 'text-gray-700'} /></p>
+      </div>
+    </li>
+  )
 
   return (
-    <div className="flex h-full flex-col">
-      <Topbar title={isSub ? `${parent?.code ?? ''} › ${p.code}` : `${p.code} · ${p.title}`}
-        subtitle={isSub ? `Sub-project of ${parent?.title ?? 'a project'} · ${p.title}` : [p.client_name, p.site].filter(Boolean).join(' · ') || 'Landscaping project'} />
-      <LsPage tab="projects">
+    <LsPage tab="projects" title={isSub ? `${parent?.code ?? ''} › ${p.code}` : `${p.code} · ${p.title}`}
+      subtitle={isSub ? p.title : [p.client_name, p.site].filter(Boolean).join(' · ') || undefined}
+      back={isSub && parent ? `/landscaping/projects/${parent.id}` : '/landscaping/projects'}>
         {isSub && parent && (
           <Link href={`/landscaping/projects/${parent.id}`} className="inline-flex min-h-[40px] items-center gap-1 text-sm text-forest-700 hover:underline">
             {parent.code} · {parent.title} <ChevronRight size={14} /> {p.code}
           </Link>
         )}
 
-        {/* Header + actions: wrap onto as many lines as the phone needs. */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-          <div className="flex items-center gap-2"><LsStatus status={p.status} /></div>
-          <div className="flex flex-wrap gap-2 sm:ml-auto [&>*]:flex-1 sm:[&>*]:flex-none">
-            {canPrepare && <LinkButton href={newReq} variant="primary"><Plus size={14} /> New requisition for this project</LinkButton>}
-            {me && (me.can_pay || me.is_admin) && <ClientReceiptForm projectId={p.id} />}
-            {manage && !isSub && <VariationForm projectId={p.id} />}
-            {manage && !isSub && <ProjectForm clients={clients} parentId={p.id} label="+ Sub-project" />}
-            {manage && <ProjectForm clients={clients} project={p} />}
+        {/* Status and actions: one main action, the rest in a tidy grid on a phone. */}
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          <div className="flex items-center gap-2"><span className="text-xs text-gray-500">Status</span><LsStatus status={p.status} /></div>
+          <div className="flex flex-col gap-2 sm:ml-auto sm:flex-row sm:flex-wrap sm:items-center">
+            {canPrepare && <LinkButton href={newReq} variant="primary" className="w-full sm:order-last sm:w-auto"><Plus size={15} /> New requisition</LinkButton>}
+            {more.length > 0 && (
+              <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap [&>button]:w-full [&>button]:px-2 sm:[&>button]:w-auto sm:[&>button]:px-4">{more}</div>
+            )}
           </div>
         </div>
 
@@ -64,7 +88,7 @@ export default async function ProjectPage({ params }: { params: { id: string } }
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <StatTile label="Budget" value={formatBDT(p.budget.budget)} />
             <StatTile label="Spent" value={formatBDT(p.budget.spent)} />
-            <StatTile label="Left in budget" value={formatBDT(p.budget.remaining)} tone={p.budget.remaining < 0 ? 'bad' : 'good'} />
+            <StatTile label="Left in budget" value={fmtTk(p.budget.remaining)} tone={p.budget.remaining < 0 ? 'bad' : 'good'} sub={p.budget.remaining < 0 ? 'over budget' : undefined} />
             <StatTile label="Supplier bills due" value={formatBDT(f.billsUnpaid)} tone={f.billsUnpaid > 0.005 ? 'owed' : 'neutral'} />
             <div className="col-span-2 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm lg:col-span-4">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Budget used</p>
@@ -74,16 +98,20 @@ export default async function ProjectPage({ params }: { params: { id: string } }
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatTile label="Contract (with changes)" value={formatBDT(f.contractTotal)} />
+            <StatTile label="Contract (with changes)" value={noContract ? <span className="text-gray-400">Not set</span> : formatBDT(f.contractTotal)}
+              sub={noContract ? (manage ? 'Add it with Edit project' : 'Not entered yet') : undefined} />
             <StatTile label="Received from client" value={formatBDT(f.received)} />
-            <StatTile label="Client still owes" value={formatBDT(f.owedByClient)} tone={f.owedByClient > 0.005 ? 'owed' : 'neutral'} />
+            <StatTile label="Client still owes" value={noContract ? <span className="text-gray-400">—</span> : fmtTk(f.owedByClient)}
+              tone={!noContract && f.owedByClient > 0.005 ? 'owed' : 'neutral'} sub={noContract ? 'needs the contract value' : undefined} />
             <StatTile label={hasSubs ? 'Spent (incl. sub-projects)' : 'Spent so far'} value={formatBDT(f.spent)} />
-            <StatTile label="Profit (contract − spent)" value={formatBDT(f.profit)} sub={f.margin !== null ? `${f.margin}% margin` : undefined} tone={f.profit < 0 ? 'bad' : 'good'} />
+            {noContract
+              ? <StatTile label="Profit" value={<span className="text-gray-400">Not set</span>} sub="Enter the contract value to see profit" />
+              : <StatTile label="Profit (contract − spent)" value={fmtTk(f.profit)} sub={f.margin !== null ? `${f.margin}% margin` : undefined} tone={f.profit < 0 ? 'bad' : 'good'} />}
             <StatTile label="Supplier bills due" value={formatBDT(f.billsUnpaid)} tone={f.billsUnpaid > 0.005 ? 'owed' : 'neutral'} />
             <div className="col-span-2 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Contract used</p>
-              <Bar pct={f.spentPct} />
-              <p className="mt-1 text-xs text-gray-600">{f.spentPct ?? 0}% of the contract spent · bills {formatBDT(f.billed)} · labour / food / other {formatBDT(f.expenses)}</p>
+              {!noContract && <Bar pct={f.spentPct} />}
+              <p className="mt-1 text-xs text-gray-600">{noContract ? 'No contract value yet' : `${f.spentPct ?? 0}% of the contract spent`} · bills {formatBDT(f.billed)} · labour / food / other {formatBDT(f.expenses)}</p>
             </div>
           </div>
         )}
@@ -131,13 +159,15 @@ export default async function ProjectPage({ params }: { params: { id: string } }
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <LsSection title={`Requisitions${hasSubs ? ' (incl. sub-projects)' : ''}`}
+            meta={requisitions.length > REQ_SHOWN ? `latest ${REQ_SHOWN} of ${requisitions.length}` : requisitions.length ? `${requisitions.length}` : undefined}
             action={canPrepare && requisitions.length > 0 ? <LinkButton href={newReq} className="px-3"><Plus size={14} /> New</LinkButton> : undefined}>
             {requisitions.length === 0 ? (
               <LsEmpty title="No requisitions yet" hint="A requisition asks for materials or work for this project."
                 action={canPrepare ? <LinkButton href={newReq} variant="primary"><Plus size={14} /> New requisition for this project</LinkButton> : undefined} />
             ) : (
+              <>
               <ul className="divide-y divide-gray-100">
-                {requisitions.map((r) => (
+                {latestReqs.map((r) => (
                   <li key={r.id}><Link href={`/landscaping/requisitions/${r.id}`} className="flex items-start gap-3 px-4 py-3 text-sm hover:bg-gray-50">
                     <div className="min-w-0 flex-1">
                       <p className="flex flex-wrap items-center gap-2">
@@ -154,6 +184,12 @@ export default async function ProjectPage({ params }: { params: { id: string } }
                   </Link></li>
                 ))}
               </ul>
+              {requisitions.length > REQ_SHOWN && (
+                <div className="border-t border-gray-100 p-3">
+                  <LinkButton href={`/landscaping/requisitions?project=${p.id}`} className="w-full">See all {requisitions.length} requisitions</LinkButton>
+                </div>
+              )}
+              </>
             )}
           </LsSection>
           <div className="space-y-4">
@@ -168,13 +204,13 @@ export default async function ProjectPage({ params }: { params: { id: string } }
               <LsSection title="Contract changes">
                 <ul className="divide-y divide-gray-100">{vars.map((v) => (
                   <li key={v.id} className="flex items-start gap-3 px-4 py-2.5 text-sm">
-                    <div className="min-w-0 flex-1"><p className="text-gray-800">{v.description}</p><p className="text-xs text-gray-500">{v.var_date}</p></div>
+                    <div className="min-w-0 flex-1"><p className="text-gray-800">{v.description}</p><p className="text-xs text-gray-500">{fmtDay(v.var_date)}</p></div>
                     <Money value={Number(v.amount)} kind={Number(v.amount) < 0 ? 'profit' : 'plain'} className="flex-shrink-0" />
                   </li>
                 ))}</ul>
               </LsSection>
             )}
-            {recs.length === 0 && !isSub && <p className="text-xs text-gray-500">No client payments yet — use “Record client payment”.</p>}
+            {recs.length === 0 && !isSub && <p className="text-xs text-gray-500">No client payments yet{canReceive ? ' — record one with the “Client payment” button at the top.' : '.'}</p>}
           </div>
         </div>
 
@@ -184,27 +220,25 @@ export default async function ProjectPage({ params }: { params: { id: string } }
           {account.lines.length === 0 ? <LsEmpty title="No money in or out yet." /> : (
             <>
               {/* Phones: one line per entry, with the running balance always visible */}
-              <ul className="divide-y divide-gray-100 sm:hidden">
-                {lines.map((l, k) => (
-                  <li key={k} className="flex items-start gap-3 px-4 py-2.5 text-sm">
-                    <div className="min-w-0 flex-1">
-                      <p className="break-words text-gray-800">{l.label}</p>
-                      <p className="text-xs text-gray-500">{l.date}{hasSubs ? ` · ${l.where ?? p.code}` : ''}</p>
-                    </div>
-                    <div className="flex-shrink-0 text-right">
-                      <Money value={l.amount} kind={l.direction === 'in' ? 'in' : 'out'} className="block font-medium" />
-                      <p className="text-xs text-gray-500">Bal. <Money value={l.balance} className={l.balance < 0 ? 'font-semibold text-red-600' : 'text-gray-700'} /></p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+              <div className="sm:hidden">
+                <ul className="divide-y divide-gray-100">{lines.slice(0, PHONE_LINES).map(phoneLine)}</ul>
+                {lines.length > PHONE_LINES && (
+                  <details className="group border-t border-gray-100">
+                    <summary className="flex min-h-[44px] cursor-pointer list-none items-center justify-center px-4 text-sm font-medium text-forest-700 hover:bg-gray-50 [&::-webkit-details-marker]:hidden">
+                      <span className="group-open:hidden">Show {lines.length - PHONE_LINES} older entries</span>
+                      <span className="hidden group-open:inline">Hide older entries</span>
+                    </summary>
+                    <ul className="divide-y divide-gray-100 border-t border-gray-100">{lines.slice(PHONE_LINES).map((l, k) => phoneLine(l, k + PHONE_LINES))}</ul>
+                  </details>
+                )}
+              </div>
               {/* Tablet / desktop: statement table */}
               <div className="hidden overflow-x-auto sm:block">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-left text-xs text-gray-500"><tr><th className="px-4 py-2">Date</th><th className="px-2 py-2">Entry</th>{hasSubs && <th className="px-2 py-2">Where</th>}<th className="px-2 py-2 text-right">In</th><th className="px-2 py-2 text-right">Out</th><th className="px-4 py-2 text-right">Balance</th></tr></thead>
                   <tbody>{lines.map((l, k) => (
                     <tr key={k} className="border-t border-gray-100">
-                      <td className="whitespace-nowrap px-4 py-2 text-xs text-gray-600">{l.date}</td>
+                      <td className="whitespace-nowrap px-4 py-2 text-xs text-gray-600">{fmtDay(l.date)}</td>
                       <td className="px-2 py-2">{l.label}</td>
                       {hasSubs && <td className="px-2 py-2 text-xs text-gray-500">{l.where ?? p.code}</td>}
                       <td className="px-2 py-2 text-right">{l.direction === 'in' ? <Money value={l.amount} className="text-emerald-700" /> : ''}</td>
@@ -217,7 +251,6 @@ export default async function ProjectPage({ params }: { params: { id: string } }
             </>
           )}
         </LsSection>
-      </LsPage>
-    </div>
+    </LsPage>
   )
 }

@@ -17,10 +17,12 @@ export function LsSection({ title, meta, action, csv, children, className, bodyC
 }) {
   return (
     <section className={cn('overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm', className)}>
-      <header className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-gray-100 px-4 py-3">
-        <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
-        {meta && <span className="text-xs text-gray-500">{meta}</span>}
-        <div className="ml-auto flex items-center gap-2">
+      <header className="flex items-center gap-x-3 border-b border-gray-100 px-4 py-2.5">
+        <div className="min-w-0 flex-1">
+          <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+          {meta && <p className="text-xs text-gray-500">{meta}</p>}
+        </div>
+        <div className="flex flex-shrink-0 items-center gap-2">
           {csv && (
             <a href={`/api/landscaping/export?report=${csv}`} className={cn(TAP, 'inline-flex items-center gap-1 rounded-lg px-2 text-xs font-medium text-forest-700 hover:bg-forest-50')}>
               <Download size={13} /> CSV
@@ -43,11 +45,11 @@ export function StatTile({ label, value, tone = 'neutral', sub, href }: { label:
   const body = (
     <>
       <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{label}</p>
-      <p className={cn('mt-0.5 text-xl font-bold tabular-nums sm:text-2xl', TONE[tone])}>{value}</p>
+      <p className={cn('mt-0.5 break-words text-lg font-bold leading-tight tabular-nums sm:text-2xl', TONE[tone])}>{value}</p>
       {sub && <p className="mt-0.5 text-xs text-gray-500">{sub}</p>}
     </>
   )
-  const cls = 'block rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm'
+  const cls = 'block min-w-0 rounded-xl border border-gray-200 bg-white px-3 py-2.5 shadow-sm sm:px-4 sm:py-3'
   return href ? <Link href={href} className={cn(cls, 'hover:border-forest-300')}>{body}</Link> : <div className={cls}>{body}</div>
 }
 
@@ -57,7 +59,7 @@ export function Money({ value, kind = 'plain', className }: { value: number; kin
     : kind === 'profit' ? (value < 0 ? 'text-red-600 font-semibold' : 'text-emerald-700 font-semibold')
     : kind === 'in' ? 'text-emerald-700' : kind === 'out' ? 'text-gray-900' : ''
   const signed = kind === 'in' || kind === 'out'
-  return <span className={cn('tabular-nums', tone, className)}>{signed ? (kind === 'in' ? '+' : '−') : ''}{formatBDT(signed ? Math.abs(value) : value)}</span>
+  return <span className={cn('tabular-nums', tone, className)}>{signed ? (kind === 'in' ? '+' : '−') : ''}{signed ? formatBDT(Math.abs(value)) : fmtTk(value)}</span>
 }
 
 export function FilterChips({ items, current }: { items: Array<{ key: string; label: string; href: string; count?: number }>; current: string }) {
@@ -127,12 +129,33 @@ export function NextStep({ tone = 'info', children, action }: { tone?: 'info' | 
   )
 }
 
-/** Bottom bar that stays in view on long forms. */
+/**
+ * Bottom bar that stays in view on long forms. On a phone the buttons share
+ * the width evenly (the last one is the main action); on a computer they sit
+ * on the right. It sits above the phone's bottom tab bar.
+ */
 export function StickyActions({ children, note }: { children: React.ReactNode; note?: React.ReactNode }) {
   return (
-    <div className="sticky bottom-0 z-10 -mx-4 -mb-4 mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-gray-200 bg-white/95 px-4 py-3 backdrop-blur sm:-mx-5 sm:-mb-5 sm:rounded-b-xl sm:px-5">
-      {note && <div className="mr-auto text-sm">{note}</div>}
-      {children}
+    <div className="sticky bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] z-10 -mx-4 -mb-4 mt-4 border-t border-gray-200 bg-white/95 px-4 py-3 backdrop-blur sm:-mx-5 sm:-mb-5 sm:rounded-b-xl sm:px-5 lg:bottom-0">
+      {note && <div className="mb-2 text-sm sm:hidden">{note}</div>}
+      <div className="flex items-center gap-2 [&>*]:flex-1 sm:justify-end sm:[&>*]:flex-none">
+        {note && <div className="mr-auto hidden text-sm sm:block sm:!flex-1">{note}</div>}
+        {children}
+      </div>
     </div>
   )
+}
+
+/** "23 Nov" (this year) or "23 Nov 2025" — never 2026-11-23 on screen. */
+export function fmtDay(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const d = new Date(iso.length === 10 ? iso + 'T00:00:00' : iso)
+  if (Number.isNaN(d.getTime())) return String(iso)
+  const sameYear = d.getFullYear() === new Date().getFullYear()
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }), timeZone: 'Asia/Dhaka' })
+}
+
+/** Money with the minus in front of the taka sign: −৳1,500 (not ৳-1,500). */
+export function fmtTk(n: number): string {
+  return n < -0.004 ? `−${formatBDT(Math.abs(n))}` : formatBDT(n)
 }

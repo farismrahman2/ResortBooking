@@ -1,13 +1,12 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { MapPin, Phone } from 'lucide-react'
-import { Topbar } from '@/components/layout/Topbar'
 import { LsPage } from '@/components/landscaping/LsNav'
 import { SupplierForm } from '@/components/landscaping/SupplierForm'
 import { PayBillButton } from '@/components/landscaping/PayBillButton'
 import { ViewPhoto } from '@/components/landscaping/ViewPhoto'
 import { LsStatus } from '@/components/landscaping/LsStatus'
-import { LinkButton, ListRow, LsEmpty, LsSection, Money, StatTile, TAP } from '@/components/landscaping/ui'
+import { LinkButton, ListRow, LsEmpty, LsSection, Money, StatTile, TAP, fmtDay } from '@/components/landscaping/ui'
 import { WhatsAppLink } from '@/components/ui/WhatsAppLink'
 import { requirePermission } from '@/lib/auth/permissions'
 import { getLsMe, getSupplierLedger } from '@/lib/queries/landscaping'
@@ -29,27 +28,23 @@ export default async function SupplierLedgerPage({ params }: { params: { id: str
   const phone: string | null = supplier.phone?.trim() || null
 
   return (
-    <div className="flex h-full flex-col">
-      <Topbar title={supplier.name} subtitle="Landscaping · supplier ledger" />
-      <LsPage tab="suppliers">
-        <Link href="/landscaping/suppliers" className={cn(TAP, 'inline-flex items-center text-sm font-medium text-forest-700 hover:underline')}>← All suppliers</Link>
-
-        {/* Contact + edit */}
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+    <LsPage tab="suppliers" title={supplier.name} subtitle="Supplier ledger" back="/landscaping/suppliers"
+      actions={<SupplierForm supplier={supplier} canSetOpening={!!me && (me.is_admin || me.can_pay)} />}>
+        {/* Contact */}
+        <div className="flex flex-col gap-2 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm sm:flex-row sm:items-center">
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-gray-900">{supplier.name}</p>
-            {supplier.address && <p className="mt-0.5 flex items-center gap-1 text-xs text-gray-500"><MapPin size={12} /> {supplier.address}</p>}
-            {!phone && <p className="mt-0.5 text-xs text-gray-500">No phone number saved.</p>}
+            {supplier.address && <p className="mt-0.5 flex items-start gap-1 text-xs text-gray-500"><MapPin size={12} className="mt-0.5 flex-shrink-0" /> {supplier.address}</p>}
+            {!phone && <p className="mt-0.5 text-xs text-gray-500">No phone number saved — add it with Edit.</p>}
           </div>
           {phone && (
-            <>
-              <a href={`tel:${phone.replace(/[^\d+]/g, '')}`} className={cn(TAP, 'inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:bg-gray-50')}>
+            <div className="flex gap-2 [&>*]:flex-1 sm:[&>*]:flex-none">
+              <a href={`tel:${phone.replace(/[^\d+]/g, '')}`} className={cn(TAP, 'inline-flex items-center justify-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:bg-gray-50')}>
                 <Phone size={14} /> Call {phone}
               </a>
-              <WhatsAppLink phone={phone} className={TAP} />
-            </>
+              <WhatsAppLink phone={phone} className={cn(TAP, 'justify-center')} />
+            </div>
           )}
-          <SupplierForm supplier={supplier} canSetOpening={!!me && (me.is_admin || me.can_pay)} />
         </div>
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -70,7 +65,7 @@ export default async function SupplierLedgerPage({ params }: { params: { id: str
                     <span className="text-sm font-medium text-gray-900">Bill {b.bill_no ?? '—'}</span>
                     <LsStatus status={b.status} />
                   </div>
-                  <p className="text-xs text-gray-500">{b.bill_date} · Req {b.req_no ? formatReqNo(b.req_no) : '—'}{b.project_code ? ` · ${b.project_code}` : ''}</p>
+                  <p className="text-xs text-gray-500">{fmtDay(b.bill_date)} · Req {b.req_no ? formatReqNo(b.req_no) : '—'}{b.project_code ? ` · ${b.project_code}` : ''}</p>
                 </ListRow>
               ))}
             </ul>
@@ -96,7 +91,7 @@ export default async function SupplierLedgerPage({ params }: { params: { id: str
                       amount={l.debit ? <Money value={l.debit} /> : <span className="text-emerald-700">Paid <Money value={l.credit} /></span>}
                       sub={<>Balance <Money value={l.balance} kind="owed" /></>}>
                       <p className="text-sm text-gray-900">{l.kind === 'bill' ? 'Bill' : 'Payment'}</p>
-                      <p className="truncate text-xs text-gray-500">{l.date} · {l.ref}</p>
+                      <p className="truncate text-xs text-gray-500">{fmtDay(l.date)} · {l.ref}</p>
                     </ListRow>
                   )
                 })}
@@ -113,7 +108,7 @@ export default async function SupplierLedgerPage({ params }: { params: { id: str
                       const b = reqOf.get(l.billId)
                       return (
                         <tr key={k} className="border-t border-gray-100">
-                          <td className="whitespace-nowrap px-4 py-2 text-gray-600">{l.date}</td>
+                          <td className="whitespace-nowrap px-4 py-2 text-gray-600">{fmtDay(l.date)}</td>
                           <td className="px-2 py-2">
                             {b ? <Link href={`/landscaping/requisitions/${b.requisition_id}`} className="text-forest-700 hover:underline">{l.ref}</Link> : l.ref}
                             {l.kind === 'bill' && b?.photo_path && <span className="ml-2"><ViewPhoto path={b.photo_path} /></span>}
@@ -130,7 +125,6 @@ export default async function SupplierLedgerPage({ params }: { params: { id: str
             </>
           )}
         </LsSection>
-      </LsPage>
-    </div>
+    </LsPage>
   )
 }

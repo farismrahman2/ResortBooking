@@ -1,5 +1,4 @@
 import Link from 'next/link'
-import { Topbar } from '@/components/layout/Topbar'
 import { LsPage } from '@/components/landscaping/LsNav'
 import { LsStatus } from '@/components/landscaping/LsStatus'
 import { LsEmpty, LsSection, Money } from '@/components/landscaping/ui'
@@ -18,17 +17,20 @@ const Fig = ({ label, children }: { label: string; children: React.ReactNode }) 
   </div>
 )
 
+/** No contract value entered yet: profit would read as a big false loss. */
+const noContract = (p: { f: { contractTotal: number } }) => p.f.contractTotal <= 0.005
+const NotSet = () => <span className="font-normal text-gray-400">Not set</span>
+
 export default async function ProjectsPage() {
   await requirePermission('landscaping', 'read')
   const [me, projects, clients] = await Promise.all([getLsMe(), projectsWithFinancials(), listClients()])
   const manage = !!me && (me.is_admin || me.can_approve)
+  const mainCount = projects.filter((p) => !p.parent_id).length
   return (
-    <div className="flex h-full flex-col">
-      <Topbar title="Projects" subtitle="Landscaping · contract, received, spent and profit per project" />
-      <LsPage tab="projects">
-        {manage && <div className="flex justify-end"><ProjectForm clients={clients} mains={projects.filter((p) => !p.parent_id)} /></div>}
-        <LsSection title="All projects" meta={projects.length ? `${projects.filter((p) => !p.parent_id).length} projects` : undefined}>
-          {projects.length === 0 ? <LsEmpty title="No projects yet" hint={manage ? 'Add the first project (e.g. ASU) with “New project”.' : 'An approver adds projects here.'} /> : (
+    <LsPage tab="projects" title="Projects" subtitle="Contract, received, spent and profit"
+      actions={manage ? <ProjectForm clients={clients} mains={projects.filter((p) => !p.parent_id)} /> : undefined}>
+        <LsSection title="All projects" meta={mainCount ? `${mainCount} project${mainCount === 1 ? '' : 's'}` : undefined}>
+          {projects.length === 0 ? <LsEmpty title="No projects yet" hint={manage ? 'Add the first project (e.g. ASU) with “New project” at the top.' : 'An approver adds projects here.'} /> : (
             <>
               {/* Phones: one card per project */}
               <ul className="divide-y divide-gray-100 sm:hidden">
@@ -52,12 +54,14 @@ export default async function ProjectsPage() {
                         <LsStatus status={p.status} />
                       </div>
                       <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-2">
-                        <Fig label="Contract">{formatBDT(p.f.contractTotal)}</Fig>
+                        <Fig label="Contract">{noContract(p) ? <NotSet /> : formatBDT(p.f.contractTotal)}</Fig>
                         <Fig label="Received">{formatBDT(p.f.received)}</Fig>
                         <Fig label="Spent">{formatBDT(p.f.spent)}{p.f.spentPct !== null && <span className="ml-1 text-xs font-normal text-gray-500">{p.f.spentPct}%</span>}</Fig>
-                        <Fig label="Profit"><Money value={p.f.profit} kind="profit" />{p.f.margin !== null && <span className="ml-1 text-xs font-normal text-gray-500">{p.f.margin}%</span>}</Fig>
+                        <Fig label="Profit">{noContract(p) ? <NotSet /> : <><Money value={p.f.profit} kind="profit" />{p.f.margin !== null && <span className="ml-1 text-xs font-normal text-gray-500">{p.f.margin}%</span>}</>}</Fig>
                       </div>
-                      {p.f.owedByClient > 0.005 && <p className="mt-1.5 text-xs text-gray-600">Client owes <Money value={p.f.owedByClient} kind="owed" /></p>}
+                      {noContract(p)
+                        ? <p className="mt-1.5 text-xs text-gray-500">Enter the contract value to see profit.</p>
+                        : p.f.owedByClient > 0.005 && <p className="mt-1.5 text-xs text-gray-600">Client owes <Money value={p.f.owedByClient} kind="owed" /></p>}
                     </Link>
                   </li>
                 ))}
@@ -84,11 +88,13 @@ export default async function ProjectsPage() {
                       <tr key={p.id} className="border-t border-gray-100">
                         <td className="px-4 py-2.5"><Link href={`/landscaping/projects/${p.id}`} className="font-semibold text-forest-700 hover:underline">{p.code}</Link> <LsStatus status={p.status} />
                           <div className="text-xs text-gray-500">{p.title}{p.client_name ? ` · ${p.client_name}` : ''}{p.subIds.length ? ` · incl. ${p.subIds.length} sub-project${p.subIds.length === 1 ? '' : 's'}` : ''}</div></td>
-                        <td className="px-2 py-2.5 text-right tabular-nums">{formatBDT(p.f.contractTotal)}</td>
+                        <td className="px-2 py-2.5 text-right tabular-nums">{noContract(p) ? <NotSet /> : formatBDT(p.f.contractTotal)}</td>
                         <td className="px-2 py-2.5 text-right tabular-nums">{formatBDT(p.f.received)}</td>
-                        <td className="px-2 py-2.5 text-right"><Money value={p.f.owedByClient} kind="owed" /></td>
+                        <td className="px-2 py-2.5 text-right">{noContract(p) ? <span className="text-xs text-gray-400">—</span> : <Money value={p.f.owedByClient} kind="owed" />}</td>
                         <td className="px-2 py-2.5 text-right tabular-nums">{formatBDT(p.f.spent)}{p.f.spentPct !== null ? <span className="block text-[11px] text-gray-500">{p.f.spentPct}% of contract</span> : null}</td>
-                        <td className="px-4 py-2.5 text-right"><Money value={p.f.profit} kind="profit" />{p.f.margin !== null ? <span className="block text-[11px] text-gray-500">{p.f.margin}%</span> : null}</td>
+                        <td className="px-4 py-2.5 text-right">{noContract(p)
+                          ? <><NotSet /><span className="block text-[11px] text-gray-500">needs contract value</span></>
+                          : <><Money value={p.f.profit} kind="profit" />{p.f.margin !== null ? <span className="block text-[11px] text-gray-500">{p.f.margin}%</span> : null}</>}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -97,7 +103,6 @@ export default async function ProjectsPage() {
             </>
           )}
         </LsSection>
-      </LsPage>
-    </div>
+    </LsPage>
   )
 }

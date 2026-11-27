@@ -1,7 +1,6 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { AlertTriangle } from 'lucide-react'
-import { Topbar } from '@/components/layout/Topbar'
 import { LsPage } from '@/components/landscaping/LsNav'
 import { LsStatus, LsTag } from '@/components/landscaping/LsStatus'
 import { RequisitionActions } from '@/components/landscaping/RequisitionActions'
@@ -9,7 +8,8 @@ import { BillForm } from '@/components/landscaping/BillForm'
 import { PayBillButton } from '@/components/landscaping/PayBillButton'
 import { ViewPhoto } from '@/components/landscaping/ViewPhoto'
 import { ViewPhotos } from '@/components/landscaping/ViewPhotos'
-import { LinkButton, LsEmpty, LsSection, Money, NextStep, StatTile } from '@/components/landscaping/ui'
+import { StampedPhotos } from '@/components/landscaping/StampedPhotos'
+import { LinkButton, LsEmpty, LsSection, Money, NextStep, StatTile, fmtDay } from '@/components/landscaping/ui'
 import { EditPaymentButton, RequisitionSlipButton } from '@/components/landscaping/PaymentRecordActions'
 import { listPaymentRecords } from '@/lib/queries/landscaping-payments'
 import { requirePermission } from '@/lib/auth/permissions'
@@ -60,21 +60,18 @@ export default async function RequisitionPage({ params }: { params: { id: string
   )
 
   return (
-    <div className="flex h-full flex-col">
-      <Topbar title={`Requisition ${formatReqNo(req.req_no)}`} subtitle={req.description} />
-      <LsPage tab="requisitions">
+    <LsPage tab="requisitions" title={`Requisition ${formatReqNo(req.req_no)}`} subtitle={req.description} back="/landscaping/requisitions">
         <div className="space-y-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-mono text-lg font-bold text-gray-900">{formatReqNo(req.req_no)}</span>
             <LsStatus status={req.status} />
             {req.from_paper && <LsTag>Entered from paper{names.prepared ? ` by ${names.prepared}` : ''}</LsTag>}
-            {req.self_approved && <LsTag>Self-approved</LsTag>}
-            {req.status === 'approved' && <span className="text-sm text-gray-700">Approved by <b>{req.paper_approved_by ?? names.approved ?? '—'}</b></span>}
+            {req.status === 'approved' && <span className="text-sm text-gray-700">{req.self_approved ? 'Self-approved' : 'Approved'} by <b>{req.paper_approved_by ?? names.approved ?? '—'}</b></span>}
             <ViewPhotos paths={[req.slip_photo_path, ...(req.extra_photo_paths ?? [])]} label="Slip" />
           </div>
           <p className="text-sm text-gray-700">
             {projectLabel ? <Link href={`/landscaping/projects/${req.project.id}`} className="font-medium text-forest-700 hover:underline">{projectLabel}</Link> : 'No project'}
-            <span className="text-gray-500"> · {req.req_date}</span>
+            <span className="whitespace-nowrap text-gray-500"> · {fmtDay(req.req_date)}</span>
           </p>
           <RequisitionActions req={req} me={me} hasBills={bills.length > 0} />
         </div>
@@ -150,11 +147,11 @@ export default async function RequisitionPage({ params }: { params: { id: string
                 {payments.map((p) => (
                   <li key={p.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm">
                     <div className="min-w-0 flex-1">
-                      <p className="font-semibold tabular-nums">{formatBDT(p.amount)} <span className="font-normal text-gray-500">· {p.pay_date} · {p.method}{p.supplier_name ? ` · ${p.supplier_name}` : ''}</span></p>
+                      <p className="font-semibold tabular-nums">{formatBDT(p.amount)} <span className="font-normal text-gray-500">· {fmtDay(p.pay_date)} · {p.method}{p.supplier_name ? ` · ${p.supplier_name}` : ''}</span></p>
                       {p.note && <p className="text-xs text-gray-600">{p.note}</p>}
                       <p className="text-[11px] text-gray-400">Uploaded by {p.uploaded_by ?? '—'} · {new Date(p.created_at).toLocaleString('en-GB', { timeZone: 'Asia/Dhaka', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
                     </div>
-                    <ViewPhotos paths={[p.photo_path, ...p.extra_photo_paths]} label="Payment slip" empty={<span className="text-xs text-amber-700">No slip</span>} />
+                    <StampedPhotos paths={[p.photo_path, ...p.extra_photo_paths]} reqNo={req.req_no} label="Payment slip" kind="payment-slip" empty={<span className="text-xs text-amber-700">No slip</span>} />
                     <EditPaymentButton payment={p} isAdmin={me.is_admin} canEdit={me.is_admin || p.created_by === me.user_id} />
                   </li>
                 ))}
@@ -176,9 +173,9 @@ export default async function RequisitionPage({ params }: { params: { id: string
                     <div className="flex flex-wrap items-center gap-1.5">
                       <Link href={`/landscaping/suppliers/${b.supplier_id}`} className="font-medium text-forest-700 hover:underline">{b.supplier_name}</Link>
                       <LsStatus status={b.status} />
-                      <ViewPhotos paths={[b.photo_path, ...((b as { extra_photo_paths?: string[] }).extra_photo_paths ?? [])]} label="Bill" />
+                      <StampedPhotos paths={[b.photo_path, ...((b as { extra_photo_paths?: string[] }).extra_photo_paths ?? [])]} reqNo={req.req_no} label="Bill" kind={`bill${b.bill_no ? `-${b.bill_no.replace(/[^A-Za-z0-9]+/g, '')}` : ''}`} />
                     </div>
-                    <p className="text-xs text-gray-500">Bill {b.bill_no ?? '—'} · {b.bill_date}{b.note ? ` · ${b.note}` : ''}</p>
+                    <p className="text-xs text-gray-500">Bill {b.bill_no ?? '—'} · {fmtDay(b.bill_date)}{b.note ? ` · ${b.note}` : ''}</p>
                   </div>
                   <div className="text-right">
                     <p className="font-semibold tabular-nums">{formatBDT(b.amount)}</p>
@@ -190,7 +187,6 @@ export default async function RequisitionPage({ params }: { params: { id: string
             </ul>
           )}
         </LsSection>
-      </LsPage>
-    </div>
+    </LsPage>
   )
 }

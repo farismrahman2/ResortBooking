@@ -129,7 +129,7 @@ export function ClientReceiptForm({ projectId }: { projectId: string }) {
   const close = () => { setOpen(false); setErr(undefined) }
   return (
     <>
-      <Button variant="outline" size="md" className={TAP} onClick={() => setOpen(true)}>Record client payment</Button>
+      <Button variant="outline" size="md" className={TAP} onClick={() => setOpen(true)}><span className="hidden sm:inline">Record client payment</span><span className="sm:hidden">Client payment</span></Button>
       <Modal open={open} onClose={close} title="Money received from the client"
         footer={<FormFooter pending={pending} onCancel={close} onSave={save} />}>
         <div className="space-y-3">

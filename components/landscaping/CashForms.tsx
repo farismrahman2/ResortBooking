@@ -52,7 +52,7 @@ export function GiveCashForm({ holders }: { holders: Array<{ user_id: string; na
   const close = () => { setOpen(false); setErrs({}) }
   return (
     <>
-      <Button variant="outline" size="md" className={`${TAP} gap-1.5`} onClick={() => setOpen(true)}><Banknote size={14} /> Give / take back cash</Button>
+      <Button variant="outline" size="md" className={`${TAP} gap-1.5`} onClick={() => setOpen(true)}><Banknote size={14} /> Give cash<span className="hidden sm:inline"> / take back</span></Button>
       <Modal open={open} onClose={close} title="Cash from the drawer" footer={<FormFooter pending={pending} onCancel={close} onSave={save} />}>
         <div className="space-y-3">
           {holders.length === 0 && <p className="text-sm text-amber-700">Nobody is set to make payments yet — tick “Pay” for them in Team.</p>}
@@ -133,7 +133,10 @@ export function ExpenseForm({ projects, categories = [] }: { projects: Array<{ i
   const close = () => { setOpen(false); setErrs({}) }
   return (
     <>
-      <Button variant="primary" size="md" className={`${TAP} gap-1.5`} onClick={openForm}><HardHat size={14} /> Labour / food / other</Button>
+      <Button variant="primary" size="md" className={`${TAP} gap-1.5`} onClick={openForm}>
+        {/* Short on a phone (it sits in the page header), full on a computer. */}
+        <HardHat size={14} /> <span className="sm:hidden">Spending</span><span className="hidden sm:inline">Labour / food / other</span>
+      </Button>
       <Modal open={open} onClose={close} title="Record spending" footer={<FormFooter pending={pending} onCancel={close} onSave={save} />}>
         <div className="space-y-3">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -159,12 +162,12 @@ export function ExpenseForm({ projects, categories = [] }: { projects: Array<{ i
             </Select>
           )}
           {category === 'labour' ? (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <Input label="Workers" required type="number" inputMode="numeric" value={workers} error={errs.workers}
                 onChange={(e) => { setWorkers(e.target.value); setErrs({ ...errs, workers: undefined }) }} />
               <Input label="Rate / day (Tk)" required type="number" step="any" inputMode="decimal" value={rate} error={errs.rate}
                 onChange={(e) => { setRate(e.target.value); setErrs({ ...errs, rate: undefined }) }} />
-              <div><label className="field-label">Total</label><p className="flex min-h-[42px] items-center rounded-lg bg-gray-50 px-3 text-sm font-semibold tabular-nums">{formatBDT(labourTotal || 0)}</p></div>
+              <div className="col-span-2 sm:col-span-1"><label className="field-label">Total</label><p className="flex min-h-[42px] items-center rounded-lg bg-gray-50 px-3 text-sm font-semibold tabular-nums">{formatBDT(labourTotal || 0)}</p></div>
             </div>
           ) : (
             <Input label="Amount (Tk)" required type="number" step="any" inputMode="decimal" value={amount} error={errs.amount}

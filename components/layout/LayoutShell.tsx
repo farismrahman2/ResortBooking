@@ -19,12 +19,13 @@ interface ShellProps {
 
 function Shell({ children, userEmail, permissions, roleLabel, roleSlug, unreadAlerts, unreadEnquiries }: ShellProps) {
   const { isOpen, close } = useSidebar()
+  const landscapingOnly = roleSlug === 'landscaping'
   return (
     // A whisper of forest in the page background — enough to read as warm
     // rather than clinical, not enough to tint the white cards sitting on it.
     <div className="flex h-screen overflow-hidden bg-forest-50/40">
       {/* Mobile backdrop */}
-      {isOpen && (
+      {isOpen && !landscapingOnly && (
         <div
           className="fixed inset-0 z-40 bg-black/50 lg:hidden"
           onClick={close}
@@ -32,14 +33,15 @@ function Shell({ children, userEmail, permissions, roleLabel, roleSlug, unreadAl
         />
       )}
 
-      <Sidebar
+      {/* Landscaping-only logins use the Landscaping workspace's own navigation. */}
+      {!landscapingOnly && <Sidebar
         userEmail={userEmail}
         permissions={permissions}
         roleLabel={roleLabel}
         roleSlug={roleSlug}
         unreadAlerts={unreadAlerts ?? 0}
         unreadEnquiries={unreadEnquiries ?? 0}
-      />
+      />}
 
       <main className="flex-1 min-w-0 overflow-y-auto scrollable">
         {children}

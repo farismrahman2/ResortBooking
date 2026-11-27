@@ -16,6 +16,8 @@ import { safeCall } from '@/lib/actions/safe-call'
 import { toast } from '@/lib/toast'
 import type { LsMe } from '@/lib/queries/landscaping'
 import type { ActionResult } from '@/lib/actions/types'
+import { cn } from '@/lib/utils'
+import { TAP } from './ui'
 
 /** What this person may do with this requisition right now. */
 export function RequisitionActions({ req, me, hasBills }: {
@@ -56,70 +58,85 @@ export function RequisitionActions({ req, me, hasBills }: {
   const canDelete = deleteRule(req.status, hasBills, mine, me.is_admin).ok
   const canCancel = !hasBills && !['cancelled'].includes(req.status) && (mine || me.is_admin) && req.status !== 'approved'
 
+  const outline = cn(TAP, 'inline-flex items-center justify-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:bg-gray-50')
+  const primary = cn(TAP, 'w-full gap-1.5 sm:w-auto')
+  const quiet = cn(TAP, 'gap-1.5 px-3')
+  const hasMain = canSend || canCheck || canApprove || canApproveSelf
+
+  // Phone: the main step full width on top, everyday buttons side by side,
+  // and Cancel / Delete last as quiet text. Computer: one row, risky ones on the right.
   return (
-    <div className="flex flex-wrap gap-2">
-      <a href={`/api/landscaping/requisitions/${req.id}/pdf`} target="_blank" rel="noopener"
-        className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-700 hover:bg-gray-50">
-        <FileDown size={14} /> Slip PDF
-      </a>
-      {canEdit && (
-        <Link href={`/landscaping/requisitions/${req.id}/edit`}
-          className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-700 hover:bg-gray-50">
-          <Pencil size={14} /> Edit
-        </Link>
+    <div className="space-y-2 sm:flex sm:flex-wrap sm:items-center sm:gap-2 sm:space-y-0">
+      {hasMain && (
+        <div className="grid gap-2 sm:contents">
+          {canSend && (
+            <Button size="md" variant="primary" className={primary} loading={pending && busy === 'submit'}
+              onClick={() => run('submit', () => submitRequisition(req.id), 'Sent for checking')}>
+              <Send size={15} /> Send for checking
+            </Button>
+          )}
+          {canCheck && (
+            <Button size="md" variant="primary" className={primary} loading={pending && busy === 'check'}
+              onClick={() => run('check', () => advanceRequisition(req.id, 'check'), 'Checked — now waiting for approval')}>
+              <Check size={15} /> Mark checked
+            </Button>
+          )}
+          {canApprove && (
+            <Button size="md" variant="primary" className={primary} loading={pending && busy === 'approve'}
+              onClick={async () => {
+                if (!(await confirm({ title: `Approve ${label}?`, description: 'Once approved it can no longer be edited, and items can be ordered against it.', confirmLabel: 'Approve' }))) return
+                run('approve', () => advanceRequisition(req.id, 'approve'), 'Approved — items can be ordered')
+              }}>
+              <CheckCheck size={15} /> Approve
+            </Button>
+          )}
+          {canApproveSelf && (
+            <Button size="md" variant="primary" className={primary} onClick={() => setApproveOpen(true)}>
+              <BadgeCheck size={15} /> Approve myself
+            </Button>
+          )}
+        </div>
       )}
-      {canSend && (
-        <Button size="md" variant="primary" className="gap-1.5" loading={pending && busy === 'submit'}
-          onClick={() => run('submit', () => submitRequisition(req.id), 'Sent for checking')}>
-          <Send size={14} /> Send for checking
-        </Button>
-      )}
-      {canCheck && (
-        <Button size="md" variant="primary" className="gap-1.5" loading={pending && busy === 'check'}
-          onClick={() => run('check', () => advanceRequisition(req.id, 'check'), 'Checked — now waiting for approval')}>
-          <Check size={14} /> Mark checked
-        </Button>
-      )}
-      {canApprove && (
-        <Button size="md" variant="primary" className="gap-1.5" loading={pending && busy === 'approve'}
-          onClick={async () => {
-            if (!(await confirm({ title: `Approve ${label}?`, description: 'Once approved it can no longer be edited, and items can be ordered against it.', confirmLabel: 'Approve' }))) return
-            run('approve', () => advanceRequisition(req.id, 'approve'), 'Approved — items can be ordered')
-          }}>
-          <CheckCheck size={14} /> Approve
-        </Button>
-      )}
-      {canApproveSelf && (
-        <Button size="md" variant="primary" className="gap-1.5" onClick={() => setApproveOpen(true)}>
-          <BadgeCheck size={14} /> Approve myself
-        </Button>
-      )}
-      {canReject && (
-        <Button size="md" variant="outline" className="gap-1.5" onClick={() => setRejectOpen(true)}>
-          <Undo2 size={14} /> Send back
-        </Button>
-      )}
-      {canCancel && (
-        <Button size="md" variant="outline" className="gap-1.5" loading={pending && busy === 'cancel'}
-          onClick={async () => {
-            if (!(await confirm({ title: `Cancel ${label}?`, description: 'It is removed and its number becomes free again (the Audit Log keeps a note).', confirmLabel: 'Cancel requisition', danger: true }))) return
-            run('cancel', () => cancelRequisition(req.id), 'Requisition cancelled — its number is free again')
-          }}>
-          <X size={14} /> Cancel
-        </Button>
-      )}
-      {canDelete && (
-        <Button size="md" variant="outline" className="gap-1.5 text-red-700" loading={pending && busy === 'delete'}
-          onClick={async () => {
-            if (!(await confirm({ title: `Delete ${label}?`, description: 'It is removed for good (the Audit Log keeps a note). To keep the record, use Cancel instead.', confirmLabel: 'Delete', danger: true }))) return
-            run('delete', () => deleteRequisition(req.id), 'Requisition deleted')
-          }}>
-          <Trash2 size={14} /> Delete
-        </Button>
+      <div className="flex gap-2 [&>*]:flex-1 sm:contents sm:[&>*]:flex-none">
+        {canReject && (
+          <Button size="md" variant="outline" className={cn(TAP, 'gap-1.5')} onClick={() => setRejectOpen(true)}>
+            <Undo2 size={14} /> Send back
+          </Button>
+        )}
+        {canEdit && (
+          <Link href={`/landscaping/requisitions/${req.id}/edit`} className={outline}>
+            <Pencil size={14} /> Edit
+          </Link>
+        )}
+        <a href={`/api/landscaping/requisitions/${req.id}/pdf`} target="_blank" rel="noopener" className={outline}>
+          <FileDown size={14} /> Slip PDF
+        </a>
+      </div>
+      {(canCancel || canDelete) && (
+        <div className="flex flex-wrap gap-1 border-t border-gray-100 pt-1 sm:contents">
+          {canCancel && (
+            <Button size="md" variant="ghost" className={cn(quiet, 'text-gray-600 sm:ml-auto')} loading={pending && busy === 'cancel'}
+              onClick={async () => {
+                if (!(await confirm({ title: `Cancel ${label}?`, description: 'It is removed and its number becomes free again (the Audit Log keeps a note).', confirmLabel: 'Cancel requisition', danger: true }))) return
+                run('cancel', () => cancelRequisition(req.id), 'Requisition cancelled — its number is free again')
+              }}>
+              <X size={14} /> Cancel requisition
+            </Button>
+          )}
+          {canDelete && (
+            <Button size="md" variant="ghost" className={cn(quiet, 'text-red-700 hover:bg-red-50', !canCancel && 'sm:ml-auto')} loading={pending && busy === 'delete'}
+              onClick={async () => {
+                if (!(await confirm({ title: `Delete ${label}?`, description: 'It is removed for good (the Audit Log keeps a note). To keep the record, use Cancel instead.', confirmLabel: 'Delete', danger: true }))) return
+                run('delete', () => deleteRequisition(req.id), 'Requisition deleted')
+              }}>
+              <Trash2 size={14} /> Delete
+            </Button>
+          )}
+        </div>
       )}
       <Modal open={approveOpen} onClose={() => setApproveOpen(false)} title={`Approve ${label}`}
-        footer={<><Button variant="outline" size="md" onClick={() => setApproveOpen(false)}>Close</Button>
-          <Button variant="primary" size="md" loading={pending && busy === 'self'} disabled={!approverName.trim()}
+        footer={<><Button variant="outline" size="md" className={TAP} onClick={() => setApproveOpen(false)}>Close</Button>
+          <Button variant="primary" size="md" className={TAP} loading={pending && busy === 'self'} disabled={!approverName.trim()}
             onClick={() => run('self', () => selfApproveRequisition(req.id, approverName), 'Approved')}>Approve</Button></>}>
         <div className="space-y-3">
           <p className="text-sm text-gray-600">You prepared this one. Approving it yourself skips checking; it is marked <b>Self-approved</b> and the admin sees it in the Audit Log.</p>
@@ -130,8 +147,8 @@ export function RequisitionActions({ req, me, hasBills }: {
         <div className="space-y-3">
           <Textarea label="What needs changing? (required)" value={note} onChange={(e) => setNote(e.target.value)} rows={3} />
           <div className="flex justify-end gap-2">
-            <Button variant="outline" size="md" onClick={() => setRejectOpen(false)}>Close</Button>
-            <Button variant="danger" size="md" loading={pending && busy === 'reject'}
+            <Button variant="outline" size="md" className={TAP} onClick={() => setRejectOpen(false)}>Close</Button>
+            <Button variant="danger" size="md" className={TAP} loading={pending && busy === 'reject'}
               disabled={!note.trim()} onClick={() => run('reject', () => rejectRequisition(req.id, note), 'Sent back')}>Send back</Button>
           </div>
         </div>

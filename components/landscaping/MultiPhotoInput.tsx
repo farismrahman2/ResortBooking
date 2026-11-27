@@ -49,7 +49,7 @@ export function MultiPhotoInput({ value, onChange, label = 'Photos' }: {
     if (added.length) onChange([...value, ...added])
   }
 
-  const btn = 'inline-flex min-h-[42px] flex-1 items-center justify-center gap-2 rounded-lg border border-dashed border-gray-400 bg-white px-3 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50'
+  const btn = 'inline-flex min-h-[42px] flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-dashed border-gray-400 bg-white px-3 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50'
   return (
     <div>
       <label className="field-label">{label}</label>
@@ -67,13 +67,13 @@ export function MultiPhotoInput({ value, onChange, label = 'Photos' }: {
       <div className="flex gap-2">
         <button type="button" className={btn} disabled={busy > 0} onClick={() => pick.current?.click()}>
           {busy ? <Loader2 size={15} className="animate-spin" /> : <ImagePlus size={15} />}
-          {busy ? `Uploading ${busy}…` : value.length ? 'Add more' : 'Choose photos / PDF'}
+          {busy ? `Uploading ${busy}…` : value.length ? 'Add more' : 'Add photos'}
         </button>
         <button type="button" className={btn} disabled={busy > 0} onClick={() => cam.current?.click()}>
           <Camera size={15} /> Camera
         </button>
       </div>
-      <p className="mt-1 text-xs text-gray-500">You can select several at once (up to {MAX_FILES}).</p>
+      <p className="mt-1 text-xs text-gray-500">Photos or PDF — you can pick several at once (up to {MAX_FILES}).</p>
       <input ref={pick} type="file" multiple accept="image/*,application/pdf" className="hidden"
         onChange={(e) => { const fs = Array.from(e.target.files ?? []); if (fs.length) void upload(fs); e.target.value = '' }} />
       <input ref={cam} type="file" accept="image/*" capture="environment" className="hidden"

@@ -1,10 +1,9 @@
 import Link from 'next/link'
-import { AlertTriangle, ClipboardCheck, Plus } from 'lucide-react'
-import { Topbar } from '@/components/layout/Topbar'
+import { AlertTriangle, ClipboardCheck, Plus, Receipt, Users } from 'lucide-react'
 import { LsPage } from '@/components/landscaping/LsNav'
 import { LsStatus, LsTag } from '@/components/landscaping/LsStatus'
 import { PayBillButton } from '@/components/landscaping/PayBillButton'
-import { LinkButton, ListRow, LsEmpty, LsSection, Money, StatTile, TAP } from '@/components/landscaping/ui'
+import { LinkButton, ListRow, LsEmpty, LsSection, Money, StatTile, TAP, fmtTk } from '@/components/landscaping/ui'
 import { requirePermission } from '@/lib/auth/permissions'
 import { getLsMe, landscapingOverview } from '@/lib/queries/landscaping'
 import { myOpenRequisitions } from '@/lib/queries/landscaping-extra-bills'
@@ -42,16 +41,20 @@ export default async function LandscapingOverview() {
   const waitingCount = reviews.length + mine.sentBack.length + mine.drafts.length + billsToPay.length
   const cashWithAccountants = o.floats.reduce((s, f) => s + f.balance, 0)
 
+  const quick = [
+    canAddBill && <LinkButton key="bill" href="/landscaping/bills"><Receipt size={15} /> Add bill</LinkButton>,
+    canPay && <LinkButton key="cash" href="/landscaping/cash"><Users size={15} /> Labour / food</LinkButton>,
+  ].filter(Boolean)
+  // Negative = more paid out of the accountants' cash than was handed to them.
+  const cashHint = cashWithAccountants < -0.5
+    ? 'More paid out than handed over — record cash given on the Cash page'
+    : typeof myCash === 'number' && canPay ? `You hold ${fmtTk(myCash)}` : undefined
+
   return (
-    <div className="flex h-full flex-col">
-      <Topbar title="Landscaping" subtitle="Garden Centre — a separate business from the resort" />
-      <LsPage tab="overview">
-        {(canPrepare || canAddBill || canPay) && (
-          <div className="flex flex-wrap gap-2">
-            {canPrepare && <LinkButton href="/landscaping/requisitions/new" variant="primary"><Plus size={15} /> New requisition</LinkButton>}
-            {canAddBill && <LinkButton href="/landscaping/bills">Add bill</LinkButton>}
-            {canPay && <LinkButton href="/landscaping/cash">Labour / food</LinkButton>}
-          </div>
+    <LsPage tab="overview" title="Landscaping" subtitle="Garden Centre · Care with Green"
+      actions={canPrepare ? <LinkButton href="/landscaping/requisitions/new" variant="primary" className="px-3 sm:px-4"><Plus size={15} /> New requisition</LinkButton> : undefined}>
+        {quick.length > 0 && (
+          <div className={cn('grid gap-2 sm:flex', quick.length > 1 ? 'grid-cols-2' : 'grid-cols-1')}>{quick}</div>
         )}
 
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -59,8 +62,8 @@ export default async function LandscapingOverview() {
           <StatTile label="Money out this month" value={<Money value={o.moneyOutMonth} />} />
           <StatTile label="Unpaid supplier bills" value={<Money value={o.unpaidTotal} kind="owed" />} href="/landscaping/bills?status=unpaid"
             sub={o.unpaidBills.length ? `${o.unpaidBills.length} bill${o.unpaidBills.length === 1 ? '' : 's'}` : 'All paid'} />
-          <StatTile label="Cash with accountants" value={<Money value={cashWithAccountants} />} href="/landscaping/cash"
-            sub={typeof myCash === 'number' && canPay ? `You hold ${formatBDT(myCash)}` : undefined} />
+          <StatTile label="Cash with accountants" value={fmtTk(cashWithAccountants)} href="/landscaping/cash"
+            tone={cashWithAccountants < -0.5 ? 'bad' : 'neutral'} sub={cashHint} />
         </div>
 
         {o.overBudget.length > 0 && (
@@ -175,7 +178,6 @@ export default async function LandscapingOverview() {
             </LsSection>
           )}
         </div>
-      </LsPage>
-    </div>
+    </LsPage>
   )
 }

@@ -13,7 +13,9 @@ import { safeCall } from '@/lib/actions/safe-call'
 import { toast } from '@/lib/toast'
 import type { PayableRequisition } from '@/lib/queries/landscaping-payments'
 import { MultiPhotoInput } from './MultiPhotoInput'
-import { StickyActions, TAP } from './ui'
+import { TAP } from './ui'
+import { FORM_CARD, FormActionBar } from './RequisitionForm'
+import { cn } from '@/lib/utils'
 
 const today = () => new Date(Date.now() + 6 * 3600_000).toISOString().slice(0, 10)
 type Method = 'cash' | 'cash_past' | 'bkash' | 'bank' | 'cheque'
@@ -91,7 +93,7 @@ export function RecordPaymentForm({ requisitions, suppliers, initialReqId }: {
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
+    <div className={cn(FORM_CARD, 'sm:max-w-2xl')}>
       <div>
         <Input label="Requisition No." list="ls-approved-reqs" inputMode="numeric" placeholder="e.g. 00039" value={reqText} error={errors.req}
           onChange={(e) => { setReqText(e.target.value); setBillId('') }} />
@@ -155,10 +157,9 @@ export function RecordPaymentForm({ requisitions, suppliers, initialReqId }: {
       </div>
       <Textarea label="Remarks (optional)" rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
 
-      <StickyActions note={amount ? <span className="font-semibold text-forest-900">Paying <span className="tabular-nums">{formatBDT(Number(amount) || 0)}</span></span> : undefined}>
-        <Button variant="outline" size="md" className={TAP} loading={pending} onClick={() => save(true)}>Save & add another</Button>
-        <Button variant="primary" size="md" className={TAP} loading={pending} onClick={() => save(false)}>Save</Button>
-      </StickyActions>
+      <FormActionBar summary={amount ? <span className="font-semibold text-forest-900">Paying <span className="tabular-nums">{formatBDT(Number(amount) || 0)}</span></span> : undefined}
+        secondary={<Button variant="outline" size="md" className={cn(TAP, 'px-3')} loading={pending} onClick={() => save(true)}>Save &amp; add another</Button>}
+        primary={<Button variant="primary" size="md" className={TAP} loading={pending} onClick={() => save(false)}>Save</Button>} />
     </div>
   )
 }

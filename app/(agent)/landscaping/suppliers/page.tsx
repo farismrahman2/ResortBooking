@@ -1,11 +1,9 @@
 import Link from 'next/link'
-import { Topbar } from '@/components/layout/Topbar'
 import { LsPage } from '@/components/landscaping/LsNav'
 import { SupplierForm } from '@/components/landscaping/SupplierForm'
-import { LinkButton, ListRow, LsEmpty, LsSection, Money, StatTile } from '@/components/landscaping/ui'
+import { LinkButton, ListRow, LsEmpty, LsSection, Money, StatTile, fmtTk } from '@/components/landscaping/ui'
 import { requirePermission } from '@/lib/auth/permissions'
 import { getLsMe, listSuppliers } from '@/lib/queries/landscaping'
-import { formatBDT } from '@/lib/formatters/currency'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,21 +14,19 @@ export default async function SuppliersPage() {
   const owingCount = suppliers.filter((s) => s.owed > 0.005).length
   const canSetOpening = !!me && (me.is_admin || me.can_pay)
   const subLine = (s: (typeof suppliers)[number]) =>
-    `${s.bills} bill${s.bills === 1 ? '' : 's'}${s.opening ? ` · opening dues ${formatBDT(s.opening)}` : ''}`
+    `${s.bills} bill${s.bills === 1 ? '' : 's'}${s.opening ? ` · opening dues ${fmtTk(s.opening)}` : ''}`
 
   return (
-    <div className="flex h-full flex-col">
-      <Topbar title="Suppliers" subtitle="Landscaping · what each supplier has billed, been paid, and is owed" />
-      <LsPage tab="suppliers">
+    <LsPage tab="suppliers" title="Suppliers" subtitle="Billed, paid and owed" actions={<SupplierForm canSetOpening={canSetOpening} />}>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <StatTile label="Owed to suppliers" value={<Money value={owed} kind="owed" />} tone={owed > 0.005 ? 'owed' : 'neutral'}
             sub={owingCount ? `${owingCount} supplier${owingCount === 1 ? '' : 's'} to pay` : 'Nothing owed'} href="/landscaping/bills?status=unpaid" />
           <StatTile label="Suppliers" value={suppliers.length} />
         </div>
 
-        <LsSection title="All suppliers" meta={`${suppliers.length}`} action={<SupplierForm canSetOpening={canSetOpening} />}>
+        <LsSection title="All suppliers" meta={`${suppliers.length}`}>
           {suppliers.length === 0 ? (
-            <LsEmpty title="No suppliers yet" hint="Suppliers are added with their first bill, or with the Add supplier button."
+            <LsEmpty title="No suppliers yet" hint="Suppliers are added with their first bill, or with the Add button at the top."
               action={<LinkButton href="/landscaping/bills">Go to bills</LinkButton>} />
           ) : (
             <>
@@ -41,7 +37,7 @@ export default async function SuppliersPage() {
                     amount={<Money value={s.owed} kind="owed" />} sub={s.owed > 0.005 ? 'owed' : 'nothing owed'}>
                     <p className="truncate text-sm font-semibold text-forest-700">{s.name}</p>
                     <p className="text-xs text-gray-500">{subLine(s)}</p>
-                    <p className="text-xs text-gray-500">Billed {formatBDT(s.billed)} · Paid {formatBDT(s.paid)}</p>
+                    <p className="text-xs text-gray-500">Billed {fmtTk(s.billed)} · paid {fmtTk(s.paid)}</p>
                   </ListRow>
                 ))}
               </ul>
@@ -69,7 +65,6 @@ export default async function SuppliersPage() {
             </>
           )}
         </LsSection>
-      </LsPage>
-    </div>
+    </LsPage>
   )
 }
